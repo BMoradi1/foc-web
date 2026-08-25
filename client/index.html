@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FOCS — Fight of Characters Second</title>
+<link rel="icon" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/three/build/three.module.js",
+  "three/addons/": "/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="loading"><div class="box"><h1>FOC<span>S</span></h1>
+  <p id="loadmsg">connecting…</p><div class="bar"><i id="loadbar"></i></div></div></div>
+
+<!-- lobby / hero pick -->
+<div id="lobby" class="hidden">
+  <header>
+    <h1>FOC<span>S</span> <small>Fight of Characters Second — 2.0</small></h1>
+    <div id="objective"></div>
+  </header>
+  <div class="lobby-main">
+    <aside id="teams"></aside>
+    <section id="picker">
+      <div id="tavtabs"></div>
+      <div id="heroGrid"></div>
+    </section>
+    <aside id="heroDetail"><p class="dim">Select a character.</p></aside>
+  </div>
+  <footer>
+    <input id="pname" maxlength="18" placeholder="your name">
+    <button id="btnTeam0">Join Team 1</button>
+    <button id="btnTeam1">Join Team 2</button>
+    <button id="btnLang" title="Show the map's own Korean text, or the English overlay">EN</button>
+    <button id="btnReady" class="primary">Ready</button>
+    <span id="lobbyMsg"></span>
+  </footer>
+</div>
+
+<!-- in-game HUD -->
+<div id="hud" class="hidden">
+  <div id="topbar">
+    <div class="score"><b id="k0">0</b><span>Team 1</span></div>
+    <div class="score-mid" id="scoreMid">first to 100 kills</div>
+    <div class="score"><span>Team 2</span><b id="k1">0</b></div>
+  </div>
+  <!-- Warcraft III's timer dialog: this map runs its duel countdown through one -->
+  <div id="gameclock" class="hidden"><span id="clockTitle"></span><b id="clockTime"></b></div>
+  <div id="minimap"><canvas id="mmcanvas" width="200" height="300"></canvas></div>
+  <div id="portrait">
+    <div id="pname2"></div>
+    <div class="bars">
+      <div class="bar hp"><i id="hpbar"></i><span id="hptext"></span></div>
+      <div class="bar mp"><i id="mpbar"></i><span id="mptext"></span></div>
+      <div class="bar xp"><i id="xpbar"></i></div>
+    </div>
+    <div id="stats"></div>
+  </div>
+  <div id="inventory"></div>
+  <div id="abilities"></div>
+  <div id="log"></div>
+  <div id="respawn" class="hidden"></div>
+  <div id="shop" class="hidden"></div>
+  <div id="gameover" class="hidden"></div>
+  <div id="hint">left-click move · right-click attack · Q W E R D F cast · S stop · B shop · Tab score · click an item to use, right-click to drop</div>
+</div>
+<div id="score" class="hidden"></div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

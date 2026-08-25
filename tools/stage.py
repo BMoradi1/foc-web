@@ -1,0 +1,256 @@
+"""Stage runtime assets into public/ for the Node server."""
+import json, os, shutil, struct, sys
+sys.path.insert(0, os.path.dirname(__file__))
+import numpy as np
+from PIL import Image
+
+PUB = 'public'
+os.makedirs(PUB + '/data', exist_ok=True)
+
+# game data
+shutil.copy('data/game.json', PUB + '/data/game.json')
+
+# terrain: compact height + tile arrays
+t = json.load(open('data/terrain.json'))
+w, h = t['width'], t['height']
+hs = np.array(t['heights'], np.int16)
+layer = np.array(t['layer'], np.uint8)
+z = (hs.astype(np.float32) - 8192.0) / 4.0 + (layer.astype(np.float32) - 2.0) * 128.0
+open(PUB + '/data/heights.bin', 'wb').write(z.astype(np.float32).tobytes())
+open(PUB + '/data/tiles.bin', 'wb').write(np.array(t['tex'], np.uint8).tobytes())
+
+# pathing grid -> walkability bitmap (1 byte/cell)
+p = json.load(open('data/pathing.json'))
+cells = np.array(p['cells'], np.uint8)
+walk = ((cells & 0x02) == 0).astype(np.uint8)      # 0x02 = no-walk
+open(PUB + '/data/walk.bin', 'wb').write(walk.tobytes())
+
+# Water: the w3e flag nibble sets bit 0x4 on a submerged vertex, and a tile
+# shows water when any of its four corners is flagged.  This map's two bases sit
+# inside a moat, drawn as a one-vertex-wide ring, so "any corner" is what makes
+# the ring solid rather than leaving it as a dotted line.
+wflag = np.array(t['flags'], np.uint8) & 0x4
+wraw = np.array(t['water'], np.int32)
+# The water level is absolute -- unlike ground height it carries no cliff-layer
+# term.  Adding one put the surface on the trench floor instead of level with
+# the bank: the moat is cut to -256 and filled to 0, flush with the ground.
+wz = (wraw.astype(np.float32) - 8192.0) / 4.0
+grid = wflag.reshape(h, w) > 0
+zg = wz.reshape(h, w)
+corner = grid[:-1, :-1] | grid[:-1, 1:] | grid[1:, :-1] | grid[1:, 1:]
+# Per-tileset water settings live in TerrainArt\\Water.slk, keyed <tileset>Sha:
+# 'height' is the surface offset in cliff-layer units, 'numTex'/'texRate' drive
+# the animation.  Without these the surface sits too high and animates too fast.
+def water_params(tileset):
+    import re as _re
+    out = dict(height=-0.7 * 128, numTex=45, texRate=15, lighting=1)
+    try:
+        txt = open('war3_extracted/TerrainArt/Water.slk', encoding='latin-1').read()
+    except OSError:
+        return out
+    cols, rows, x, y = {}, {}, 0, 0
+    for line in txt.replace('\r\n', '\n').split('\n'):
+        m = _re.match(r'C;X(\d+)(?:;Y(\d+))?;K(.*)$', line)
+        if not m:
+            continue
+        x = int(m.group(1))
+        if m.group(2):
+            y = int(m.group(2))
+        rows.setdefault(y, {})[x] = m.group(3).strip('"')
+    hdr = rows.get(1, {})
+    for yy, r in rows.items():
+        rec = {hdr.get(k, k): v for k, v in r.items()}
+        if rec.get('waterID') == '%sSha' % tileset:
+            def num(k, d):
+                try: return float(rec.get(k))
+                except (TypeError, ValueError): return d
+            out = dict(height=num('height', -0.7) * 128.0,
+                       numTex=int(num('numTex', 45)),
+                       texRate=num('texRate', 15),
+                       lighting=int(num('lighting', 1)))
+            break
+    return out
+
+wparams = water_params(t['tileset'])
+print('water params (%sSha): surface offset %.1f, %d frames @ %.0f fps'
+      % (t['tileset'], wparams['height'], wparams['numTex'], wparams['texRate']))
+
+cells, cellz = [], []
+for j, i in zip(*np.nonzero(corner)):
+    cells.append(int(j) * (w - 1) + int(i))
+    # the surface sits at the highest flagged corner of the tile
+    zs = [zg[j + dj, i + di] for dj in (0, 1) for di in (0, 1)
+          if grid[j + dj, i + di]]
+    cellz.append(round(float(max(zs)), 2))
+print('water tiles: %d of %d  (%d flagged vertices)'
+      % (len(cells), (w - 1) * (h - 1), int((wflag > 0).sum())))
+
+terr = dict(width=w, height=h, tileSize=t['tileSize'],
+            offsetX=t['offsetX'], offsetY=t['offsetY'],
+            groundTiles=t['groundTiles'], cliffTiles=t['cliffTiles'],
+            tileset=t['tileset'],
+            pathWidth=p['width'], pathHeight=p['height'],
+            pathCell=(t['tileSize'] * (w - 1)) / p['width'],
+            minZ=float(z.min()), maxZ=float(z.max()),
+            water=dict(cells=cells, z=cellz, **wparams))
+json.dump(terr, open(PUB + '/data/terrain.json', 'w'))
+
+# cliffs: the baked cliff mesh and the cells it covers (tools/cliffs.py).
+# The ground mesh skips those cells -- in Warcraft III the cliff model carries
+# the surface on both levels, so drawing ground there too is what turns a step
+# into a ramp.
+if os.path.exists('data/cliffs.json'):
+    shutil.copy('data/cliffs.json', PUB + '/data/cliffs.json')
+    shutil.copy('data/cliffs.bin', PUB + '/data/cliffs.bin')
+    _c = json.load(open('data/cliffs.json'))
+    print('cliffs: %d cells, %d ramp cells, %d triangles, %d KB'
+          % (len(_c['cells']), len(_c['ramps']), _c['tris'],
+             os.path.getsize('data/cliffs.bin') // 1024))
+else:
+    print('cliffs: none staged (run tools/cliffs.py)')
+
+# doodads
+d = json.load(open('data/doodads.json'))
+json.dump(d['doodads'], open(PUB + '/data/doodads.json', 'w'))
+
+# ground texture is produced by tools/bake_ground.py (real tile indices)
+
+# copy models + textures + converted game audio.
+# The destination is rebuilt from scratch so assets from a previously built map
+# are never left behind.
+for sub in ('models', 'textures', 'sounds'):
+    src, dst = 'assets/' + sub, PUB + '/assets/' + sub
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    os.makedirs(dst, exist_ok=True)
+    for root, _, files in os.walk(src):
+        for f in files:
+            s = os.path.join(root, f)
+            r = os.path.relpath(s, src)
+            o = os.path.join(dst, r)
+            os.makedirs(os.path.dirname(o), exist_ok=True)
+            shutil.copy(s, o)
+shutil.copy('assets/models.json', PUB + '/assets/models.json')
+shutil.copy('assets/textures.json', PUB + '/assets/textures.json')
+# ...and the sound index, without which the engine cannot map a sound the map
+# names ("Sound\\Music\\mp3Music\\HumanX1.mp3") to the file that was actually
+# converted, and hands the client the raw archive path instead. It only ever
+# worked in the source tree because the engine finds assets/sounds.json there;
+# public/ has to stand on its own for a deployment to work.
+if os.path.exists('assets/sounds.json'):
+    shutil.copy('assets/sounds.json', PUB + '/assets/sounds.json')
+
+# sounds the map imported: served flat by file name.  MP3s pass through, but
+# Warcraft III also imports ADPCM .wav, which no browser decodes -- those are
+# transcoded, so the script's file name no longer matches the staged one and an
+# index has to carry the mapping.
+import subprocess
+os.makedirs(PUB + '/assets/sounds', exist_ok=True)
+n = 0
+imported = {}
+for root, _, files in os.walk('extracted'):
+    for f in files:
+        ext = os.path.splitext(f)[1].lower()
+        if ext == '.mp3':
+            shutil.copy(os.path.join(root, f), PUB + '/assets/sounds/' + f)
+            imported[f.lower()] = f
+            n += 1
+        elif ext == '.wav':
+            ogg = os.path.splitext(f)[0] + '.ogg'
+            dst = PUB + '/assets/sounds/' + ogg
+            r = subprocess.run(['ffmpeg', '-v', 'quiet', '-y',
+                                '-i', os.path.join(root, f),
+                                '-c:a', 'libvorbis', '-q:a', '2', '-ar', '22050', dst],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if r.returncode == 0 and os.path.exists(dst) and os.path.getsize(dst):
+                imported[f.lower()] = ogg
+                n += 1
+json.dump(imported, open('assets/imported_sounds.json', 'w'), indent=0)
+shutil.copy('assets/imported_sounds.json', PUB + '/assets/imported_sounds.json')
+
+print('terrain %dx%d verts, path %dx%d (cell %.0f), z %.1f..%.1f' % (
+    w, h, p['width'], p['height'], terr['pathCell'], terr['minZ'], terr['maxZ']))
+print('walkable cells: %d / %d (%.0f%%)' % (walk.sum(), walk.size, 100*walk.mean()))
+print('staged: %d sounds, %d models, doodads %d' % (
+    n, len(json.load(open('assets/models.json'))), len(d['doodads'])))
+
+# ---- unit type -> renderable model, for every type the script can spawn
+import json as _json
+types = _json.load(open('data/unittypes.json'))
+models = _json.load(open('assets/models.json'))
+have = {k.lower(): k for k in models}
+def resolve_model(p):
+    """Return the file-safe glb basename the converter wrote for this art path."""
+    if not p or not str(p).strip('-'): return None
+    q = str(p).replace('/', '\\')
+    q = q[:q.rfind('.')] if '.' in q.split('\\')[-1] else q
+    key = None
+    if q.lower() in have: key = have[q.lower()]
+    else:
+        base = q.split('\\')[-1]
+        if base.lower() in have: key = have[base.lower()]
+        else:
+            for k in models:
+                if k.split('\\')[-1].lower() == base.lower(): key = k; break
+    if key is None: return None
+    return key.replace('\\', '~')
+um = {}
+hit = 0
+for uid, t in types.items():
+    m = resolve_model(t.get('model'))
+    if m: hit += 1
+    # Warcraft III's shadow is a flat textured quad under the unit, not a
+    # shadow map, and each unit names its own image, size and offset.
+    sh = str(t.get('shadow') or '').strip()
+    um[uid] = dict(m=m, s=t.get('scale', 1) or 1,
+                   n=t.get('properName') or t.get('name') or uid,
+                   h=1 if t.get('isHero') else 0,
+                   b=1 if t.get('isBuilding') else 0,
+                   r=t.get('collision', 24),
+                   # Locust marks a unit the player can never see or touch: the
+                   # invisible dummies a map casts its spells through. They must
+                   # not get the stand-in mesh a real unit gets for missing art.
+                   l=1 if 'Aloc' in (t.get('abilities') or []) else 0,
+                   sh=sh if sh not in ('', '-', '_') else None,
+                   sw=t.get('shadowW', 0), shh=t.get('shadowH', 0),
+                   sx=t.get('shadowX', 0), sy=t.get('shadowY', 0))
+_json.dump(um, open(PUB + '/data/unitmodels.json', 'w'))
+print('unit->model map: %d types, %d with a converted model, %d with a shadow'
+      % (len(um), hit, sum(1 for v in um.values() if v['sh'])))
+
+
+# ---- doodad metadata: real model + scale for every placed doodad type
+import sys as _sys
+_sys.path.insert(0, 'tools')
+from slk import parse_slk as _slk
+_dood = {}
+for _f, _idk in (('war3_extracted/Doodads/Doodads.slk', 'doodID'),
+                 ('war3_extracted/Units/DestructableData.slk', 'DestructableID')):
+    if os.path.exists(_f):
+        for _r in _slk(_f):
+            _id = str(_r.get(_idk) or '')
+            if _id:
+                _dood[_id] = dict(file=str(_r.get('file') or ''),
+                                  scale=float(_r.get('defScale') or 1) or 1.0,
+                                  name=str(_r.get('Name') or _id))
+_meta = {}
+for _d in d['doodads']:
+    _e = _dood.get(_d['id'], {})
+    _fileo = _e.get('file', '')
+    _invisible = (not _fileo) or 'losblocker' in _fileo.lower()         or 'intentionallyleftblank' in _fileo.lower()
+    _variants = []
+    if not _invisible:
+        for _n in range(8):
+            _rm = resolve_model(_fileo + str(_n))
+            _variants.append(_rm)
+        while _variants and _variants[-1] is None:
+            _variants.pop()
+    _meta[_d['id']] = dict(file=_fileo, visible=not _invisible,
+                           m=(resolve_model(_fileo) if not _invisible else None)
+                             or next((v for v in _variants if v), None),
+                           v=_variants,
+                           s=_e.get('scale', 1.0), n=_e.get('name', _d['id']))
+_json.dump(_meta, open(PUB + '/data/doodadmeta.json', 'w'))
+_vis = [v for v in _meta.values() if v['visible']]
+print('doodad types placed: %d, visible: %d, with a converted model: %d'
+      % (len(_meta), len(_vis), sum(1 for v in _vis if v['m'])))

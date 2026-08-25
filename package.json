@@ -1,0 +1,16 @@
+{
+  "name": "focs-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fight of Characters Second (FOCS) - browser port with authoritative Node server",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.43.1",
+    "three": "^0.185.1",
+    "ws": "^8.18.0"
+  }
+}
