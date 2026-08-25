@@ -1,7 +1,24 @@
-# FOC Web — *Fight of Characters* in the browser
+# FOC Web — *Fight of Characters 7.7a* in the browser
 
+
+
+**NOTE: This is an incomplete implementation. Most features work, but they don't all work well. This is an 18 year old community map. Please keep that in mind**
+ 
 A browser port of the Warcraft III community map **Fight of Characters**, running on an
 authoritative Node server with a Three.js top-down 3D client.
+
+**🤖I handled direction, architecture choices such as the 1:1 trigger mapping, designing verification audits, review and QA. Everything else in this repository is LLM-generated including the code, the tooling, execution of the audits and this README. Written with Claude Code and Codex under an agentic workflow.** 🤖
+
+# Screenshots
+## In-Game
+<img width="1501" height="977" alt="Screenshot_20260825_020151" src="https://github.com/user-attachments/assets/acbf6a8e-228a-4a26-aabb-d1c28a978bcb" />
+<img width="1513" height="984" alt="image" src="https://github.com/user-attachments/assets/a86bc50c-e41a-4619-8968-1025f9f6cdfa" />
+
+## Character Selector
+<img width="1285" height="1017" alt="image" src="https://github.com/user-attachments/assets/569ccc29-4f3c-47c8-b16c-530fdf5cfb1f" />
+
+
+
 
 Currently built against `fight_of_characters 7.7b E.w3x` — but the pipeline is
 **map-agnostic**: no hero, ability, unit or region id is hardcoded anywhere. Point it at a
@@ -416,7 +433,7 @@ finds 299.
 
 ### Translation
 
-The map is Korean. `data/translations.ko-en.json` is a hand-written overlay keyed by the exact
+The map is Korean. `data/translations.ko-en.json` is a LLM-written overlay keyed by the exact
 original strings, and it is the only part of this project that is not derived from the map — which
 is why it is a separate file rather than something the extractor produces. `tools/compile_game.py`
 applies it as `nameEn` / `tipEn` / `descEn` / `titleEn` beside the untouched originals, so the map's
