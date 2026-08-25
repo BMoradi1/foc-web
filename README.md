@@ -8,9 +8,9 @@ A browser port of the Warcraft III community map **Fight of Characters**, runnin
 authoritative Node server with a Three.js top-down 3D client.
 
 **🤖I handled direction, architecture choices such as the 1:1 trigger mapping, designing verification audits, review and QA. Everything else in this repository is LLM-generated including the code, the tooling, execution of the audits and this README. Written with Claude Code and Codex under an agentic workflow.** 🤖
-
-# Screenshots
-## In-Game
+# [Video](https://www.youtube.com/watch?v=vcHNVRgg-5s)
+## Screenshots
+### In-Game
 <img width="1283" height="973" alt="image" src="https://github.com/user-attachments/assets/f771653d-2b7c-4628-8a8d-5edb1b424419" />
 
 <img width="1485" height="981" alt="Screenshot_20260825_015529" src="https://github.com/user-attachments/assets/0997b900-60ac-46a5-b092-3766ed0449d8" />
@@ -19,7 +19,7 @@ authoritative Node server with a Three.js top-down 3D client.
 
 
 
-## Character Selector
+### Character Selector
 <img width="1272" height="968" alt="image" src="https://github.com/user-attachments/assets/54ba62ae-13b4-4f6f-9056-e3130feda02f" />
 
 
