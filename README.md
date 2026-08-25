@@ -11,6 +11,8 @@ authoritative Node server with a Three.js top-down 3D client.
 
 # Screenshots
 ## In-Game
+<img width="1283" height="973" alt="image" src="https://github.com/user-attachments/assets/f771653d-2b7c-4628-8a8d-5edb1b424419" />
+
 <img width="1485" height="981" alt="Screenshot_20260825_015529" src="https://github.com/user-attachments/assets/0997b900-60ac-46a5-b092-3766ed0449d8" />
 <img width="1513" height="984" alt="image" src="https://github.com/user-attachments/assets/2459ecd9-f3a7-423b-a919-cbf6718cba96" />
 <img width="1281" height="972" alt="image" src="https://github.com/user-attachments/assets/715ba281-deaf-49f9-8a34-30993efe484e" />
