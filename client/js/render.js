@@ -845,6 +845,11 @@ export class Renderer {
     act.fadeIn(0.12).play();
     view.current = clip;
     view.currentAction = act;
+    // The map drives 53 animations by name -- "attack", "birth", "spell",
+    // "death". Without this the clip changes but the emitters stay scoped to
+    // whatever sequence was playing before, so a script-triggered death plays
+    // the standing unit's emitters and none of its own.
+    view.seqIndex = this.seqIndexOf(view.meta, clip);
     this.applyGeosetVisibility(view, clip);
   }
 

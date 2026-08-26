@@ -61,9 +61,20 @@ const lerp = (a, b, t) => a + (b - a) * t;
  * No context means no animation to scope to, so the emitter simply runs.
  */
 export function visAt(vis, ctx) {
-  if (!vis || !ctx || ctx.seq == null || ctx.seq < 0) return 1;
-  const e = vis[ctx.seq];
-  if (e === undefined) return 1;
+  return sampleSeq(vis, ctx, 1);
+}
+
+/**
+ * Sample a per-sequence track at the moment `ctx` describes.
+ *
+ * Each entry is either a constant for that whole sequence or a list of
+ * [seconds-from-sequence-start, value] pairs. Without a context there is no
+ * sequence to look up, so the caller's default stands.
+ */
+export function sampleSeq(track, ctx, dflt) {
+  if (!track || !ctx || ctx.seq == null || ctx.seq < 0) return dflt;
+  const e = track[ctx.seq];
+  if (e === undefined) return dflt;
   if (typeof e === 'number') return e;
   const t = ctx.t || 0;
   if (t <= e[0][0]) return e[0][1];
@@ -77,6 +88,16 @@ export function visAt(vis, ctx) {
     }
   }
   return last[1];
+}
+
+/** The largest rate a per-sequence track ever asks for, for sizing buffers. */
+function peakOf(track, floor) {
+  let peak = floor || 0;
+  for (const e of track || []) {
+    if (Array.isArray(e)) { for (const [, v] of e) peak = Math.max(peak, v); }
+    else peak = Math.max(peak, e || 0);
+  }
+  return peak;
 }
 
 /** Colour, alpha and size are given at three moments; walk between them. */
@@ -96,7 +117,11 @@ class Emitter {
   constructor(def, origin, texture) {
     this.d = def;
     this.origin = origin;
-    const cap = Math.max(8, Math.ceil(def.rate * Math.max(0.1, def.lifespan)) + 8);
+    // Size the pool from the loudest rate the emitter ever reaches, not the
+    // static one: for an explosion the static rate is 0 and the real one --
+    // up to 500 a second -- lives in the animated track.
+    this.peakRate = peakOf(def.rateSeq, def.rate || 0);
+    const cap = Math.max(8, Math.ceil(this.peakRate * Math.max(0.1, def.lifespan)) + 8);
     this.cap = Math.min(cap, 600);          // a runaway emitter must not stall the frame
     this.n = 0;
     this.age = new Float32Array(this.cap);
@@ -126,8 +151,7 @@ class Emitter {
     this.points.frustumCulled = false;
     this.geo = geo;
     this.emitAcc = 0;
-    this.wasOn = false;      // squirt fires on the edge, so it needs the last state
-    this.lastT = 0;          // ...and a clip that loops has to re-arm that edge
+    this.wasOn = false;      // whether the track had it switched on last frame
   }
 
   spawn() {
@@ -158,26 +182,20 @@ class Emitter {
   update(dt, ctx) {
     const d = this.d;
     const on = visAt(d.vis, ctx) > 0.01;
-    // A looping clip runs the same switch again every lap, so the edge has to be
-    // re-armed when the clip wraps. Without this a squirt whose sequence never
-    // turns it off -- a footstep puff on a looping Walk -- would fire its one
-    // burst and then stay silent for the rest of the game.
-    const t = ctx ? (ctx.t || 0) : 0;
-    if (t < this.lastT - 1e-4) this.wasOn = false;
-    this.lastT = t;
-    if (d.squirt) {
-      // A squirt emitter is a puff, not a stream: it throws its whole batch the
-      // moment it switches on and then nothing until it switches on again. Run
-      // as a stream -- 574 of these -- a footstep's dust cloud never stops.
-      if (on && !this.wasOn) {
-        let n = Math.min(Math.ceil(d.rate), 60);
-        while (n-- > 0) this.spawn();
-      }
+    // The rate is usually animated; the static number beside it is 0 for every
+    // emitter that spikes, which is most explosions. Whatever it works out to,
+    // a rate of zero emits nothing -- there is no floor to fall back to.
+    const rate = sampleSeq(d.rateSeq, ctx, d.rate || 0);
+    if (!on) {
       this.emitAcc = 0;
-    } else if (on && d.rate > 0) {
-      this.emitAcc += d.rate * dt;
-      let budget = Math.min(this.emitAcc | 0, 40);      // never spike a frame
-      this.emitAcc -= budget;
+    } else if (rate > 0) {
+      this.emitAcc += rate * dt;
+      // Squirt throws its batch in a single frame instead of spreading it over
+      // the second; that is the whole of what the flag means.
+      let budget = d.squirt ? Math.min(this.emitAcc | 0, 60)
+                            : Math.min(this.emitAcc | 0, 40);
+      if (d.squirt) this.emitAcc = budget ? 0 : this.emitAcc;
+      else this.emitAcc -= budget;
       while (budget-- > 0) this.spawn();
     }
     this.wasOn = on;

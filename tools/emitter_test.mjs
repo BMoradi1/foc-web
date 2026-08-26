@@ -51,7 +51,10 @@ const survey = () => page.evaluate(() => {
     let total = 0, on = 0, live = 0, gated = 0;
     for (const e of list || []) {
       total++;
-      if (e.wasOn) on++;
+      // switched on by its track is not the same as emitting: an emitter whose
+      // rate is zero for this sequence is visible and silent, and counting it
+      // as active is how "the idle building throws 92 particles" gets reported
+      if (e.n > 0) on++;
       if (Array.isArray(e.d?.vis)) gated++;
       // `n` is how many slots the emitter has ever used; a particle past its
       // life has alpha 0, so count the ones actually drawing something

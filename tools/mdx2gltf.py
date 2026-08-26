@@ -74,6 +74,31 @@ def eval_track(tr, frame, gseqs, is_quat, f0=None, f1=None):
     return (hermite if ip == 2 else bezier)(a, b, ta, tb, t)
 
 
+def seq_track(tr, seqs, default):
+    """Sample one animation track per sequence, the way the engine scopes it.
+
+    Returns one entry per sequence: a constant where the value holds still for
+    the whole sequence, or [[t_seconds, value], ...] where it moves. A sequence
+    the track leaves unkeyed falls back to `default` -- for a visibility track
+    that is 1, for an emission rate it is the emitter's static rate.
+    """
+    out = []
+    keys = track_keys(tr) if tr else []
+    for s in seqs:
+        s0, s1 = s['start'], s['end']
+        ks = [k for k in keys if s0 <= k[0] <= s1]
+        if not ks:
+            out.append(default)
+            continue
+        vals = [float(np.atleast_1d(k[1])[0]) for k in ks]
+        if len(set(vals)) == 1:
+            out.append(round(vals[0], 4))
+        else:
+            out.append([[round((k[0] - s0) / 1000.0, 4), round(v, 4)]
+                        for k, v in zip(ks, vals)])
+    return out
+
+
 def seq_visibility(tr, seqs):
     """An emitter's on/off switch, resolved per sequence.
 
@@ -87,26 +112,12 @@ def seq_visibility(tr, seqs):
 
     Returns one entry per sequence: a constant, or [[t_seconds, value], ...]
     for the sequences where the emitter actually switches partway through.
+
+    A sequence with no keys falls back to 1, which is the track's default and
+    also what the client did for every sequence before any of this existed, so
+    the ~11% of pairs landing there keep the behaviour they already had.
     """
-    out = []
-    keys = track_keys(tr) if tr else []
-    for s in seqs:
-        s0, s1 = s['start'], s['end']
-        ks = [k for k in keys if s0 <= k[0] <= s1]
-        if not ks:
-            # No keys inside this sequence, so the engine falls back to the
-            # track's default, which for visibility is 1. That is also what the
-            # client did for every sequence until now, so the ~11% of pairs
-            # landing here keep the behaviour they already had.
-            out.append(1.0)
-            continue
-        vals = [float(np.atleast_1d(k[1])[0]) for k in ks]
-        if len(set(vals)) == 1:
-            out.append(round(vals[0], 4))
-        else:
-            out.append([[round((k[0] - s0) / 1000.0, 4), round(v, 4)]
-                        for k, v in zip(ks, vals)])
-    return out
+    return seq_track(tr, seqs, 1.0)
 
 # ---------------------------------------------------------------- textures
 ASSET_BASE = ''   # client sets GLTFLoader resourcePath to /assets/
@@ -216,7 +227,15 @@ def convert(path, out_dir=OUTDIR, name=None):
                 squirt=n['squirt'], texture=tex,
                 color=n['segmentColor'], alpha=[a / 255.0 for a in n['segmentAlpha']],
                 scale=n['segmentScaling'],
-                vis=seq_visibility(n['tracks'].get('KP2V'), M['sequences'])))
+                vis=seq_visibility(n['tracks'].get('KP2V'), M['sequences']),
+                # An emitter's rate is usually animated, and where it is, the
+                # static `emissionRate` beside it is 0: 1057 of this map's 2517
+                # ParticleEmitter2s are in that state -- every large death
+                # explosion, every building blast, the fire and frost breath
+                # missiles. Reading the static number makes all of them emit
+                # exactly nothing, forever.
+                rateSeq=seq_track(n['tracks'].get('KP2E'), M['sequences'],
+                                  round(float(n['emissionRate']), 4))))
         # ParticleEmitter1 throws whole models -- bones, guts, feathers -- so
         # what it needs carried across is the name of the thing it throws.
         if n.get('type') == 'PREM' and n.get('spawnModel'):
