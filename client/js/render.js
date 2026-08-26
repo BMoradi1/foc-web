@@ -4,6 +4,7 @@ import { buildRibbons } from './ribbons.js';
 import { LightPool, buildLights, stepLights } from './lights.js';
 import { buildSprays } from './sprays.js';
 import { SplatField, buildEvents, stepEvents } from './splats.js';
+import { buildTexAnims, stepTexAnims } from './texanim.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { Ent } from '/shared/const.js';
@@ -473,6 +474,10 @@ export class Renderer {
       });
       if (mesh.material.length === 1) mesh.material = mesh.material[0];
     });
+    // after the team-colour clone above, so the material animated is the one
+    // this view owns rather than the cache's shared copy
+    view.texAnims = buildTexAnims(view.prims, meta);
+    view.bornAt = performance.now() / 1000;
     if (gltf.animations.length) {
       view.mixer = new THREE.AnimationMixer(obj);
       for (const clip of gltf.animations) {
@@ -1003,6 +1008,8 @@ export class Renderer {
     }
     fx.meta = rec.meta;
     fx.prims = this.applyMaterials(obj, rec.meta);
+    fx.texAnims = buildTexAnims(fx.prims, rec.meta);
+    fx.bornAt = performance.now() / 1000;
     // and the same per-sequence geoset switching units get: an effect model's
     // sequences hide and show parts of it just as a unit's do
     if (fx.current) this.applyGeosetVisibility(fx, fx.current);
@@ -1050,6 +1057,8 @@ export class Renderer {
     }
     m.meta = rec.meta;
     m.prims = this.applyMaterials(obj, rec.meta);
+    m.texAnims = buildTexAnims(m.prims, rec.meta);
+    m.bornAt = performance.now() / 1000;
     if (m.current) this.applyGeosetVisibility(m, m.current);
     m.emitters = this.attachEmitters(obj);
     m.ribbons = this.attachRibbons(obj);
@@ -1067,12 +1076,14 @@ export class Renderer {
   }
 
   stepMissiles(dt) {
+    const now = performance.now() / 1000;
     for (const [fx, m] of this.missiles) {
       m.mixer?.update(dt);
       const ctx = this.animCtxOf(m);
       for (const e of (m.emitters || [])) e.update(dt, ctx);
       for (const r of (m.ribbons || [])) r.update(dt, ctx);
       stepLights(m.lights || [], ctx);
+      if (m.texAnims?.length) stepTexAnims(m.texAnims, ctx, now - (m.bornAt || now));
       // follow the target while it lives, else keep to the point it was aimed at
       const v = m.id != null ? this.views.get(m.id) : null;
       const tx = v ? v.root.position.x : toX(m.tx);
@@ -1344,6 +1355,9 @@ export class Renderer {
 
   render() {
     const dt = this.clock.getDelta();
+    // texture animations bound to a global sequence keep their own time,
+    // independent of any clip, so they need a wall clock to loop against
+    const now = performance.now() / 1000;
     for (const v of this.views.values()) {
       v.mixer?.update(dt);
       const ctx = this.animCtxOf(v);
@@ -1354,6 +1368,7 @@ export class Renderer {
       // nothing carried the emitter's own switch across. Now it does.
       for (const sp of (v.sprays || [])) sp.update(dt, ctx);
       if (v.events?.length) stepEvents(v.events, ctx, (e) => this.fireEvent(e));
+      if (v.texAnims?.length) stepTexAnims(v.texAnims, ctx, now - v.bornAt);
       if (v.alphaCurve) this.tickGeosetCurves(v);
     }
     for (const e of this.effects.values()) {
@@ -1363,6 +1378,7 @@ export class Renderer {
       for (const r of (e.ribbons || [])) r.update(dt, ctx);
       stepLights(e.lights || [], ctx);
       for (const sp of (e.sprays || [])) sp.update(dt, ctx);
+      if (e.texAnims?.length) stepTexAnims(e.texAnims, ctx, now - (e.bornAt || now));
       if (e.alphaCurve) this.tickGeosetCurves(e);
     }
     this.splatField?.update(dt);

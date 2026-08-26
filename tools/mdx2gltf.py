@@ -84,6 +84,52 @@ def eval_track(tr, frame, gseqs, is_quat, f0=None, f1=None):
     return (hermite if ip == 2 else bezier)(a, b, ta, tb, t)
 
 
+def seq_track_vec(tr, seqs, default, dim, gseqs=()):
+    """A vector track, per sequence -- or on its own clock if it has one.
+
+    Texture animations translate in UV, so their keys are vectors rather than
+    the scalars every other per-sequence track here carries.
+
+    They also break the scoping rule the rest of this file follows. 55 of the 87
+    texture-animation tracks in this map are driven by a *global sequence*: they
+    run on a clock of their own, looping every `gseqs[i]` milliseconds no matter
+    which animation is playing. That is how a beam flows continuously while its
+    model stands, walks and attacks. Scoping those to the playing sequence finds
+    no keys inside it and yields a still image -- which is what the first cut of
+    this did to the Firelord.
+
+    Returns (entries, step). `entries` is either one per sequence, or a single
+    `{'g': seconds, 'k': [...]}` for a track that keeps its own time.
+    """
+    keys = track_keys(tr) if tr else []
+    step = (tr['interp'] == 0) if tr else False
+    if not keys:
+        return [list(default)] * len(seqs), step
+
+    def val(k):
+        return [round(float(x), 5) for x in np.atleast_1d(k[1])[:dim]]
+
+    g = tr['globalSeq']
+    if 0 <= g < len(gseqs) and gseqs[g] > 0:
+        return dict(g=round(gseqs[g] / 1000.0, 4),
+                    k=[[round(k[0] / 1000.0, 4)] + val(k) for k in keys]), step
+
+    out = []
+    for s in seqs:
+        s0, s1 = s['start'], s['end']
+        ks = [k for k in keys if s0 <= k[0] <= s1]
+        if not ks:
+            out.append(list(default))
+            continue
+        vals = [val(k) for k in ks]
+        if all(v == vals[0] for v in vals):
+            out.append(vals[0])
+        else:
+            out.append([[round((k[0] - s0) / 1000.0, 4)] + v
+                        for k, v in zip(ks, vals)])
+    return out, step
+
+
 def seq_track(tr, seqs, default, gseqs=()):
     """Sample one animation track per sequence, the way the engine scopes it.
 
@@ -379,10 +425,26 @@ def convert(path, out_dir=OUTDIR, name=None):
             d['emissiveTexture'] = pbr.get('baseColorTexture')
         g.j['materials'].append(d)
         matmap[mi] = len(g.j['materials']) - 1
+        # A layer can bind a texture animation, which slides, turns or stretches
+        # its UVs while a sequence plays. That is how a beam flows along its own
+        # length, a portal turns and an aura crawls -- 83 layers across 39 of
+        # this map's models ask for one, and nothing carried it across, so all of
+        # them drew a still image.
+        uv = None
+        ai = L.get('texAnimId', -1) if L else -1
+        if 0 <= ai < len(M['texAnims']):
+            ta = M['texAnims'][ai]['tracks']
+            t_e, t_s = seq_track_vec(ta.get('KTAT'), M['sequences'], (0.0, 0.0), 2,
+                                     M['globalSeqs'])
+            r_e, r_s = seq_track_vec(ta.get('KTAR'), M['sequences'], (0.0, 0.0, 0.0, 1.0), 4,
+                                     M['globalSeqs'])
+            s_e, s_s = seq_track_vec(ta.get('KTAS'), M['sequences'], (1.0, 1.0), 2,
+                                     M['globalSeqs'])
+            uv = dict(t=t_e, tStep=t_s, r=r_e, rStep=r_s, s=s_e, sStep=s_s)
         matmeta.append(dict(filter=FILTER_NAME.get(fm, 'none'), unshaded=bool(sh & 0x1),
                             twoSided=bool(sh & 0x10), noDepthTest=bool(sh & 0x40),
                             noDepthSet=bool(sh & 0x80), priority=mat['priorityPlane'],
-                            texture=uri, teamColor=team))
+                            texture=uri, teamColor=team, uv=uv))
 
     # -------------------------------------------------------------- geosets
     prims, geometa = [], []
