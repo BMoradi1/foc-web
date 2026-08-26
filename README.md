@@ -1,13 +1,13 @@
 # FOC Web — *Fight of Characters 7.7a* in the browser
 
-
+**🤖I handled direction, architecture choices such as the 1:1 trigger mapping, designing verification audits, review and QA. Everything else in this repository is LLM-generated including the code, the tooling, execution of the audits and this README. Written with Claude Code and Codex under an agentic workflow.** 🤖
 
 **NOTE: This is an incomplete implementation. Most features work, but they don't all work well. This is an 18 year old community map. Please keep that in mind**
  
 A browser port of the Warcraft III community map **Fight of Characters**, running on an
 authoritative Node server with a Three.js top-down 3D client.
 
-**🤖I handled direction, architecture choices such as the 1:1 trigger mapping, designing verification audits, review and QA. Everything else in this repository is LLM-generated including the code, the tooling, execution of the audits and this README. Written with Claude Code and Codex under an agentic workflow.** 🤖
+
 # [Video](https://www.youtube.com/watch?v=vcHNVRgg-5s)
 ## Screenshots
 ### In-Game
