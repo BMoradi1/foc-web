@@ -905,10 +905,12 @@ export class Renderer {
         break;
       }
       case 'SND': {
-        // resolves to a sound *label*; turning that into a file needs the
-        // UI\SoundInfo tables, which are not compiled yet
-        const label = this.animSounds?.[e.d.id];
-        if (label && this.onAnimSound) this.onAnimSound(label, wx, wy);
+        // The build resolves the id the whole way -- through AnimLookups to a
+        // label, through AnimSounds to files and the numbers that place them --
+        // so there is nothing to look up here. An id the game ships no sound
+        // for is simply absent from the table and falls silent.
+        const snd = this.animSounds?.[e.d.id];
+        if (snd && this.onAnimSound) this.onAnimSound(snd, wx, wy);
         break;
       }
     }

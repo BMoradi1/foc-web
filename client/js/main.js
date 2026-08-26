@@ -207,10 +207,22 @@ async function boot(m) {
   view.splatTable = splatTable;
   view.spawnTable = spawnTable;
   view.animSounds = animSounds;
-  // Sound events resolve to a *label* ("TestFootstep", "MetalHeavyBashFlesh"),
-  // and turning a label into a file needs the UI\SoundInfo tables, which are
-  // not compiled yet. The visual half of the event system is wired; this hook
-  // stays unset until that lookup exists, rather than calling into nothing.
+  /**
+   * A sound event fired: a foot landed, a blade bit, a body hit the ground.
+   *
+   * The table gives several takes for a sound that repeats -- a footstep has
+   * four -- so one is drawn each time rather than the same clip looping, and
+   * the pitch wanders by the variance the sound itself declares. Volume and the
+   * three distances are the game's own numbers, which is what keeps a crowded
+   * fight legible without inventing a limit.
+   */
+  view.onAnimSound = (rec, x, y) => {
+    if (!rec || !rec.f || !rec.f.length) return;
+    const file = rec.f[(Math.random() * rec.f.length) | 0];
+    const pitch = (rec.pitch || 1) + (Math.random() * 2 - 1) * (rec.pitchVar || 0);
+    audio.playWorld(file, x, y, rec.vol ?? 1, Math.max(0.1, pitch), listener(),
+                    { min: rec.min, max: rec.max, cutoff: rec.cutoff });
+  };
   ui.setLoading('building arena…', 0.6);
   await view.buildTerrain(terr, new Float32Array(heightsBuf), cliffs);
   await view.addDoodads(doodads, doodadMeta);

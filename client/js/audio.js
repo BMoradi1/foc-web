@@ -46,14 +46,22 @@ export class Audio {
    * Play a sound the map's script started, attenuated by distance from the
    * listener the way Warcraft III's 3D sounds are.
    */
-  playWorld(path, x, y, vol = 1, pitch = 1, listener = null) {
+  playWorld(path, x, y, vol = 1, pitch = 1, listener = null, dist = null) {
     if (!path || this.missing.has(path)) return;
     let gain = Math.max(0, Math.min(1, vol));
     if (listener && typeof x === 'number' && typeof y === 'number') {
       const d = Math.hypot(x - listener.x, y - listener.y);
-      const FULL = 1200, CUTOFF = 4500;         // WC3 min/max sound distances
+      // Warcraft III gives every sound its own falloff: full volume out to
+      // MinDistance, fading to MaxDistance, and DistanceCutoff past which it is
+      // not worth mixing at all. A footstep carries 2000, a building collapsing
+      // 10000, which is what keeps a crowded fight from becoming one noise.
+      // Without a table the old fixed pair stands, so the script's own sounds
+      // are unaffected.
+      const FULL = dist?.min || 1200;
+      const FADE = Math.max(FULL + 1, dist?.max || 4500);
+      const CUTOFF = dist?.cutoff || FADE;
       if (d > CUTOFF) return;
-      if (d > FULL) gain *= 1 - (d - FULL) / (CUTOFF - FULL);
+      if (d > FULL) gain *= Math.max(0, 1 - (d - FULL) / (FADE - FULL));
     }
     if (gain <= 0.01) return;
     this.play(path, gain, pitch);

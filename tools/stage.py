@@ -309,14 +309,69 @@ for name, r in _rows_of('war3_extracted/Splats/SpawnData.slk').items():
         spawns[name] = m
 json.dump(spawns, open(PUB + '/data/spawns.json', 'w'))
 
-animsounds = {}
+# A sound event names a four-character id; AnimLookups turns that into a label
+# and AnimSounds turns the label into files and the numbers that place them.
+# Resolve the whole chain here so the client fetches one table and does no
+# lookups of its own -- 1370 of these fire across the map's models.
+_snd_index = json.load(open('assets/sounds.json')) if os.path.exists('assets/sounds.json') else {}
+
+
+def _sound_files(rec):
+    """DirectoryBase + FileNames -> converted web paths.
+
+    Lifted from tools/soundsets.py:entry_files, which already does this join for
+    the unit sound sets, with two things that table did not need:
+
+      - six rows write a DirectoryBase with no trailing separator
+        (Units\\Creeps\\HEROGoblinALCHEMIST + AlchemistDeath.wav). Joining them
+        blind produces a path that exists nowhere.
+      - `_` appears as a placeholder meaning "no file".
+
+    A name that resolves to nothing is dropped rather than passed on: some rows
+    are stale and name files that are not in the game at all -- NatureTouch.wav
+    is one -- and the client must fall silent, not ask for a 404.
+    """
+    base = str(rec.get('DirectoryBase', '') or '').replace('/', '\\').rstrip()
+    if base and not base.endswith('\\'):
+        base += '\\'
+    out = []
+    for f in str(rec.get('FileNames', '') or '').split(','):
+        f = f.strip()
+        if not f or f == '_':
+            continue
+        web = _snd_index.get((base + f).replace('\\', '/').lower())
+        if web:
+            out.append(web)
+    return out
+
+
+_anim_rows = _rows_of('war3_extracted/UI/SoundInfo/AnimSounds.slk', 'SoundName')
+animsounds, _silent = {}, 0
 for name, r in _rows_of('war3_extracted/UI/SoundInfo/AnimLookups.slk', 'AnimSoundEvent').items():
     lbl = str(r.get('SoundLabel') or '')
-    if name and lbl and lbl not in ('-', '_'):
-        animsounds[name] = lbl
+    if not name or not lbl or lbl in ('-', '_'):
+        continue
+    row = _anim_rows.get(lbl)
+    files = _sound_files(row) if row else []
+    if not files:
+        _silent += 1
+        continue
+    animsounds[name] = dict(
+        f=files,
+        # Warcraft III stores volume 0-127. Several takes per label is how a
+        # footstep avoids repeating identically; the client picks one.
+        vol=round(_num(row, 'Volume', 127) / 127.0, 4),
+        pitch=round(_num(row, 'Pitch', 1) or 1, 4),
+        pitchVar=round(_num(row, 'PitchVariance', 0), 4),
+        # the distances that decide whether a sound is worth hearing from here
+        min=_num(row, 'MinDistance', 0),
+        max=_num(row, 'MaxDistance', 0),
+        cutoff=_num(row, 'DistanceCutoff', 0),
+        prio=_num(row, 'Priority', 0))
 json.dump(animsounds, open(PUB + '/data/animsounds.json', 'w'))
-print('event tables: %d splats, %d spawn models, %d animation sounds'
-      % (len(evsplats), len(spawns), len(animsounds)))
+print('event tables: %d splats, %d spawn models, %d animation sounds '
+      '(%d ids name a sound the game does not ship)'
+      % (len(evsplats), len(spawns), len(animsounds), _silent))
 print('ubersplats: %d types with a converted texture, %d units reference one'
       % (len(splats), sum(1 for v in um.values() if v.get('us'))))
 
