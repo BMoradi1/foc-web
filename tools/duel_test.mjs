@@ -61,8 +61,11 @@ for (let i = 0; i < MINUTES * 60 * 30; i++) {
 }
 console.log('\nduel events over %d minutes:', MINUTES);
 for (const e of events) {
-  console.log('  %4ds  %s   (%d of %d far from spawn, %d paused)',
-    e.t, e.inArena ? 'both in the arena' : 'back out       ', e.far, heroes.length, e.paused);
+  // node's format has no width modifier: '%4d' is not a specifier, so it is
+  // printed literally and every argument after it lands one place to the left.
+  console.log('  %ss  %s   (%d of %d far from spawn, %d paused)',
+    String(e.t).padStart(4), e.inArena ? 'both in the arena' : 'back out       ',
+    e.far, heroes.length, e.paused);
 }
 if (!events.length) console.log('  none -- nobody was ever moved into the arena');
 
