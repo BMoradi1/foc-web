@@ -215,7 +215,10 @@ for uid, t in types.items():
                    sw=t.get('shadowW', 0), shh=t.get('shadowH', 0),
                    sx=t.get('shadowX', 0), sy=t.get('shadowY', 0),
                    # the ground decal this building is stamped on
-                   us=(str(t.get('uberSplat') or '').strip() or None))
+                   us=(str(t.get('uberSplat') or '').strip() or None),
+                   # Required Animation Names: which variant of a shared model
+                   # this unit is (the Arcane Tower is HumanTower "upgrade,third")
+                   an=(str(t.get('animProps') or '').strip().lower() or None))
 
 # ---------------------------------------------------------------- ubersplats
 # Warcraft III stamps a ground decal under every building -- scorched earth,

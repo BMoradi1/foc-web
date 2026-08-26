@@ -114,7 +114,14 @@ def unit_func():
 FUNC = unit_func()
 # the first weapon's missile, as Warcraft III names it in the func files
 FUNC_MAP = {'missileart': 'missile', 'missilespeed': 'missileSpeed',
-            'missilearc': 'missileArc', 'missilehoming': 'missileHoming'}
+            'missilearc': 'missileArc', 'missilehoming': 'missileHoming',
+            # Warcraft III's "Required Animation Names": the tokens a unit is
+            # allowed to use beyond the animation being asked for. This is how
+            # one model serves several units -- the Scout Tower, Guard Tower and
+            # Arcane Tower are all HumanTower.mdl, and only "upgrade,first" vs
+            # "upgrade,third" tells them apart. Without it every one of them
+            # draws as the plain scout tower.
+            'animprops': 'animProps'}
 
 
 def func_defaults(uid):
@@ -124,7 +131,8 @@ def func_defaults(uid):
         v = src.get(k)
         if v is None:
             continue
-        out[field] = v if field == 'missile' else num(v, 0)
+        # missile art is a path and animProps a token list; the rest are numbers
+        out[field] = v if field in ('missile', 'animProps') else num(v, 0)
     return out
 
 
@@ -143,6 +151,7 @@ def apply_mods(t, mods):
             t[f] = [x.strip() for x in str(v).split(',') if x.strip() and x.strip() != '_']
         elif f in ('name', 'properName', 'suffix', 'model', 'icon', 'race', 'armorType', 'primary',
                    'atkType', 'missile', 'soundSet', 'tip', 'ubertip', 'weaponType', 'uberSplat',
+                   'animProps',
                    'atkTargetsAllowed'):
             t[f] = v
         else:

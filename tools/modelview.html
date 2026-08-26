@@ -41,7 +41,9 @@ window.showUnit = async (model, colour = 0, scale = 1) => {
   const ent = { i: ++id, k: 1, t: 0, p: colour, c: colour, x: 0, y: 0, f: 2.2,
                 model, scale, isHero: true, radius: 32, name: model,
                 // the shadow the real game would give this unit
-                sh: meta.sh, sw: meta.sw, shh: meta.shh, sx: meta.sx, sy: meta.sy };
+                sh: meta.sh, sw: meta.sw, shh: meta.shh, sx: meta.sx, sy: meta.sy,
+                // which variant of a shared model this unit is
+                an: meta.an, us: meta.us, isBuilding: !!meta.b };
   await view.spawnView(ent);
   const v = view.views.get(ent.i);
   // let a skinned model settle into its stand pose

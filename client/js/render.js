@@ -435,8 +435,16 @@ export class Renderer {
     view.obj = obj;
     view.meta = meta;
     view.isBuilding = !!ent.isBuilding;      // decides the Stand Work question
+    view.animProps = tokensOf(ent.an);       // Required Animation Names
     this.attachShadow(view, ent);
     this.attachSplat(view, ent);
+    // Materials first, and prims with them. Emitters, ribbons and sprays add
+    // their own meshes to this same object, so collecting prims afterwards
+    // counts those too -- which slides the geoset index off the end and hands
+    // an emitter's carefully built ShaderMaterial the blending rules meant for
+    // a geoset. prims is indexed one-to-one against meta.geosets and must hold
+    // nothing but the model's own geometry.
+    view.prims = this.applyMaterials(obj, meta);
     view.emitters = this.attachEmitters(obj);
     view.ribbons = this.attachRibbons(obj);
     // Deliberately no lights on unit views: a unit lives for the whole game and
@@ -444,7 +452,6 @@ export class Renderer {
     // would leave nothing for any spell. Lights go to effects and missiles,
     // which come and go.
     this.attachSprays(obj, view);
-    view.prims = this.applyMaterials(obj, meta);
     view.events = buildEvents(obj);      // blood, footprints, impacts
     // Team colour, the way Warcraft III does it: a material bound to a
     // ReplaceableTextures swatch wears the *owning player's* colour, so the
@@ -620,14 +627,24 @@ export class Renderer {
       pool = pool.concat(cand.filter((c) => c.extra.length === 1 && c.extra[0] === 'work'));
     }
     if (pool.length) return weightedByRarity(pool.map((c) => c.n), view.meta);
-    // Nothing matches exactly -- the arcane tower has no plain "Stand" at all.
-    // Take the closest, and settle ties by the model's own order so the choice
-    // is stable instead of flickering between equally-distant variants.
-    const min = Math.min(...cand.map((c) => c.extra.length));
-    const closest = cand.filter((c) => c.extra.length === min);
-    let best = closest[0];
-    for (const c of closest) {
-      if (this.seqIndexOf(view.meta, c.n) < this.seqIndexOf(view.meta, best.n)) best = c;
+    // Nothing matches exactly -- the arcane tower has no plain "Stand" at all,
+    // only "Stand Upgrade Third Attack Ready" and four siblings. Which of those
+    // it is comes from its Required Animation Names: the Scout Tower, Guard
+    // Tower and Arcane Tower are one model, and only "upgrade,first" against
+    // "upgrade,third" separates them. Rank by how much of that a sequence
+    // satisfies, then by how little else it drags in, then by the model's own
+    // order so the choice is stable rather than flickering between equals.
+    const req = view.animProps || [];
+    const score = (c) => {
+      const wanted = c.extra.filter((t) => req.includes(t)).length;
+      return [-wanted, c.extra.length, this.seqIndexOf(view.meta, c.n)];
+    };
+    let best = cand[0], bs = score(best);
+    for (const c of cand.slice(1)) {
+      const s2 = score(c);
+      for (let i = 0; i < s2.length; i++) {
+        if (s2[i] !== bs[i]) { if (s2[i] < bs[i]) { best = c; bs = s2; } break; }
+      }
     }
     return best.n;
   }

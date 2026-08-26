@@ -88,7 +88,7 @@ function findMeta(e) {
   if (t) return { model: t.m, scale: t.s, name: t.n, isHero: !!t.h, isBuilding: !!t.b,
                   radius: t.r, locust: !!t.l,
                   // the unit's own shadow image, size and offset
-                  sh: t.sh, sw: t.sw, shh: t.shh, sx: t.sx, sy: t.sy, us: t.us };
+                  sh: t.sh, sw: t.sw, shh: t.shh, sx: t.sx, sy: t.sy, us: t.us, an: t.an };
   return {};
 }
 
