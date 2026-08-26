@@ -1,4 +1,4 @@
-# FOC Web — *Fight of Characters 7.7a* in the browser
+# FOC Web — *Fight of Characters 7.7b* in the browser
 
 A browser port of the Warcraft III community map **Fight of Characters**, running on an
 authoritative Node server with a Three.js top-down 3D client.
@@ -726,6 +726,18 @@ terrain, animated water and stepped cliffs; ranged attacks and spells with real 
 time; particle emitters, without which around eighty of Warcraft III's effect models are empty;
 ribbon trails behind the blades of the seven heroes that carry them; omni lights on spell effects;
 the ground shadow every unit carries;
+the event objects a model fires from its own keyframes — blood, footprints and thrown body
+parts — and the footsteps, impacts and death cries that fire from the same keys;
+the ubersplat under a building and the splats units leave on the ground;
+corpses that play their death animation, decay, and leave bones behind before they go;
+texture animation, so beams flow, portals turn and flipbooks step, including the 52 materials
+that run on a global clock of their own rather than on the playing sequence;
+the lightning Warcraft III draws itself rather than playing a model — chain lightning, mana
+burn, drain and forked bolts, built from `LightningData.slk`;
+effects hung on the model's own attachment points instead of at the unit's feet;
+animation chosen the way the game chooses it, by the map's token sets weighted by rarity, and
+honouring the Required Animation Names that decide, for one, that a tower is an arcane tower;
+camera shake;
 heroes that change form, keeping their level, skills and inventory across it;
 a six-slot inventory with items that grant what their data says, items that lie in the world and
 are walked to and picked up, powerups taken on contact, and selling back at the map's own rate;
@@ -734,16 +746,22 @@ and dropped items.
 
 **Approximated or missing** — the wedges Warcraft III sets where a ramp meets a cliff
 (`CliffTrans`) are drawn as ordinary cliff walls, which affects the 20 cells flanking the two base
-ramps; Mana Shield is the one hero-ability base with no engine behaviour left; lights and the older
+ramps; Mana Shield's absorption is the notable ability with no behaviour anywhere — the map's only
+trigger for it plays a sound; lights and the older
 `ParticleEmitter1` is parsed, exported and spawns its pieces but has never been confirmed to put a
-pixel on screen; neither a particle emitter's nor a ribbon's own animation tracks (a rate or alpha
-that varies over the effect) are applied yet; no fog of war; no
+pixel on screen; a ribbon's colour and alpha over its life are still not applied, though its
+visibility track and an emitter's visibility and emission rate now are; **no buff ever draws its
+attached art** — Warcraft III hangs a model off a buff at a named attachment point, and nothing
+reads `w3h`, so Ichigo's Hollow form works but the orb that should sit on his head does not
+appear; geoset visibility is still binary rather than fractional, so anything that should dissolve
+pops instead; the map defines a real hotkey for all 130 hero abilities and the client still uses a
+hardcoded q/w/e/r/d/f; no fog of war; no
 day/night cycle; there is no attack backswing, so a swing still resolves the moment it starts even
 though the missile it throws now takes time to arrive; pathing is A* over the map's real walkability grid rather than Warcraft III's flow-field
-movement; a handful of
-cosmetic natives (camera shake, terrain deformation, cinematic filters) are no-ops.
+movement; `SetUnitTimeScale` and the text-tag motion natives, and a few other
+cosmetic natives (terrain deformation, cinematic filters), are no-ops.
 
-**Translation** — this map's text is Korean. It is now also carried in English by a hand
+**Translation** — this map's text is Korean. It is now also carried in English by an LLM-written
 translation overlay, `data/translations.ko-en.json`, which is kept deliberately outside the
 extraction: it covers every hero title, ability name and tooltip line the roster uses (25 titles,
 128 names, 378 description lines, nothing left over), and `tools/compile_game.py` emits the
