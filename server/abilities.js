@@ -137,6 +137,25 @@ export function execute(w, caster, ab, lvl, o = {}) {
       if (dur > 0) w.applyBuff(t, { kind: 'stun', until: w.now + dur * 1000 });
       return { ok: true };
     }
+    // ---- armour on an ally for a while (Frost Armor)
+    //
+    // The two data fields are not damage. The World Editor names them "Armor
+    // Duration" (DataA) and "Armor Bonus" (DataB), so the buff's life comes from
+    // DataA -- the ability's own Dur field is the chill left on whoever attacks
+    // the target, which is why this map sets it to 0.01 and means it.
+    //
+    // Reading DataA as damage is what broke Ichigo. This map casts Frost Armor
+    // off a dummy purely to stamp a named buff on him -- B001 for the Hollow
+    // form, B000 for Vizard, both with a zero armour bonus -- and his attack
+    // trigger then tests for that buff to grant AGI x3 bonus damage. With no
+    // case here the cast fell through to the generic "DataA is damage" default,
+    // found the target friendly, and did nothing at all.
+    case 'AUfa': case 'AUfu': case 'ACfa': {
+      const t = o.target || caster;
+      w.applyBuff(t, { kind: 'armor', code: i.buff || null, armor: d2,
+                       until: w.now + (d1 || 0) * 1000 });
+      return { ok: true };
+    }
     // ---- point AoE damage + slow (Frost Nova)
     case 'AUfn': {
       // field 1 is the headline damage the map scales per level; field 2, when the

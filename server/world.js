@@ -307,6 +307,14 @@ export class World {
   killUnit(u, killer) {
     if (!u || !u.alive) return;
     u.alive = false; u.hp = 0; u.path = null; u.order = { type: 'idle' };
+    // Warcraft III carries timed life as the BTLF buff, so death disposes of it
+    // with every other buff and it cannot outlive the unit. We keep it as a bare
+    // timestamp instead, which `u.buffs = []` does not touch -- so a revived hero
+    // still carried a long-past expiry and the sweep killed him again on the very
+    // tick he came back, forever. Ichigo's Hollow form is the one that shows it:
+    // it ends in UnitApplyTimedLife, so he died, revived, and died again on a
+    // four-second cycle and never stayed up.
+    u.expireAt = 0;
     // Bounty and experience are paid for the death, not for the blow: Warcraft
     // III pays them however the unit died, and this map kills plenty of things
     // from its own triggers. Awarding only on the damage path left every
@@ -413,6 +421,8 @@ export class World {
     u.moveSpeed = u.baseMoveSpeed + (ib.moveSpeed || 0);
     u.xpMul = 1 + (ib.xpMul || 0) / 100;      // ExperienceMod items, as a percent
     for (const b of (u.buffs || [])) {
+      if (b.until && b.until <= this.now) continue;
+      if (b.kind === 'armor') u.armorTotal += b.armor || 0;
       if (b.kind === 'slow') u.moveSpeed *= 1 - b.pct;
       if (b.kind === 'rage' || b.kind === 'morph') { u.dmg *= 1 + b.pct; }
       if (b.kind === 'weaken') u.dmg *= 1 - b.pct;
@@ -492,7 +502,17 @@ export class World {
   }
   abilityLevel(u, abilId) {
     if (!u) return 0;
-    return u.abilities.get(typeof abilId === 'number' ? abilId : id2int(abilId)) || 0;
+    const k = typeof abilId === 'number' ? abilId : id2int(abilId);
+    const lv = u.abilities.get(k) || 0;
+    if (lv) return lv;
+    // Warcraft III stores a buff on the unit as an ability, which is why
+    // Blizzard.j writes UnitHasBuffBJ as GetUnitAbilityLevel(unit, buffId) > 0.
+    // Ours live in their own list, so a named buff has to answer here too or the
+    // map can never see one -- and this map asks constantly, from Ichigo's
+    // AGI x3 attack bonus to the guard that stops his Hollow form re-triggering.
+    const code = typeof abilId === 'number' ? int2id(abilId) : abilId;
+    return (u.buffs || []).some((b) => b.code === code
+      && (!b.until || b.until > this.now)) ? 1 : 0;
   }
   setAbilityLevel(u, abilId, lv) {
     if (!u) return 0;
@@ -838,7 +858,11 @@ export class World {
   }
   applyBuff(u, b) {
     if (!u || !u.alive) return;
-    u.buffs = (u.buffs || []).filter((x) => x.kind !== b.kind);
+    // A buff the map named is replaced by its own code rather than by its kind:
+    // two abilities can both grant armour and still be distinct buffs the script
+    // tests for separately, which is exactly how Ichigo's Hollow (B001) and
+    // Vizard (B000) forms are told apart.
+    u.buffs = (u.buffs || []).filter((x) => (b.code ? x.code !== b.code : x.kind !== b.kind));
     u.buffs.push(b);
     this.recalc(u);
   }
