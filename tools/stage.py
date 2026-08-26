@@ -240,6 +240,13 @@ def _splat_tex(dirname, fname):
     return None
 
 
+def _num(r, k, d=0.0):
+    try:
+        return float(r.get(k))
+    except (TypeError, ValueError):
+        return d
+
+
 splats = {}
 _sp = 'war3_extracted/Splats/UberSplatData.slk'
 if os.path.exists(_sp):
@@ -252,8 +259,61 @@ if os.path.exists(_sp):
         if not tex:
             continue
         splats[name] = dict(t=tex, s=float(row.get('Scale') or 1),
-                            b=int(row.get('BlendMode') or 0))
+                            b=int(row.get('BlendMode') or 0),
+                            # an ubersplat fades in, holds, then decays
+                            birth=_num(row, 'BirthTime', 1),
+                            hold=_num(row, 'PauseTime', 0),
+                            decay=_num(row, 'Decay', 2))
 json.dump(splats, open(PUB + '/data/ubersplats.json', 'w'))
+
+# ------------------------------------------------------- event-object tables
+# An MDX event object names a kind and an id -- SPLxHBS1, SNDxDHLS -- and the id
+# indexes one of these. SplatData carries both the blood splats and the
+# footprints (they share the table), SpawnData the models an animation throws,
+# and AnimLookups maps a sound event to a sound label.
+def _rows_of(path, key='Name'):
+    if not os.path.exists(path):
+        return {}
+    r = _splat_slk(path)
+    it = r.values() if isinstance(r, dict) else r
+    return {str(x.get(key) or ''): x for x in it}
+
+
+evsplats = {}
+for name, r in _rows_of('war3_extracted/Splats/SplatData.slk').items():
+    if not name or name == 'INIT':
+        continue
+    tex = _splat_tex(str(r.get('Dir') or ''), str(r.get('file') or ''))
+    if not tex:
+        continue
+    evsplats[name] = dict(
+        t=tex, rows=int(_num(r, 'Rows', 1)) or 1, cols=int(_num(r, 'Columns', 1)) or 1,
+        s=_num(r, 'Scale', 50), b=int(_num(r, 'BlendMode', 0)),
+        life=_num(r, 'Lifespan', 2), decay=_num(r, 'Decay', 10),
+        # which cells of the atlas it walks through while living, then decaying
+        uv=[int(_num(r, 'UVLifespanStart')), int(_num(r, 'UVLifespanEnd')),
+            int(_num(r, 'UVDecayStart')), int(_num(r, 'UVDecayEnd'))],
+        # the colour ramp, start -> middle -> end, alpha included
+        c=[[_num(r, 'StartR', 255), _num(r, 'StartG', 255), _num(r, 'StartB', 255), _num(r, 'StartA', 255)],
+           [_num(r, 'MiddleR', 255), _num(r, 'MiddleG', 255), _num(r, 'MiddleB', 255), _num(r, 'MiddleA', 255)],
+           [_num(r, 'EndR', 255), _num(r, 'EndG', 255), _num(r, 'EndB', 255), _num(r, 'EndA', 0)]])
+json.dump(evsplats, open(PUB + '/data/splats.json', 'w'))
+
+spawns = {}
+for name, r in _rows_of('war3_extracted/Splats/SpawnData.slk').items():
+    m = str(r.get('Model') or '')
+    if name and name != 'INIT' and m and m not in ('-', '_', 'INIT'):
+        spawns[name] = m
+json.dump(spawns, open(PUB + '/data/spawns.json', 'w'))
+
+animsounds = {}
+for name, r in _rows_of('war3_extracted/UI/SoundInfo/AnimLookups.slk', 'AnimSoundEvent').items():
+    lbl = str(r.get('SoundLabel') or '')
+    if name and lbl and lbl not in ('-', '_'):
+        animsounds[name] = lbl
+json.dump(animsounds, open(PUB + '/data/animsounds.json', 'w'))
+print('event tables: %d splats, %d spawn models, %d animation sounds'
+      % (len(evsplats), len(spawns), len(animsounds)))
 print('ubersplats: %d types with a converted texture, %d units reference one'
       % (len(splats), sum(1 for v in um.values() if v.get('us'))))
 

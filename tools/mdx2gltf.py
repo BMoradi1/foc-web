@@ -286,6 +286,23 @@ def convert(path, out_dir=OUTDIR, name=None):
                 **_pair('rate', seq_track(n['tracks'].get('KP2E'), M['sequences'],
                                           round(float(n['emissionRate']), 4),
                                           M['globalSeqs']))))
+        # An event object fires at a keyframe: blood hits the ground, a foot
+        # lands, a body part is thrown, a sound plays. The node's name is a
+        # four-character kind and a four-character id into one of Warcraft III's
+        # tables -- SPLxHBS1 is Human Blood Small 1 in SplatData.slk, SNDxDHLS a
+        # sound in AnimLookups.slk -- and its KEVT track says when. 827 of this
+        # map's 1101 models carry these and the fire times were being dropped,
+        # so none of it could ever happen: no blood, no footprints, no impacts.
+        if n.get('type') == 'event' and len(n.get('name') or '') >= 8:
+            nm = n['name']
+            fires = []
+            for s in M['sequences']:
+                s0, s1 = s['start'], s['end']
+                fires.append([round((t - s0) / 1000.0, 4)
+                              for t in (n.get('times') or []) if s0 <= t <= s1])
+            if any(fires):
+                nd['extras'] = dict(w3event=dict(
+                    kind=nm[:3], id=nm[4:8], at=fires))
         # ParticleEmitter1 throws whole models -- bones, guts, feathers -- so
         # what it needs carried across is the name of the thing it throws.
         if n.get('type') == 'PREM' and n.get('spawnModel'):

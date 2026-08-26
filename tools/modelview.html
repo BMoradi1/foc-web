@@ -16,6 +16,9 @@ import { stepLights } from '/js/lights.js';
 // team-colour substitution -- rather than as a converter test would.
 const view = new Renderer(document.getElementById('view'));
 window.THREE = THREE; window.view = view;
+// the bench drives event objects by hand, so it needs the stepper
+const { stepEvents } = await import('/js/splats.js');
+window.__stepEvents = stepEvents;
 
 const [terr, heightsBuf] = await Promise.all([
   fetch('/data/terrain.json').then(r => r.json()),
@@ -24,6 +27,10 @@ const [terr, heightsBuf] = await Promise.all([
 await view.buildTerrain(terr, new Float32Array(heightsBuf), null);
 const models = await fetch('/assets/models.json').then(r => r.json());
 window.__unitModels = await fetch('/data/unitmodels.json').then(r => r.json()).catch(() => ({}));
+// the event-object tables, so blood and footprints resolve here too
+view.splatTable = await fetch('/data/splats.json').then(r => r.json()).catch(() => ({}));
+view.splats = await fetch('/data/ubersplats.json').then(r => r.json()).catch(() => ({}));
+view.spawnTable = await fetch('/data/spawns.json').then(r => r.json()).catch(() => ({}));
 window.ready = true;
 
 let id = 90000;

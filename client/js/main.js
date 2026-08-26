@@ -178,13 +178,18 @@ function flash() { flashT = 0.25; }
 
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
-  const [terr, heightsBuf, doodads, unitModels, ubersplats] = await Promise.all([
+  const [terr, heightsBuf, doodads, unitModels, ubersplats,
+         splatTable, spawnTable, animSounds] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
     fetch('/data/unitmodels.json').then((r) => r.json()),
     // the ground decals buildings are stamped on
     fetch('/data/ubersplats.json').then((r) => r.json()).catch(() => ({})),
+    // the event-object tables: splats and footprints, thrown models, sounds
+    fetch('/data/splats.json').then((r) => r.json()).catch(() => ({})),
+    fetch('/data/spawns.json').then((r) => r.json()).catch(() => ({})),
+    fetch('/data/animsounds.json').then((r) => r.json()).catch(() => ({})),
   ]);
   const doodadMeta = await fetch('/data/doodadmeta.json').then((r) => r.json()).catch(() => ({}));
   // baked cliff mesh; a map with no cliffs simply has no cliffs.json
@@ -199,6 +204,13 @@ async function boot(m) {
   S.unitModels = unitModels;
   // the ground-decal table, keyed by the id a unit's uberSplat names
   view.splats = ubersplats;
+  view.splatTable = splatTable;
+  view.spawnTable = spawnTable;
+  view.animSounds = animSounds;
+  // Sound events resolve to a *label* ("TestFootstep", "MetalHeavyBashFlesh"),
+  // and turning a label into a file needs the UI\SoundInfo tables, which are
+  // not compiled yet. The visual half of the event system is wired; this hook
+  // stays unset until that lookup exists, rather than calling into nothing.
   ui.setLoading('building arena…', 0.6);
   await view.buildTerrain(terr, new Float32Array(heightsBuf), cliffs);
   await view.addDoodads(doodads, doodadMeta);

@@ -3,6 +3,7 @@ import { buildEmitters } from './particles.js';
 import { buildRibbons } from './ribbons.js';
 import { LightPool, buildLights, stepLights } from './lights.js';
 import { buildSprays } from './sprays.js';
+import { SplatField, buildEvents, stepEvents } from './splats.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { Ent } from '/shared/const.js';
@@ -93,6 +94,7 @@ export class Renderer {
     this.groundItems = new Map();  // items lying in the world, by id
     this.lightPool = new LightPool(this.scene);   // fixed size: see lights.js
     this.missiles = new Map();     // shots in flight, by id
+    this.splatField = null;        // ground splats, see splats.js
 
     this.scene.add(new THREE.HemisphereLight(0xa9c2e8, 0x2a2620, 1.15));
     const sun = new THREE.DirectionalLight(0xfff0d8, 1.15);
@@ -170,6 +172,9 @@ export class Renderer {
     this.heights = heights;
     if (cliffs) await this.buildCliffs(cliffs);
     await this.buildWater(terr);
+    // splats lie on the terrain, so the field can only exist once it does
+    this.splatField = new SplatField(this.scene, () => this.splatTable,
+      (x, y) => this.heightAt(x, y), (uri) => this.fxTexture(uri));
     return mesh;
   }
 
@@ -440,6 +445,7 @@ export class Renderer {
     // which come and go.
     this.attachSprays(obj, view);
     view.prims = this.applyMaterials(obj, meta);
+    view.events = buildEvents(obj);      // blood, footprints, impacts
     // Team colour, the way Warcraft III does it: a material bound to a
     // ReplaceableTextures swatch wears the *owning player's* colour, so the
     // texture is swapped rather than the material tinted. The converter bakes
@@ -841,6 +847,66 @@ export class Renderer {
 
   /** Omni lights an effect carries, borrowed from the fixed pool. */
   attachLights(obj, owner) { return buildLights(obj, this.lightPool, owner); }
+
+  /**
+   * An event object has come round: do the thing it names.
+   *
+   * The node's own world position is where it happens -- a wound, a foot, the
+   * point a body part is thrown from -- so a splat lands under the wound rather
+   * than under the unit's origin.
+   */
+  fireEvent(e) {
+    e.node.updateWorldMatrix(true, false);
+    const p = new THREE.Vector3().setFromMatrixPosition(e.node.matrixWorld);
+    const wx = p.x, wy = -p.z;         // back out of three.js coords
+    // a handful of models spell the kind in lower case ('fptxFBL1')
+    switch (String(e.d.kind).toUpperCase()) {
+      // a splat and a footprint are the same thing from the same table; the
+      // only difference is which cells of the sheet they use
+      case 'SPL':
+      case 'FPT':
+        this.splatField?.add(e.d.id, wx, wy);
+        break;
+      case 'UBR': {
+        // an ubersplat is a single image rather than a sheet, and holds before
+        // it decays; the field draws it the same way once told so
+        const u = this.splats?.[e.d.id];
+        if (u) {
+          this.splatField?.addSpec({ t: u.t, rows: 1, cols: 1, s: u.s, b: u.b,
+                                     uv: [0, 0, 0, 0],
+                                     life: (u.birth || 0) + (u.hold || 0),
+                                     decay: u.decay || 2,
+                                     c: [[255, 255, 255, 255], [255, 255, 255, 255],
+                                         [255, 255, 255, 0]] }, wx, wy);
+        }
+        break;
+      }
+      case 'SPN': {
+        const path = this.spawnTable?.[e.d.id];
+        if (path) this.spawnEffect({ fx: 'spn' + (this.spawnSeq = (this.spawnSeq || 0) + 1),
+                                     path, x: wx, y: wy, ttl: 4 }, false);
+        break;
+      }
+      case 'SND': {
+        // resolves to a sound *label*; turning that into a file needs the
+        // UI\SoundInfo tables, which are not compiled yet
+        const label = this.animSounds?.[e.d.id];
+        if (label && this.onAnimSound) this.onAnimSound(label, wx, wy);
+        break;
+      }
+    }
+  }
+
+  /** One texture per path, shared by every effect that names it. */
+  fxTexture(uri) {
+    let t = this.fxTextures.get(uri);
+    if (!t) {
+      t = new THREE.TextureLoader().load('/assets/' + uri);
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.fxTextures.set(uri, t);
+    }
+    return t;
+  }
 
   /** Trails dragged behind a bone; the same shared-texture rule as emitters. */
   attachRibbons(obj) {
@@ -1268,6 +1334,7 @@ export class Renderer {
       // Sprays used to be gated on a guess -- 'is this unit dying?' -- because
       // nothing carried the emitter's own switch across. Now it does.
       for (const sp of (v.sprays || [])) sp.update(dt, ctx);
+      if (v.events?.length) stepEvents(v.events, ctx, (e) => this.fireEvent(e));
       if (v.alphaCurve) this.tickGeosetCurves(v);
     }
     for (const e of this.effects.values()) {
@@ -1279,6 +1346,7 @@ export class Renderer {
       for (const sp of (e.sprays || [])) sp.update(dt, ctx);
       if (e.alphaCurve) this.tickGeosetCurves(e);
     }
+    this.splatField?.update(dt);
     this.stepMissiles(dt);
     this.stepItems(dt);
     this.tickWater(dt);

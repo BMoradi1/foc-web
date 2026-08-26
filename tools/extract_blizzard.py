@@ -71,7 +71,8 @@ for low, orig in LIST.items():
 # The splat and lightning tables name their own textures, and nothing else in
 # the game references them -- no model, no script -- so the art-following pass
 # below never reaches them. Read the tables and take what they ask for.
-for _tbl in ('Splats\\UberSplatData.slk', 'Splats\\LightningData.slk'):
+for _tbl in ('Splats\\UberSplatData.slk', 'Splats\\LightningData.slk',
+             'Splats\\SplatData.slk', 'Splats\\SpawnData.slk'):
     _p = os.path.join(OUT, _tbl.replace('\\', os.sep))
     if not os.path.exists(_p):
         continue
