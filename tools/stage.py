@@ -309,6 +309,33 @@ for name, r in _rows_of('war3_extracted/Splats/SpawnData.slk').items():
         spawns[name] = m
 json.dump(spawns, open(PUB + '/data/spawns.json', 'w'))
 
+# ------------------------------------------------------------------ lightning
+# Chain lightning, mana burn, drain, forked lightning: Warcraft III draws the
+# bolt itself from a row in Splats\LightningData.slk, which names the texture
+# and how the strip is built -- how wide, how long a segment, how far each joint
+# is thrown off the straight line, and how long it lives. 37 of this map's
+# abilities name a type and nine of those are hero spells, all of which cast
+# with no beam at all until now.
+lightning = {}
+for name, r in _rows_of('war3_extracted/Splats/LightningData.slk').items():
+    if not name or name == 'INIT':
+        continue
+    tex = _splat_tex(str(r.get('Dir') or ''), str(r.get('file') or ''))
+    if not tex:
+        continue
+    lightning[name] = dict(
+        t=tex,
+        w=_num(r, 'Width', 40),
+        seg=max(8.0, _num(r, 'AvgSegLen', 100)),
+        # how far a joint is thrown off the straight line between the ends
+        noise=_num(r, 'NoiseScale', 0),
+        uv=_num(r, 'TexCoordScale', 1),
+        life=_num(r, 'Duration', 2),
+        c=[_num(r, 'R', 255) / 255.0, _num(r, 'G', 255) / 255.0,
+           _num(r, 'B', 255) / 255.0, _num(r, 'A', 255) / 255.0])
+json.dump(lightning, open(PUB + '/data/lightning.json', 'w'))
+print('lightning: %d bolt types with a converted texture' % len(lightning))
+
 # A sound event names a four-character id; AnimLookups turns that into a label
 # and AnimSounds turns the label into files and the numbers that place them.
 # Resolve the whole chain here so the client fetches one table and does no

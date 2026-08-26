@@ -5,6 +5,7 @@ import { LightPool, buildLights, stepLights } from './lights.js';
 import { buildSprays } from './sprays.js';
 import { SplatField, buildEvents, stepEvents } from './splats.js';
 import { buildTexAnims, stepTexAnims } from './texanim.js';
+import { Bolt } from './lightning.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { Ent } from '/shared/const.js';
@@ -96,6 +97,7 @@ export class Renderer {
     this.lightPool = new LightPool(this.scene);   // fixed size: see lights.js
     this.missiles = new Map();     // shots in flight, by id
     this.splatField = null;        // ground splats, see splats.js
+    this.bolts = [];               // lightning in flight, see lightning.js
 
     this.scene.add(new THREE.HemisphereLight(0xa9c2e8, 0x2a2620, 1.15));
     const sun = new THREE.DirectionalLight(0xfff0d8, 1.15);
@@ -921,6 +923,48 @@ export class Renderer {
     }
   }
 
+  /**
+   * A bolt of lightning between two points.
+   *
+   * The far end may be a unit rather than a fixed spot, in which case the strip
+   * follows it -- a drain holds on its target while both move. Chest height is
+   * the anchor at each end: a beam drawn between two units' feet reads as a
+   * cable lying on the floor.
+   */
+  spawnBolt(ev) {
+    const spec = this.boltTable?.[ev.code];
+    if (!spec || !spec.t) return;
+    const tex = this.fxTexture(spec.t);
+    if (!tex) return;
+    const b = new Bolt(spec, tex, this.scene);
+    b.from = { x: ev.x1, y: ev.y1 };
+    b.toId = ev.id2;
+    b.to = { x: ev.x2, y: ev.y2 };
+    this.bolts.push(b);
+  }
+
+  /** Where a bolt's end sits this frame: on its unit if it has one. */
+  boltEnd(pt, id) {
+    const v = id != null ? this.views.get(id) : null;
+    const p = v ? v.root.position : null;
+    const x = p ? p.x : toX(pt.x);
+    const z = p ? p.z : toZ(pt.y);
+    const y = (p ? p.y : this.heightAt(pt.x, pt.y)) + 70;   // roughly chest high
+    return new THREE.Vector3(x, y, z);
+  }
+
+  stepBolts(dt) {
+    for (let i = this.bolts.length - 1; i >= 0; i--) {
+      const b = this.bolts[i];
+      const a = this.boltEnd(b.from, b.fromId);
+      const c = this.boltEnd(b.to, b.toId);
+      if (!b.step(dt, a, c, this.camera)) {
+        b.dispose();
+        this.bolts.splice(i, 1);
+      }
+    }
+  }
+
   /** One texture per path, shared by every effect that names it. */
   fxTexture(uri) {
     let t = this.fxTextures.get(uri);
@@ -1382,6 +1426,7 @@ export class Renderer {
       if (e.alphaCurve) this.tickGeosetCurves(e);
     }
     this.splatField?.update(dt);
+    this.stepBolts(dt);
     this.stepMissiles(dt);
     this.stepItems(dt);
     this.tickWater(dt);

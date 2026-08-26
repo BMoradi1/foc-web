@@ -121,6 +121,8 @@ function handleEvent(ev) {
       break;
     }
     case 'camShake': view.setShake(ev.mag, ev.vel, ev.vert); break;
+    // the engine draws these itself rather than playing a model
+    case 'lightning': view.spawnBolt(ev); break;
     case 'aoe': spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xff8844, ev.r); break;
     case 'blinkIn': case 'blinkOut':
       spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xaa66ff, 110); break;
@@ -179,7 +181,7 @@ function flash() { flashT = 0.25; }
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
   const [terr, heightsBuf, doodads, unitModels, ubersplats,
-         splatTable, spawnTable, animSounds] = await Promise.all([
+         splatTable, spawnTable, animSounds, boltTable] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
@@ -190,6 +192,7 @@ async function boot(m) {
     fetch('/data/splats.json').then((r) => r.json()).catch(() => ({})),
     fetch('/data/spawns.json').then((r) => r.json()).catch(() => ({})),
     fetch('/data/animsounds.json').then((r) => r.json()).catch(() => ({})),
+    fetch('/data/lightning.json').then((r) => r.json()).catch(() => ({})),
   ]);
   const doodadMeta = await fetch('/data/doodadmeta.json').then((r) => r.json()).catch(() => ({}));
   // baked cliff mesh; a map with no cliffs simply has no cliffs.json
@@ -207,6 +210,7 @@ async function boot(m) {
   view.splatTable = splatTable;
   view.spawnTable = spawnTable;
   view.animSounds = animSounds;
+  view.boltTable = boltTable;
   /**
    * A sound event fired: a foot landed, a blade bit, a body hit the ground.
    *

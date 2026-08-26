@@ -1142,6 +1142,19 @@ export class World {
     // it plays where the spell lands, and 103 abilities here carry one.
     if (target) at(art.effect, target);
     else at(art.effect, null, tx, ty);
+    // Lightningeffect is the fifth, and the engine draws this one itself rather
+    // than playing a model: a strip between caster and target, built from a row
+    // in LightningData.slk. 37 abilities here name a type -- chain lightning,
+    // mana burn, drain, forked lightning -- and nine of them are hero spells.
+    // A field listing two types gives the primary bolt first and the one used
+    // for onward jumps second; a single cast draws the primary.
+    const bolt = String(art.lightning || '').split(',')[0].trim();
+    if (bolt && bolt !== '_' && bolt !== '-' && (target || (tx != null && ty != null))) {
+      this.emit({ t: 'lightning', fx: -(++this.fxSeq), code: bolt,
+                  x1: caster.x, y1: caster.y,
+                  id2: target ? target.id : undefined,
+                  x2: target ? target.x : tx, y2: target ? target.y : ty });
+    }
   }
 
   emit(e) { this.clientEvents.push(e); }
