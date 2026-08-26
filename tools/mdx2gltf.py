@@ -73,6 +73,41 @@ def eval_track(tr, frame, gseqs, is_quat, f0=None, f1=None):
     tb = np.array(k1[2], np.float64) if len(k1) > 2 else b   # inTan of k1
     return (hermite if ip == 2 else bezier)(a, b, ta, tb, t)
 
+
+def seq_visibility(tr, seqs):
+    """An emitter's on/off switch, resolved per sequence.
+
+    Warcraft III scopes every animation track to the sequence being played, and
+    an emitter's visibility track is mostly a list of the sequences it is *off*
+    for: across this map's models, 8594 of the 10381 keyed (emitter, sequence)
+    pairs hold zero for the whole sequence, and only 1787 vary within one.
+    Reading the track as a single timeline -- or ignoring it, which is what the
+    client did -- leaves all 8594 emitting during Stand, so idle units smoked,
+    bled and burned continuously.
+
+    Returns one entry per sequence: a constant, or [[t_seconds, value], ...]
+    for the sequences where the emitter actually switches partway through.
+    """
+    out = []
+    keys = track_keys(tr) if tr else []
+    for s in seqs:
+        s0, s1 = s['start'], s['end']
+        ks = [k for k in keys if s0 <= k[0] <= s1]
+        if not ks:
+            # No keys inside this sequence, so the engine falls back to the
+            # track's default, which for visibility is 1. That is also what the
+            # client did for every sequence until now, so the ~11% of pairs
+            # landing here keep the behaviour they already had.
+            out.append(1.0)
+            continue
+        vals = [float(np.atleast_1d(k[1])[0]) for k in ks]
+        if len(set(vals)) == 1:
+            out.append(round(vals[0], 4))
+        else:
+            out.append([[round((k[0] - s0) / 1000.0, 4), round(v, 4)]
+                        for k, v in zip(ks, vals)])
+    return out
+
 # ---------------------------------------------------------------- textures
 ASSET_BASE = ''   # client sets GLTFLoader resourcePath to /assets/
 
@@ -172,7 +207,6 @@ def convert(path, out_dir=OUTDIR, name=None):
             if 0 <= n['textureId'] < len(M['textures']):
                 t = M['textures'][n['textureId']]
                 tex = tex_uri(t.get('path'), t.get('replaceableId'))
-            vis = n.get('tracks', {}).get('KP2V')
             nd['extras'] = dict(w3particle=dict(
                 speed=n['speed'], variation=n['variation'], latitude=n['latitude'],
                 gravity=n['gravity'], lifespan=n['lifespan'], rate=n['emissionRate'],
@@ -182,7 +216,7 @@ def convert(path, out_dir=OUTDIR, name=None):
                 squirt=n['squirt'], texture=tex,
                 color=n['segmentColor'], alpha=[a / 255.0 for a in n['segmentAlpha']],
                 scale=n['segmentScaling'],
-                visibility=[[k[0], k[1]] for k in (vis['keys'] if vis else [])]))
+                vis=seq_visibility(n['tracks'].get('KP2V'), M['sequences'])))
         # ParticleEmitter1 throws whole models -- bones, guts, feathers -- so
         # what it needs carried across is the name of the thing it throws.
         if n.get('type') == 'PREM' and n.get('spawnModel'):
@@ -191,16 +225,14 @@ def convert(path, out_dir=OUTDIR, name=None):
                 longitude=n['longitude'], latitude=n['latitude'],
                 lifespan=n['lifespan'], speed=n['initVelocity'],
                 model=n['spawnModel'],
-                visibility=[[k[0], k[1]] for k in
-                            (n['tracks'].get('KPEV', {}).get('keys') or [])]))
+                vis=seq_visibility(n['tracks'].get('KPEV'), M['sequences'])))
         # An omni light. Directional ones belong to the day/night cycle models,
         # which nothing here uses, so only point lights are carried across.
         if n.get('type') == 'LITE' and n.get('lightType') == 0:
             nd['extras'] = dict(w3light=dict(
                 color=n['color'], intensity=n['intensity'],
                 attStart=n['attStart'], attEnd=n['attEnd'],
-                visibility=[[k[0], k[1]] for k in
-                            (n['tracks'].get('KLAV', {}).get('keys') or [])]))
+                vis=seq_visibility(n['tracks'].get('KLAV'), M['sequences'])))
         # A ribbon is a trail dragged behind a point on the skeleton, and its
         # look comes from a *material* rather than a texture directly, so the
         # same layer rule that picks a mesh's surface picks the ribbon's.
@@ -214,8 +246,7 @@ def convert(path, out_dir=OUTDIR, name=None):
                 cols=max(1, n['columns']), slot=n['textureSlot'],
                 gravity=n['gravity'], texture=uri,
                 filter=(L['filterMode'] if L else 0),
-                visibility=[[k[0], k[1]] for k in
-                            (n['tracks'].get('KRVS', {}).get('keys') or [])]))
+                vis=seq_visibility(n['tracks'].get('KRVS'), M['sequences'])))
         g.j['nodes'].append(nd)
     for n in nodes:
         parent = 0 if n['parentId'] < 0 else nid[n['parentId']]

@@ -5,14 +5,18 @@ TRACK_SPEC = {          # tag -> (n components, 'f' float | 'i' int)
     'KGTR': (3, 'f'), 'KGRT': (4, 'f'), 'KGSC': (3, 'f'),
     'KMTF': (1, 'i'), 'KMTA': (1, 'f'), 'KMTE': (1, 'f'),
     'KGAO': (1, 'f'), 'KGAC': (3, 'f'),
-    'KATV': (1, 'i'),
+    # Visibility tracks are floats, not integers. Read as an int, a plain 1.0
+    # comes back as 1065353216 -- the bit pattern of 1.0f -- which is a value no
+    # comparison against 0 or 1 can survive. Nothing consumed these until now,
+    # so the mistake sat harmless; gating an emitter on one exposes it.
+    'KATV': (1, 'f'),
     'KTAT': (3, 'f'), 'KTAR': (4, 'f'), 'KTAS': (3, 'f'),
     'KLAS': (1, 'f'), 'KLAE': (1, 'f'), 'KLAC': (3, 'f'), 'KLAI': (1, 'f'),
     'KLBI': (1, 'f'), 'KLBC': (3, 'f'), 'KLAV': (1, 'f'),
     'KPEE': (1, 'f'), 'KPEG': (1, 'f'), 'KPLN': (1, 'f'), 'KPLT': (1, 'f'),
-    'KPEL': (1, 'f'), 'KPES': (1, 'f'), 'KPEV': (1, 'i'),
+    'KPEL': (1, 'f'), 'KPES': (1, 'f'), 'KPEV': (1, 'f'),
     'KP2S': (1, 'f'), 'KP2R': (1, 'f'), 'KP2L': (1, 'f'), 'KP2G': (1, 'f'),
-    'KP2E': (1, 'f'), 'KP2N': (1, 'f'), 'KP2W': (1, 'f'), 'KP2V': (1, 'i'),
+    'KP2E': (1, 'f'), 'KP2N': (1, 'f'), 'KP2W': (1, 'f'), 'KP2V': (1, 'f'),
     'KRHA': (1, 'f'), 'KRHB': (1, 'f'), 'KRAL': (1, 'f'), 'KRCO': (3, 'f'),
     'KRTX': (1, 'i'), 'KRVS': (1, 'f'),
     'KCTR': (1, 'f'), 'KTTR': (1, 'f'), 'KCRL': (1, 'i'),

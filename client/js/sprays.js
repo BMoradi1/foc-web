@@ -12,6 +12,7 @@
  * mean two dozen model loads at the moment it dies.
  */
 import * as THREE from 'three';
+import { visAt } from './particles.js';
 
 const DEG = Math.PI / 180;
 
@@ -64,10 +65,14 @@ class Spray {
     p.obj.visible = true;
   }
 
-  update(dt, emitting) {
+  update(dt, ctx) {
     const d = this.d;
     this.age += dt;
-    if (emitting && d.rate > 0) {
+    // A ParticleEmitter1 throws whole models -- bones, guts, feathers -- and is
+    // switched on for the one sequence that throws them. Until the converter
+    // carried that switch across, the caller had to guess from the unit's
+    // state, so a gore emitter either never fired or fired forever.
+    if (visAt(d.vis, ctx) > 0.01 && d.rate > 0) {
       this.acc += d.rate * dt;
       let n = Math.min(Math.floor(this.acc), 6);
       this.acc -= n;

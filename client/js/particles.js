@@ -47,6 +47,38 @@ void main() {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+/**
+ * An emitter's on/off switch for the sequence being played.
+ *
+ * Warcraft III scopes animation tracks to the playing sequence, and an
+ * emitter's visibility track is mostly a list of the sequences it is *off*
+ * for -- across this map's models, 8594 of 10381 keyed (emitter, sequence)
+ * pairs hold zero for the whole sequence. Emitting regardless, which is what
+ * this did, is why a standing Huntress trailed riding dust and idle units
+ * smoked and bled: the converter carries `vis` across per sequence, and
+ * `ctx` is which one is playing and how far into it.
+ *
+ * No context means no animation to scope to, so the emitter simply runs.
+ */
+export function visAt(vis, ctx) {
+  if (!vis || !ctx || ctx.seq == null || ctx.seq < 0) return 1;
+  const e = vis[ctx.seq];
+  if (e === undefined) return 1;
+  if (typeof e === 'number') return e;
+  const t = ctx.t || 0;
+  if (t <= e[0][0]) return e[0][1];
+  const last = e[e.length - 1];
+  if (t >= last[0]) return last[1];
+  for (let i = 0; i < e.length - 1; i++) {
+    if (t >= e[i][0] && t <= e[i + 1][0]) {
+      const span = e[i + 1][0] - e[i][0];
+      return span <= 0 ? e[i + 1][1]
+        : lerp(e[i][1], e[i + 1][1], (t - e[i][0]) / span);
+    }
+  }
+  return last[1];
+}
+
 /** Colour, alpha and size are given at three moments; walk between them. */
 function segment(e, t) {
   const half = t < 0.5;
@@ -94,6 +126,8 @@ class Emitter {
     this.points.frustumCulled = false;
     this.geo = geo;
     this.emitAcc = 0;
+    this.wasOn = false;      // squirt fires on the edge, so it needs the last state
+    this.lastT = 0;          // ...and a clip that loops has to re-arm that edge
   }
 
   spawn() {
@@ -121,14 +155,32 @@ class Emitter {
     this.life[i] = Math.max(0.05, d.lifespan);
   }
 
-  update(dt, emitting) {
+  update(dt, ctx) {
     const d = this.d;
-    if (emitting && d.rate > 0) {
+    const on = visAt(d.vis, ctx) > 0.01;
+    // A looping clip runs the same switch again every lap, so the edge has to be
+    // re-armed when the clip wraps. Without this a squirt whose sequence never
+    // turns it off -- a footstep puff on a looping Walk -- would fire its one
+    // burst and then stay silent for the rest of the game.
+    const t = ctx ? (ctx.t || 0) : 0;
+    if (t < this.lastT - 1e-4) this.wasOn = false;
+    this.lastT = t;
+    if (d.squirt) {
+      // A squirt emitter is a puff, not a stream: it throws its whole batch the
+      // moment it switches on and then nothing until it switches on again. Run
+      // as a stream -- 574 of these -- a footstep's dust cloud never stops.
+      if (on && !this.wasOn) {
+        let n = Math.min(Math.ceil(d.rate), 60);
+        while (n-- > 0) this.spawn();
+      }
+      this.emitAcc = 0;
+    } else if (on && d.rate > 0) {
       this.emitAcc += d.rate * dt;
       let budget = Math.min(this.emitAcc | 0, 40);      // never spike a frame
       this.emitAcc -= budget;
       while (budget-- > 0) this.spawn();
     }
+    this.wasOn = on;
     const pos = this.geo.attributes.position.array;
     const col = this.geo.attributes.pcolor.array;
     const alp = this.geo.attributes.palpha.array;

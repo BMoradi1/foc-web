@@ -438,6 +438,23 @@ export class Renderer {
     return view;
   }
 
+  /**
+   * Which sequence a thing is playing and how far into it, for the emitters
+   * hanging off it. Anything with no animation returns null, and an emitter
+   * given no context simply runs -- there is no sequence to scope it to.
+   */
+  animCtxOf(h) {
+    const a = h && (h.currentAction || h.action);
+    return a ? { seq: h.seqIndex ?? -1, t: a.time } : null;
+  }
+
+  /** Where a clip sits in the model's sequence list, which is what `vis` is keyed by. */
+  seqIndexOf(meta, clipName) {
+    if (!meta?.sequences || !clipName) return -1;
+    const want = String(clipName).toLowerCase();
+    return meta.sequences.findIndex((s) => s.name.toLowerCase() === want);
+  }
+
   /** Choose the best matching MDX sequence for a logical state. */
   pickClip(view, state) {
     if (!view.actions.size) return null;
@@ -471,6 +488,7 @@ export class Renderer {
     view.current = clip;
     view.currentAction = next;
     view.stateName = state;
+    view.seqIndex = this.seqIndexOf(view.meta, clip);
     this.applyGeosetVisibility(view, clip);
   }
 
@@ -678,10 +696,13 @@ export class Renderer {
       act.setLoop(birth ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
       act.clampWhenFinished = true;
       act.play();
+      fx.action = act;
+      fx.seqIndex = this.seqIndexOf(rec.meta, clip.name);
       // Warcraft III effects play Birth once, then settle into Stand.
       if (birth && stand) {
         fx.mixer.addEventListener('finished', () => {
-          fx.mixer.clipAction(stand).reset().play();
+          fx.action = fx.mixer.clipAction(stand).reset().play();
+          fx.seqIndex = this.seqIndexOf(rec.meta, stand.name);
         });
       } else if (birth) {
         // ...but a model with *only* a Birth has nothing to settle into, and the
@@ -729,7 +750,9 @@ export class Renderer {
                 travelled: 0, total: Math.max(1, Math.hypot(ev.tx - ev.x, ev.ty - ev.y)) };
     if (rec.gltf.animations.length) {
       m.mixer = new THREE.AnimationMixer(obj);
-      m.mixer.clipAction(rec.gltf.animations[0]).play();
+      const clip = rec.gltf.animations[0];
+      m.action = m.mixer.clipAction(clip).play();
+      m.seqIndex = this.seqIndexOf(rec.meta, clip.name);
     }
     m.emitters = this.attachEmitters(obj);
     m.ribbons = this.attachRibbons(obj);
@@ -749,9 +772,10 @@ export class Renderer {
   stepMissiles(dt) {
     for (const [fx, m] of this.missiles) {
       m.mixer?.update(dt);
-      for (const e of (m.emitters || [])) e.update(dt, true);
-      for (const r of (m.ribbons || [])) r.update(dt);
-      stepLights(m.lights || []);
+      const ctx = this.animCtxOf(m);
+      for (const e of (m.emitters || [])) e.update(dt, ctx);
+      for (const r of (m.ribbons || [])) r.update(dt, ctx);
+      stepLights(m.lights || [], ctx);
       // follow the target while it lives, else keep to the point it was aimed at
       const v = m.id != null ? this.views.get(m.id) : null;
       const tx = v ? v.root.position.x : toX(m.tx);
@@ -903,7 +927,9 @@ export class Renderer {
             g.root.add(obj);
             if (rec.gltf.animations.length) {
               g.mixer = new THREE.AnimationMixer(obj);
-              g.mixer.clipAction(rec.gltf.animations[0]).play();
+              const clip = rec.gltf.animations[0];
+              g.action = g.mixer.clipAction(clip).play();
+              g.seqIndex = this.seqIndexOf(rec.meta, clip.name);
             }
           } catch { /* fall through to the marker */ }
         }
@@ -993,18 +1019,22 @@ export class Renderer {
     const dt = this.clock.getDelta();
     for (const v of this.views.values()) {
       v.mixer?.update(dt);
-      for (const p of (v.emitters || [])) p.update(dt, true);
-      for (const r of (v.ribbons || [])) r.update(dt);
-      stepLights(v.lights || []);
-      for (const sp of (v.sprays || [])) sp.update(dt, v.stateName === 'death');
+      const ctx = this.animCtxOf(v);
+      for (const p of (v.emitters || [])) p.update(dt, ctx);
+      for (const r of (v.ribbons || [])) r.update(dt, ctx);
+      stepLights(v.lights || [], ctx);
+      // Sprays used to be gated on a guess -- 'is this unit dying?' -- because
+      // nothing carried the emitter's own switch across. Now it does.
+      for (const sp of (v.sprays || [])) sp.update(dt, ctx);
       if (v.alphaCurve) this.tickGeosetCurves(v);
     }
     for (const e of this.effects.values()) {
       e.mixer?.update(dt);
-      for (const p of (e.emitters || [])) p.update(dt, true);
-      for (const r of (e.ribbons || [])) r.update(dt);
-      stepLights(e.lights || []);
-      for (const sp of (e.sprays || [])) sp.update(dt, true);
+      const ctx = this.animCtxOf(e);
+      for (const p of (e.emitters || [])) p.update(dt, ctx);
+      for (const r of (e.ribbons || [])) r.update(dt, ctx);
+      stepLights(e.lights || [], ctx);
+      for (const sp of (e.sprays || [])) sp.update(dt, ctx);
     }
     this.stepMissiles(dt);
     this.stepItems(dt);

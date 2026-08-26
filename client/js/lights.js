@@ -15,6 +15,7 @@
  * frame.
  */
 import * as THREE from 'three';
+import { visAt } from './particles.js';
 
 // Warcraft III attenuates a light *linearly* between attStart and attEnd, while
 // three.js since r155 is physically correct: intensity is in candela and falls
@@ -76,15 +77,23 @@ export function buildLights(root, pool, owner) {
     if (!def) return;
     const slot = pool.claim(owner, def);
     if (!slot) return;                  // pool full: this effect goes unlit
-    out.push({ node: o, slot });
+    out.push({ node: o, slot, def, owner });
   });
   return out;
 }
 
-/** Keep each borrowed light on the node that owns it. */
-export function stepLights(lights) {
+/**
+ * Keep each borrowed light on the node that owns it, and lit only while its own
+ * visibility track says so -- a flare that belongs to one sequence should not
+ * burn through the other eight.
+ */
+export function stepLights(lights, ctx) {
   for (const l of lights) {
+    // The slot may already have been released and handed to another effect;
+    // driving it from a stale list would move and blink someone else's light.
+    if (l.slot.owner !== l.owner) continue;
     l.node.updateWorldMatrix(true, false);
     l.slot.light.position.setFromMatrixPosition(l.node.matrixWorld);
+    l.slot.light.visible = visAt(l.def?.vis, ctx) > 0.01;
   }
 }

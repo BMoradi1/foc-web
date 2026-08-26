@@ -79,11 +79,15 @@ window.playAnim = async (state, seconds = 1.2, step = 1 / 30) => {
   let peak = 0;
   for (let i = 0; i < frames; i++) {
     v.mixer?.update(step);
-    for (const p of (v.emitters || [])) p.update(step, true);
-    for (const r of (v.ribbons || [])) r.update(step);
+    // Emitters are scoped to the sequence being played, so the bench has to
+    // hand them the same context the render loop does -- otherwise it measures
+    // every emitter running at once, which is not what the game draws.
+    const ctx = view.animCtxOf(v);
+    for (const p of (v.emitters || [])) p.update(step, ctx);
+    for (const r of (v.ribbons || [])) r.update(step, ctx);
     // lights are moved onto their nodes by the render loop this bench skips
-    stepLights(v.lights || []);
-    for (const sp of (v.sprays || [])) sp.update(step, true);
+    stepLights(v.lights || [], ctx);
+    for (const sp of (v.sprays || [])) sp.update(step, ctx);
     peak = Math.max(peak, (v.ribbons || []).reduce(
       (n, r) => n + (r.geo.drawRange.count || 0), 0));
   }
@@ -209,7 +213,7 @@ window.layerContribution = async (state = 'attack', seconds = 1.0) => {
     // arc and keep the best frame rather than whatever instant we land on.
     let best = 0, bestLive = 0;
     for (let step = 0; step < 24; step++) {
-      for (const sp of v.sprays) sp.update(1 / 30, step < 6);
+      for (const sp of v.sprays) sp.update(1 / 30, view.animCtxOf(v));
       const live = v.sprays.reduce((n, sp) => n + sp.pieces.filter((p) => p.alive).length, 0);
       if (!live) continue;
       const px = measure(

@@ -13,6 +13,7 @@
  * axis; the last `lifespan` seconds of those pairs are stitched into a strip.
  */
 import * as THREE from 'three';
+import { visAt } from './particles.js';
 
 const VERT = `
 attribute float aAlpha;
@@ -109,9 +110,18 @@ class Ribbon {
     return { top, bot };
   }
 
-  update(dt) {
+  update(dt, ctx) {
     const d = this.d;
     this.age += dt;
+    // A sword's trail belongs to the swing, not to standing still: the ribbon's
+    // own visibility track says which sequences it draws in.
+    if (visAt(d.vis, ctx) <= 0.01) {
+      this.seg.length = 0;
+      this.acc = 0;
+      if (this.mesh) this.mesh.visible = false;
+      return;
+    }
+    if (this.mesh) this.mesh.visible = true;
     this.acc += d.rate * dt;
     let add = Math.min(Math.floor(this.acc), 4);
     this.acc -= add;
