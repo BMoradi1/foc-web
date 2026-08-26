@@ -59,7 +59,17 @@ export class JassEngine {
         // Warcraft III starts each player on the colour of their slot; the map
         // is free to reassign it, and this one does, ten times over.
         color: i,
-        gold: 0, lumber: 0, slotState: i < 12 ? 1 : 0, controller: 0,
+        gold: 0, lumber: 0,
+        // PLAYER_SLOT_STATE_EMPTY. A slot is only PLAYING once somebody is in
+        // it -- reporting all twelve as occupied makes the map believe it has a
+        // full house, and this one counts slots to decide who duels.
+        slotState: 0,
+        // MAP_CONTROL_NONE for a seat nobody is in, MAP_CONTROL_NEUTRAL for the
+        // four neutral players that own the creeps. A human seat becomes
+        // MAP_CONTROL_USER (0) when somebody sits in it -- and it matters that
+        // the creeps' owner is *not* USER, or a creep passes a filter meant to
+        // find players.
+        controller: i >= 12 ? 3 : 5,
         score: {}, techs: new Map(),
       }));
     }

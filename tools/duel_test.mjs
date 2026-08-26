@@ -1,25 +1,80 @@
-import { World, id2int } from '../server/world.js';
+// With two players, one per team, does the duel actually pair them?
+//
+// The map gates its duel on which of players 0-7 report PLAYING, picks a
+// duellist from each side, drops them in the arena and sends everyone else to
+// the stands. If every slot claims to be occupied the map picks from empty
+// ones, so nobody reaches the arena and the two real players watch an empty
+// ring from the stands.
+//
+//   node tools/duel_test.mjs [slotA] [slotB]
+import { World } from '../server/world.js';
 import { JassEngine } from '../server/jass/engine.js';
-const w = new World(); const e = new JassEngine(w);
-e.load(); e.boot();
-const msgs = [];
-for (const n of ['DisplayTextToForce', 'DisplayTimedTextToForce', 'DisplayTextToPlayer', 'DisplayTimedTextToPlayer']) {
-  const o = e.vm.natives.get(n);
-  if (o) e.vm.registerNative(n, (...a) => { const s = a.find((x) => typeof x === 'string'); if (s) msgs.push(s); return o(...a); });
+
+const A = +(process.argv[2] ?? 0);          // team 1 occupies 0-3
+const B = +(process.argv[3] ?? 4);          // team 2 occupies 4-7
+
+const world = new World();
+const eng = new JassEngine(world);
+eng.load();
+
+// FAKE_FULL=1 reproduces the old behaviour: every slot claims to be occupied,
+// which is what the engine used to report before anyone had joined.
+if (process.env.FAKE_FULL) {
+  for (let i = 0; i < 12; i++) eng.players[i].slotState = 1;
 }
-const tick = (s) => { for (let i = 0; i < Math.round(s * 30); i++) { e.update(1000 / 30); w.step(); } };
-tick(2);
-const A = w.sellUnit(w.tavernFor('H004'), e.players[0], 'H004');
-const B = w.sellUnit(w.tavernFor('E00T'), e.players[5], 'E00T');
-console.log('heroes placed. simulating 320s of game time…');
-const t0 = Date.now();
-const pos0 = { a: [Math.round(A.x), Math.round(A.y)], b: [Math.round(B.x), Math.round(B.y)] };
-tick(320);
-console.log(`simulated in ${((Date.now() - t0) / 1000).toFixed(1)}s wall clock`);
-console.log('hero A moved:', pos0.a, '->', [Math.round(A.x), Math.round(A.y)]);
-console.log('hero B moved:', pos0.b, '->', [Math.round(B.x), Math.round(B.y)]);
-console.log('paused:', A.paused, B.paused);
-const clean = [...new Set(msgs)].map((s) => s.replace(/\|c........|\|r/g, '').replace(/\n/g, ' ⏎ '));
-console.log('\nmap messages seen:');
-for (const m of clean.slice(0, 12)) console.log('   ' + m.slice(0, 110));
-console.log('\nunits:', w.units.size, ' errors:', [...new Set(e.errors.map((x) => x.split('\n')[0]))].length);
+// seat exactly two players, as a two-person lobby would
+for (const slot of [A, B]) {
+  const p = eng.players[slot];
+  p.slotState = 1; p.controller = 1; p.name = 'P' + slot;
+}
+eng.boot();
+
+const playing = eng.players.slice(0, 8).map((p) => p.slotState).join(',');
+console.log('slots 0-7 reporting PLAYING: %s   (seated: %d and %d)', playing, A, B);
+
+// give each of them a hero, the way buyHero does
+const HEROES = ['H00N', 'H00B'];
+const heroes = [];
+[A, B].forEach((slot, i) => {
+  const u = world.createUnit(eng.players[slot], HEROES[i] || HEROES[0], 0, 0, 0);
+  if (u) { heroes.push({ slot, u, from: { x: u.x, y: u.y } }); }
+});
+console.log('heroes created: %d', heroes.length);
+
+// the duel fires on a 290-310s timer; run past it
+// Watch the whole window rather than one snapshot: the map duels repeatedly,
+// and "not paused" on its own is not evidence of duelling -- a hero that never
+// moved is not paused either, it simply was never picked.
+const MINUTES = +(process.env.MINUTES || 6);
+const tick = () => { eng.update(1000 / 30); world.step(); };
+const events = [];
+let inArena = false;
+for (let i = 0; i < MINUTES * 60 * 30; i++) {
+  tick();
+  const far = heroes.filter((h) => Math.hypot(h.u.x - h.from.x, h.u.y - h.from.y) > 800).length;
+  const paused = heroes.filter((h) => h.u.paused).length;
+  const now = far === heroes.length;
+  if (now !== inArena) {
+    inArena = now;
+    events.push({ t: Math.round(world.now / 1000), inArena: now, far, paused });
+  }
+}
+console.log('\nduel events over %d minutes:', MINUTES);
+for (const e of events) {
+  console.log('  %4ds  %s   (%d of %d far from spawn, %d paused)',
+    e.t, e.inArena ? 'both in the arena' : 'back out       ', e.far, heroes.length, e.paused);
+}
+if (!events.length) console.log('  none -- nobody was ever moved into the arena');
+
+console.log('\nafter %ds:', Math.round(world.now / 1000));
+for (const h of heroes) {
+  const d = Math.round(Math.hypot(h.u.x - h.from.x, h.u.y - h.from.y));
+  console.log('  slot %d hero at (%d, %d)  moved %d units  paused=%s invulnerable=%s',
+    h.slot, Math.round(h.u.x), Math.round(h.u.y), d, !!h.u.paused, !!h.u.invulnerable);
+}
+// duellists fight; spectators are paused and made invulnerable in the stands
+const duelled = events.some((e) => e.inArena);
+console.log(duelled
+  ? '\nboth players reached the arena at least once'
+  : '\nPROBLEM: neither player was ever moved into the arena');
+process.exit(duelled ? 0 : 1);

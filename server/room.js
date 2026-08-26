@@ -74,11 +74,25 @@ export class Room {
 
   join(ws, name) {
     // team membership comes from the map's own config() (SetPlayerTeam)
+    // Alternate sides rather than filling slot 0 upwards. The map's slots are
+    // 0-3 for one team and 4-7 for the other, so filling in numeric order puts
+    // the first four arrivals all on Team 1 -- and this map will not start a
+    // duel unless somebody from each side is playing, so a two-person game got
+    // sent to the stands to watch an empty ring.
     const used = new Set([...this.players.values()].map((p) => p.slot));
+    const free = (t) => (TEAMS.find((x) => x.id === t)?.players || [])
+      .find((sl) => !used.has(sl));
+    const counts = [0, 1].map((t) => [...this.players.values()]
+      .filter((p) => teamOfSlot(p.slot) === t).length);
+    const want = counts[0] <= counts[1] ? 0 : 1;
+    let chosen = free(want) ?? free(1 - want);
     let slot = 0;
-    while (used.has(slot) && slot < PLAYER_SLOTS.length) slot++;
+    if (chosen == null) {
+      while (used.has(PLAYER_SLOTS[slot]) && slot < PLAYER_SLOTS.length) slot++;
+      chosen = PLAYER_SLOTS[slot];
+    }
     const p = { id: nextPlayer++, ws, name: (name || 'Player').slice(0, 18),
-                slot: PLAYER_SLOTS[slot] ?? slot, team: teamOfSlot(PLAYER_SLOTS[slot] ?? slot),
+                slot: chosen ?? slot, team: teamOfSlot(chosen ?? slot),
                 heroId: null, ready: false, entId: null, kills: 0, deaths: 0 };
     this.players.set(p.id, p);
     this.send(ws, {
@@ -257,16 +271,23 @@ export class Room {
     this.world = new World();
     this.eng = new JassEngine(this.world);
     this.eng.load();
+    // Seat everyone *before* the script runs. Warcraft III's config() and the
+    // map's init read the slot states, and this map gates its duel on which of
+    // players 0-7 are PLAYING; booting first meant the script saw an empty
+    // lobby and then found players in it afterwards.
+    for (const p of this.players.values()) {
+      const ph = this.eng.players[p.slot];
+      // MAP_CONTROL_USER is 0; 1 is MAP_CONTROL_COMPUTER. Telling the map its
+      // humans are computers makes every filter that looks for a real player
+      // reject them -- which is how a two-person duel ended with both players
+      // sitting in the stands and nobody in the ring.
+      ph.name = p.name; ph.controller = 0; ph.slotState = 1;
+    }
     const t0 = Date.now();
     this.bootReport = this.eng.boot();
     console.log(`[${this.id}] map script booted in ${Date.now() - t0}ms: ` +
       `${this.eng.triggers.length} triggers, ${this.eng.timers.length} timers, ` +
       `${this.world.units.size} units, ${this.bootReport.errors.length} errors`);
-    // seat each connected player in the slot the map's config() expects
-    for (const p of this.players.values()) {
-      const ph = this.eng.players[p.slot];
-      ph.name = p.name; ph.controller = 1; ph.slotState = 1;
-    }
     this.phase = Phase.PLAYING;
     for (const p of this.players.values()) if (p.ws) this.buyHero(p);
     this.broadcastState();
