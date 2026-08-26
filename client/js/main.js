@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Net } from './net.js';
 import { Renderer, toX, toZ } from './render.js';
 import { UI, Lang } from './ui.js';
+import { HeroPreview } from './heroview.js';
 import { Audio } from './audio.js';
 import { Msg, Phase, Ent } from '/shared/const.js';
 
@@ -9,6 +10,16 @@ const net = new Net();
 const ui = new UI(net);
 const view = new Renderer(document.getElementById('view'));
 const audio = new Audio();
+// The hero turning in the character-select pane. Built lazily on the first pick
+// so a player who never opens the lobby never pays for a second WebGL context.
+let heroPreview = null;
+ui.onHeroShown = (h) => {
+  const cv = document.getElementById('heroSpin');
+  if (!cv) return;
+  if (!heroPreview) heroPreview = new HeroPreview(cv, 280);
+  heroPreview.show(h, (S.unitModels || {})[h.id]).catch(() => {});
+};
+ui.onLobbyClosed = () => { if (heroPreview) heroPreview.clear(); };
 
 const S = {
   you: null, phase: Phase.LOBBY, game: null, heroes: [], hero: null,
@@ -17,6 +28,7 @@ const S = {
   lastSnap: 0, snapDt: 1 / 15,
   selected: null, bounds: null, ready: false, showScore: false,
   castPending: null, minimapImg: null,
+  unitModels: null,          // also feeds the lobby's rotating hero preview
 };
 
 // ------------------------------------------------------------------ networking
@@ -359,6 +371,8 @@ document.getElementById('btnReady').onclick = () => {
 function frame() {
   const dt = view.render();
   stepRings(dt);
+  // the lobby's hero turns only while the lobby is up
+  if (S.phase === Phase.LOBBY && heroPreview) heroPreview.step(dt);
   // interpolate entity views toward server state
   const alpha = Math.min(1, (performance.now() - S.lastSnap) / 1000 / S.snapDt);
   for (const [id, e] of S.ents) {
@@ -427,7 +441,7 @@ addEventListener('keydown', () => audio.init(), { once: true });
 // A handle for the tooling. A WebGL canvas screenshots blank unless
 // preserveDrawingBuffer is set, so the only honest way for tools/shot.mjs to
 // tell "the scene built" from "the scene is empty" is to count what is in it.
-window.FOC = { view, S, ui, net };
+window.FOC = { view, S, ui, net, get heroPreview() { return heroPreview; } };
 
 ui.setLoading('connecting…', 0.1);
 net.connect(savedName);

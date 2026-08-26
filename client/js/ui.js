@@ -6,6 +6,12 @@ const el = (tag, cls, html) => {
   return e;
 };
 const icon = (p) => (p ? `/assets/${p}` : '/assets/textures/_teamcolor.png');
+// A hero's own model, rendered at build time by tools/hero_portraits.mjs. The
+// map ships no icons for its heroes -- every one of them carries whatever art
+// the Warcraft III unit it was built from had, so Goku picks as a Paladin and
+// Ichigo as a Blood Elf Peasant. The `onerror` falls back to that original icon,
+// so a missing portrait costs the card nothing.
+const portrait = (id) => `/assets/portraits/${id}.png`;
 // Language. The map's text is Korean; data/translations.ko-en.json supplies an
 // English overlay and compile_game.py ships both, so this only chooses which of
 // the two already-present strings to show. Nothing is translated at runtime.
@@ -63,7 +69,9 @@ export class UI {
     const grid = $('heroGrid'); grid.innerHTML = '';
     for (const h of heroes.filter((x) => x.tavern === this.tavern)) {
       const c = el('div', 'hcard' + (h.model ? '' : ' nomodel') + (this.selected === h.id ? ' sel' : ''));
-      c.innerHTML = `<img src="${icon(h.icon)}" onerror="this.style.opacity=.25">
+      c.innerHTML = `<img src="${portrait(h.id)}" data-icon="${icon(h.icon)}"
+          onerror="if(this.dataset.icon){this.src=this.dataset.icon;this.dataset.icon='';}
+                   else this.style.opacity=.25">
         <div class="nm">${h.name}</div><div class="ti">${T(h, 'title')}</div>`;
       c.onclick = () => { this.selected = h.id; this.showHero(h); this.showLobby(game, heroes);
                           this.net.send({ t: 'pickHero', heroId: h.id }); };
@@ -76,7 +84,9 @@ export class UI {
   }
 
   showHero(h) {
-    const d = $('heroDetail');
+    // #heroInfo, not #heroDetail: the spin canvas is a sibling and must survive,
+    // or every pick throws away a WebGL context and builds another
+    const d = $('heroInfo');
     d.innerHTML = `<h2>${h.name}</h2><div class="sub">${T(h, 'title')}${h.model ? '' : ' · no imported model'}</div>
       <div class="statgrid">
         <span>Health</span><b>${h.hp}</b><span>Mana</span><b>${h.mana}</b>
@@ -84,6 +94,7 @@ export class UI {
         <span>Move</span><b>${h.moveSpeed}</b><span>Range</span><b>${h.atkRange}</b>
         <span>STR / AGI / INT</span><b>${h.str} / ${h.agi} / ${h.int}</b>
       </div>`;
+    if (this.onHeroShown) this.onHeroShown(h);
     for (const a of h.abilities || []) {
       const row = el('div', 'ab');
       row.innerHTML = `<img src="${icon(a.icon)}" onerror="this.style.opacity=.25">
@@ -112,6 +123,8 @@ export class UI {
   startGame() {
     $('lobby').classList.add('hidden');
     $('hud').classList.remove('hidden');
+    // let the preview go: the game needs the memory more than the menu does
+    if (this.onLobbyClosed) this.onLobbyClosed();
   }
 
   /**
