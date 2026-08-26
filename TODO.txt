@@ -1,0 +1,71 @@
+FOC Web -- outstanding work
+===========================
+
+Everything here is verified against the map, not speculative. Counts are
+measured, not estimated.
+
+EFFECTS (closing out the effects pass)
+--------------------------------------
+[ ] Fractional alpha on geoset visibility
+    Geoset visibility is still binary -- render.js does `mesh.visible = a > 0.05`.
+    Warcraft III fades a geoset through partial alpha, so anything that should
+    dissolve currently pops in and out instead. Last item on the effects list.
+
+EFFECTS (cont.)
+---------------
+[ ] Buff art -- no buff ever shows its attached model
+    Warcraft III gives a buff a Target Attachment model and an attachment point
+    (w3h fields ftat / fta0). Nothing reads w3h, buffs are never serialised to
+    the client, and no attach/detach path exists -- so no buff in the map has
+    ever drawn its art. 19 models are referenced and all 19 are already
+    converted, so this is wiring, not extraction.
+    Visible example: Ichigo's Hollow form (B001) and Vizard form (B000) both
+    attach Abilities\Spells\Undead\DeathCoil\DeathCoilMissile.mdl at "head".
+    That missing orb is the unchanged-model half of the report.
+
+GAMEPLAY / INPUT
+----------------
+[ ] Hotkeys
+    The map defines real `ahky` values for all 130 hero abilities. The client
+    still uses hardcoded q/w/e/r/d/f, so the printed hotkey and the key that
+    actually fires disagree on most heroes.
+
+[ ] SetUnitTimeScale -- 36 calls, currently a no-op
+    Animation speed changes (hastes, slows, channel speeds) do nothing.
+
+[ ] Text-tag motion natives -- 26 calls each, currently no-ops
+    SetTextTagVelocity and friends. Floating combat text does not drift.
+
+[ ] Fog of war
+    Nothing exists. The whole map is visible to everyone.
+
+SERVER
+------
+[ ] Room lifecycle
+    A long-lived server accumulates room state until joiners end up sharing a
+    team. Fresh server gives 11/11 on duo_test; after dozens of test clients it
+    degrades to 9/11 with both players on team 0. This is a real bug, not a
+    test artefact -- it just takes a while to show up in production.
+
+[~] Ichigo's near-death transformation  (engine half FIXED, art half open)
+    FIXED: he respawns, and the Hollow form grants its AGI x3 attack bonus.
+    OPEN:  the buff's attached art -- see "Buff art" below.
+
+HOUSEKEEPING
+------------
+[ ] Five tests are stale, not one
+    sound_test, spell_test, match_test, wincond_test and victory_test all
+    hardcode hero ids H004/E00T and the name "Saber". Neither id exists in this
+    map's 26 heroes, so they die during setup ("tavern for Saber: undefined")
+    before reaching anything they claim to test. Predates this work.
+
+[ ] No licence on the repo.
+
+NOT BUGS -- recorded so they are not re-investigated
+-----------------------------------------------------
+- Byakuya Kuchiki (H00N, war3mapImported\Byakuya2.mdl) has no team glow.
+  The source MDX collapses geoset 3 -- the TeamGlow geoset -- into a
+  0.034 x 0.031 x 0.008 speck while keeping a stale extent of radius 234.
+  Its two bones carry no KGSC scale track, so nothing expands it at runtime.
+  Geosets 6 and 8 are collapsed the same way. Warcraft III renders it exactly
+  as we do: nothing. 1 of 243 models with a team glow is affected.
