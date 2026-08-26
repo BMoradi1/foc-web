@@ -52,6 +52,8 @@ def from_blz(rec):
         # Splats\\UberSplatData.slk, which nothing read because that directory
         # was never extracted.
         uberSplat=str(rec.get('uberSplat') or '').strip(),
+        # How long the death animation runs before the corpse starts to decay.
+        deathTime=num(rec.get('death'), 3),
         soundSet=str(rec.get('unitSound', '') or ''),
         food=num(rec.get('fused'), 0), sight=num(rec.get('sight'), 1400),
         # UnitWeapons.slk 'acquire' -- how far a unit looks for a target on its
@@ -66,7 +68,7 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'ua1s': 'dmgSides', 'ua1c': 'atkCd', 'ua1r': 'atkRange', 'ua1t': 'atkType',
  'umvs': 'moveSpeed', 'umvr': 'turnRate', 'ucol': 'collision', 'usca': 'scale',
  'ushu': 'shadow', 'ushb': 'shadow', 'ushw': 'shadowW', 'ushh': 'shadowH',
- 'ushx': 'shadowX', 'ushy': 'shadowY', 'uubs': 'uberSplat',
+ 'ushx': 'shadowX', 'ushy': 'shadowY', 'uubs': 'uberSplat', 'udtm': 'deathTime',
  # ucbs/ucpt are the cast backswing and cast point, not the collision radius:
  # reading ucbs as collision gave every hero the map's 0.1s backswing as its
  # size, and dropped the real ucol overrides entirely

@@ -234,6 +234,8 @@ export class World {
       level: t && t.isHero ? 1 : (t ? t.level : 1),
       xp: 0, skillPoints: t && t.isHero ? 1 : 0,
       isHero: !!(t && t.isHero), isBuilding: !!(t && t.isBuilding),
+      // how long this unit's death animation runs before the corpse decays
+      deathTime: t && t.deathTime != null ? t.deathTime : 3,
       str: t ? t.str_ : 0, strLvl: t ? t.strLvl : 0,
       agi: t ? t.agi : 0, agiLvl: t ? t.agiLvl : 0,
       intel: t ? t.int_ : 0, intLvl: t ? t.intLvl : 0,
@@ -316,6 +318,18 @@ export class World {
     if (kp && killer !== u && this.hostile(killer, u)) {
       this.addScore(kp, 1);                       // PLAYER_SCORE_UNITS_KILLED
       if (u.isHero) this.addScore(kp, 7);         // PLAYER_SCORE_HEROES_KILLED
+    }
+    // Warcraft III leaves a corpse. It plays the unit's death animation for the
+    // unit's own death time, decays the flesh, and the bones linger after that;
+    // only then is it gone. Nothing here ever removed a dead unit, so corpses
+    // accumulated in the world forever -- and the client hid them the instant
+    // they died, so a spider simply vanished mid-animation. Heroes are exempt:
+    // they revive, so their body is not a corpse.
+    if (!u.isHero) {
+      const g = GP || {};
+      const decay = u.isBuilding ? (g.structureDecayTime ?? 30)
+                                 : (g.decayTime ?? 2) + (g.boneDecayTime ?? 88);
+      u.corpseUntil = this.now + ((u.deathTime ?? 3) + decay) * 1000;
     }
     this.emit({ t: 'death', id: u.id, killer: killer && killer.id });
     const dctx = { unit: u, killer, player: this.playerOf(u) };
@@ -1141,7 +1155,11 @@ export class World {
     this.stepItems();
     const alive = [];
     for (const u of this.units.values()) {
-      if (!u.alive) continue;
+      if (!u.alive) {
+        // the corpse's time is up: flesh decayed, bones gone
+        if (u.corpseUntil && this.now > u.corpseUntil) this.removeUnit(u);
+        continue;
+      }
       if (u.expireAt && this.now > u.expireAt) { this.killUnit(u, null); continue; }
       u.buffs = u.buffs.filter((b) => !b.until || b.until > this.now);
       if (u.morphed && u.morphed.until && this.now > u.morphed.until) this.unmorph(u);

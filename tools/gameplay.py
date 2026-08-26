@@ -117,7 +117,13 @@ out = dict(
     missDamageReduction=num('MissDamageReduction', 0.5),
     chanceToMiss=num('ChanceToMiss', 0),
     agiMoveBonus=num('AgiMoveBonus', 0),
-    boneDecayTime=num('BoneDecayTime', 6),
+    # A corpse's three ages: the death animation runs for the unit's own
+    # `death` time, then Decay Flesh for DecayTime, then the bones linger for
+    # BoneDecayTime. Blizzard's defaults are 2 and 88; this map overrides the
+    # bone time to 6, which is why its corpses clear quickly.
+    boneDecayTime=num('BoneDecayTime', 88),
+    decayTime=num('DecayTime', 2),
+    structureDecayTime=num('StructureDecayTime', 30),
     pawnItemRate=num('PawnItemRate', 0.5),
 )
 os.makedirs('data', exist_ok=True)

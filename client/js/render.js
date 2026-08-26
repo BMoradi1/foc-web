@@ -591,7 +591,11 @@ export class Renderer {
       });
     if (!cand.length) {
       const loose = names.find((n) => n.startsWith(want[0] || ''));
-      return loose || names.find((n) => n.startsWith('stand')) || names[0];
+      if (loose) return loose;
+      // Falling back to Stand is only ever right for a unit that is alive. A
+      // model with no Decay Flesh asked to decay must hold the pose its death
+      // clip left it in -- returning Stand there stands the corpse back up.
+      return TAGS[state] ? (names.find((n) => n.startsWith('stand')) || names[0]) : null;
     }
     // Containment alone is too loose. A request for {stand} contains "Stand
     // Upgrade Third Attack Ready" as surely as it contains "Stand", and drawing

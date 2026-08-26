@@ -344,15 +344,30 @@ function frame() {
     while (df > Math.PI) df -= Math.PI * 2;
     while (df < -Math.PI) df += Math.PI * 2;
     v.root.rotation.y += df * Math.min(1, dt * 12);
-    v.root.visible = e.a === 1 || e.k === Ent.HERO;
+    // A corpse is not invisible. Warcraft III plays the death animation, decays
+    // the flesh and leaves bones behind; hiding the unit the instant it died
+    // meant a spider vanished mid-animation and nothing was ever left on the
+    // ground. The server now keeps the body for its real decay time and removes
+    // it when that runs out, which is what takes the view with it.
+    v.root.visible = true;
     if (!v.loading && v.mixer) {
       const moving = Math.hypot(e.x - p.x, e.y - p.y) > 1.2;
-      const want = e.a === 0 ? 'death' : moving ? 'walk' : 'stand';
+      // A corpse ages through three sequences in order -- Death, then Decay
+      // Flesh, then Decay Bone -- each starting when the one before it has run
+      // out. A model missing one of them simply holds the pose it is in, which
+      // pickClip returns null for rather than standing the body back up.
+      const done = v.currentAction && !v.currentAction.isRunning();
+      let want;
+      if (e.a !== 0) want = moving ? 'walk' : 'stand';
+      else if (v.stateName === 'death') want = done ? 'decay flesh' : 'death';
+      else if (v.stateName === 'decay flesh') want = done ? 'decay bone' : 'decay flesh';
+      else if (v.stateName === 'decay bone') want = 'decay bone';
+      else want = 'death';
       // Death plays once and holds the final pose. Looping it makes a corpse
       // roll over, snap upright and roll again -- Warcraft III death sequences
       // carry the body a long way (a spider's spans 170 units vertically), so a
       // looped one reads as a live unit tipping over and righting itself.
-      const once = want === 'death';
+      const once = want === 'death' || want.startsWith('decay');
       // A state is now a Warcraft III token set -- an ability asks for
       // "spell,slam" rather than "spell" -- so a one-shot cast or attack has to
       // be recognised by its tokens, not by string equality, or walking would
