@@ -21,7 +21,8 @@ authoritative Node server with a Three.js top-down 3D client.
 
 
 ### Character Selector
-<img width="1272" height="968" alt="image" src="https://github.com/user-attachments/assets/54ba62ae-13b4-4f6f-9056-e3130feda02f" />
+<img width="1427" height="961" alt="image" src="https://github.com/user-attachments/assets/ad184b37-ff8d-4110-b831-459a308856f1" />
+
 
 
 
