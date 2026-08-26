@@ -60,8 +60,30 @@ for p in ['Scripts\\common.j', 'Scripts\\Blizzard.j', 'Scripts\\common.ai',
 tables = 0
 for low, orig in LIST.items():
     if not low.endswith(('.slk', '.txt')): continue
-    if low.startswith(('units\\', 'doodads\\', 'ui\\', 'abilities\\', 'items\\')):
+    # Splats\ carries UberSplatData.slk -- the ground decal stamped under every
+    # building -- and LightningData.slk, which 37 of this map's abilities name a
+    # bolt type from. Neither directory was listed, so both systems had no data
+    # to work from and simply did not exist.
+    if low.startswith(('units\\', 'doodads\\', 'ui\\', 'abilities\\', 'items\\',
+                       'splats\\')):
         if grab(orig): tables += 1
+
+# The splat and lightning tables name their own textures, and nothing else in
+# the game references them -- no model, no script -- so the art-following pass
+# below never reaches them. Read the tables and take what they ask for.
+for _tbl in ('Splats\\UberSplatData.slk', 'Splats\\LightningData.slk'):
+    _p = os.path.join(OUT, _tbl.replace('\\', os.sep))
+    if not os.path.exists(_p):
+        continue
+    try:
+        from slk import parse_slk as _ps
+        _rows = _ps(_p)
+        for _r in (_rows.values() if isinstance(_rows, dict) else _rows):
+            _d, _f = str(_r.get('Dir') or ''), str(_r.get('file') or '')
+            if _d and _f and _f not in ('-', '_'):
+                grab(resolve('%s\\%s' % (_d, _f)) or ('%s\\%s.blp' % (_d, _f)))
+    except Exception as _e:
+        print('splat/lightning textures: %s' % _e)
 
 # ---- 2. art referenced by the map's object data and script
 refs = collections.Counter()

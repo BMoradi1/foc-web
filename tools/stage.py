@@ -213,7 +213,50 @@ for uid, t in types.items():
                    l=1 if 'Aloc' in (t.get('abilities') or []) else 0,
                    sh=sh if sh not in ('', '-', '_') else None,
                    sw=t.get('shadowW', 0), shh=t.get('shadowH', 0),
-                   sx=t.get('shadowX', 0), sy=t.get('shadowY', 0))
+                   sx=t.get('shadowX', 0), sy=t.get('shadowY', 0),
+                   # the ground decal this building is stamped on
+                   us=(str(t.get('uberSplat') or '').strip() or None))
+
+# ---------------------------------------------------------------- ubersplats
+# Warcraft III stamps a ground decal under every building -- scorched earth,
+# flagstones, the glowing ring under an altar. The unit names a row in
+# Splats\UberSplatData.slk, that row names a texture and a scale, and none of it
+# was reachable because the Splats directory was never extracted.
+from slk import parse_slk as _splat_slk
+_texidx = json.load(open('assets/textures.json'))
+_have = {k.lower(): v for k, v in _texidx.items()}
+
+
+def _splat_tex(dirname, fname):
+    if not fname:
+        return None
+    key = ('%s\\%s' % (dirname, fname)).replace('/', '\\').lower()
+    if key in _have:
+        return _have[key]
+    base = key.split('\\')[-1]
+    for k, v in _have.items():
+        if k.split('\\')[-1] == base or k.split('\\')[-1] == base + '.blp':
+            return v
+    return None
+
+
+splats = {}
+_sp = 'war3_extracted/Splats/UberSplatData.slk'
+if os.path.exists(_sp):
+    _rows = _splat_slk(_sp)
+    for row in (_rows.values() if isinstance(_rows, dict) else _rows):
+        name = str(row.get('Name') or '').strip()
+        if not name or name == 'INIT':
+            continue
+        tex = _splat_tex(str(row.get('Dir') or ''), str(row.get('file') or ''))
+        if not tex:
+            continue
+        splats[name] = dict(t=tex, s=float(row.get('Scale') or 1),
+                            b=int(row.get('BlendMode') or 0))
+json.dump(splats, open(PUB + '/data/ubersplats.json', 'w'))
+print('ubersplats: %d types with a converted texture, %d units reference one'
+      % (len(splats), sum(1 for v in um.values() if v.get('us'))))
+
 _json.dump(um, open(PUB + '/data/unitmodels.json', 'w'))
 print('unit->model map: %d types, %d with a converted model, %d with a shadow'
       % (len(um), hit, sum(1 for v in um.values() if v['sh'])))

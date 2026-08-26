@@ -94,6 +94,6 @@ export function stepLights(lights, ctx) {
     if (l.slot.owner !== l.owner) continue;
     l.node.updateWorldMatrix(true, false);
     l.slot.light.position.setFromMatrixPosition(l.node.matrixWorld);
-    l.slot.light.visible = visAt(l.def?.vis, ctx) > 0.01;
+    l.slot.light.visible = visAt(l.def, ctx) > 0.01;
   }
 }

@@ -115,7 +115,7 @@ class Ribbon {
     this.age += dt;
     // A sword's trail belongs to the swing, not to standing still: the ribbon's
     // own visibility track says which sequences it draws in.
-    if (visAt(d.vis, ctx) <= 0.01) {
+    if (visAt(d, ctx) <= 0.01) {
       this.seg.length = 0;
       this.acc = 0;
       if (this.mesh) this.mesh.visible = false;

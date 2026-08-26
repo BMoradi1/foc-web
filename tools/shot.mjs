@@ -66,7 +66,7 @@ const scene = await page.evaluate(() => {
   if (!R) return { error: 'no renderer on window' };
   let meshes = 0, points = 0, textured = 0;
   R.scene.traverse((o) => {
-    if (o.isPoints) points++;
+    if (o.isPoints || o.userData?.w3emitter) points++;
     if (!o.isMesh) return;
     meshes++;
     const m = Array.isArray(o.material) ? o.material[0] : o.material;

@@ -109,10 +109,16 @@ for (let i = 0; i < 6; i++) {
     const me = S.ents.get(hero.id);
     if (me) window.FOC.net.send({ t: 'cast', slot, x: me.x + 300, y: me.y + 200 });
   }, i % 4);
-  await wait(1400);
-  const s = await survey();
-  peakFx = Math.max(peakFx, s.effects);
-  for (const k of Object.keys(peak)) peak[k] = Math.max(peak[k], s.fx[k]);
+  // Sample across the cast rather than once at the end of it. A short effect is
+  // born and gone inside a second, and `n` is a high-water mark of slots ever
+  // used -- so one late sample reports emitters that "are emitting" with no
+  // live particles left, which reads as a failure and is only a stale look.
+  for (let k = 0; k < 7; k++) {
+    await wait(200);
+    const s = await survey();
+    peakFx = Math.max(peakFx, s.effects);
+    for (const kk of Object.keys(peak)) peak[kk] = Math.max(peak[kk], s.fx[kk]);
+  }
 }
 console.log('\nwhile casting');
 console.log('  peak effects on screen: %d', peakFx);

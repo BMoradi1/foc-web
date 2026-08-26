@@ -6,6 +6,16 @@ import mdx
 from gltf import GLTF
 
 FPS = 30.0
+
+# ParticleEmitter2 bits in an MDX node's flags word.
+PRE2_FLAGS = {
+    'unshaded': 0x10000,
+    'sortFarZ': 0x20000,
+    'lineEmitter': 0x40000,
+    'unfogged': 0x80000,
+    'modelSpace': 0x100000,
+    'xyQuad': 0x200000,
+}
 TEXIDX = json.load(open('assets/textures.json'))
 OUTDIR = 'assets/models'
 
@@ -74,16 +84,29 @@ def eval_track(tr, frame, gseqs, is_quat, f0=None, f1=None):
     return (hermite if ip == 2 else bezier)(a, b, ta, tb, t)
 
 
-def seq_track(tr, seqs, default):
+def seq_track(tr, seqs, default, gseqs=()):
     """Sample one animation track per sequence, the way the engine scopes it.
 
-    Returns one entry per sequence: a constant where the value holds still for
-    the whole sequence, or [[t_seconds, value], ...] where it moves. A sequence
-    the track leaves unkeyed falls back to `default` -- for a visibility track
-    that is 1, for an emission rate it is the emitter's static rate.
+    Returns (entries, step). One entry per sequence: a constant where the value
+    holds still for the whole sequence, or [[t_seconds, value], ...] where it
+    moves. A sequence the track leaves unkeyed falls back to `default` -- for a
+    visibility track that is 1, for an emission rate the emitter's static rate.
+
+    `step` reports the track's interpolation mode, which is not decoration:
+    1753 of this map's 1758 emitter-visibility tracks and 721 of its 1064
+    emission-rate tracks are stored as MDLINTERP_DONT_INTERP, meaning the value
+    *holds* until the next key. Handing the client bare keys to interpolate
+    between turns every one of those steps into a ramp -- a rate that should
+    jump 0 -> 500 instead slides there over the gap.
+
+    Hermite and bezier tracks are resampled here rather than passed on, because
+    the curve math already lives in this file and the client should not have to
+    carry a second copy of it. Linear keys need neither.
     """
-    out = []
     keys = track_keys(tr) if tr else []
+    interp = tr['interp'] if tr else 1
+    step = interp == 0
+    out = []
     for s in seqs:
         s0, s1 = s['start'], s['end']
         ks = [k for k in keys if s0 <= k[0] <= s1]
@@ -93,13 +116,32 @@ def seq_track(tr, seqs, default):
         vals = [float(np.atleast_1d(k[1])[0]) for k in ks]
         if len(set(vals)) == 1:
             out.append(round(vals[0], 4))
+            continue
+        if interp >= 2:
+            # curved: sample it here so a straight line between the samples is
+            # close enough, and the client keeps one interpolation rule
+            f0, f1 = ks[0][0], ks[-1][0]
+            n = max(2, min(120, int((f1 - f0) / 1000.0 * FPS) + 1))
+            pts = []
+            for fr in np.linspace(f0, f1, n):
+                v = eval_track(tr, fr, gseqs, False, s0, s1)
+                pts.append([round((fr - s0) / 1000.0, 4),
+                            round(float(np.atleast_1d(v)[0]), 4)])
+            out.append(pts)
         else:
             out.append([[round((k[0] - s0) / 1000.0, 4), round(v, 4)]
                         for k, v in zip(ks, vals)])
-    return out
+    return out, step
 
 
-def seq_visibility(tr, seqs):
+
+def _pair(name, res):
+    """seq_track returns (entries, step); spread both into the extras dict."""
+    entries, step = res
+    return {name: entries, name + 'Step': step}
+
+
+def seq_visibility(tr, seqs, gseqs=()):
     """An emitter's on/off switch, resolved per sequence.
 
     Warcraft III scopes every animation track to the sequence being played, and
@@ -117,7 +159,7 @@ def seq_visibility(tr, seqs):
     also what the client did for every sequence before any of this existed, so
     the ~11% of pairs landing there keep the behaviour they already had.
     """
-    return seq_track(tr, seqs, 1.0)
+    return seq_track(tr, seqs, 1.0, gseqs)
 
 # ---------------------------------------------------------------- textures
 ASSET_BASE = ''   # client sets GLTFLoader resourcePath to /assets/
@@ -220,22 +262,30 @@ def convert(path, out_dir=OUTDIR, name=None):
                 tex = tex_uri(t.get('path'), t.get('replaceableId'))
             nd['extras'] = dict(w3particle=dict(
                 speed=n['speed'], variation=n['variation'], latitude=n['latitude'],
-                gravity=n['gravity'], lifespan=n['lifespan'], rate=n['emissionRate'],
+                gravity=n['gravity'], lifespan=n['lifespan'],
+                rateStatic=n['emissionRate'],
                 length=n['length'], width=n['width'], filter=n['filterMode'],
                 rows=max(1, n['rows']), cols=max(1, n['columns']),
                 headOrTail=n['headOrTail'], tailLength=n['tailLength'],
                 squirt=n['squirt'], texture=tex,
+                # The node flags word carries the emitter's shape and space, and
+                # no bit of it was ever decoded. 385 of this map's emitters are
+                # line emitters, 223 emit in model space -- following the bone
+                # instead of being left behind -- and 666 are unshaded.
+                **{k: bool(n['flags'] & v) for k, v in PRE2_FLAGS.items()},
                 color=n['segmentColor'], alpha=[a / 255.0 for a in n['segmentAlpha']],
                 scale=n['segmentScaling'],
-                vis=seq_visibility(n['tracks'].get('KP2V'), M['sequences']),
+                **_pair('vis', seq_visibility(n['tracks'].get('KP2V'),
+                                              M['sequences'], M['globalSeqs'])),
                 # An emitter's rate is usually animated, and where it is, the
                 # static `emissionRate` beside it is 0: 1057 of this map's 2517
                 # ParticleEmitter2s are in that state -- every large death
                 # explosion, every building blast, the fire and frost breath
                 # missiles. Reading the static number makes all of them emit
                 # exactly nothing, forever.
-                rateSeq=seq_track(n['tracks'].get('KP2E'), M['sequences'],
-                                  round(float(n['emissionRate']), 4))))
+                **_pair('rate', seq_track(n['tracks'].get('KP2E'), M['sequences'],
+                                          round(float(n['emissionRate']), 4),
+                                          M['globalSeqs']))))
         # ParticleEmitter1 throws whole models -- bones, guts, feathers -- so
         # what it needs carried across is the name of the thing it throws.
         if n.get('type') == 'PREM' and n.get('spawnModel'):
@@ -244,14 +294,16 @@ def convert(path, out_dir=OUTDIR, name=None):
                 longitude=n['longitude'], latitude=n['latitude'],
                 lifespan=n['lifespan'], speed=n['initVelocity'],
                 model=n['spawnModel'],
-                vis=seq_visibility(n['tracks'].get('KPEV'), M['sequences'])))
+                **_pair('vis', seq_visibility(n['tracks'].get('KPEV'),
+                                              M['sequences'], M['globalSeqs']))))
         # An omni light. Directional ones belong to the day/night cycle models,
         # which nothing here uses, so only point lights are carried across.
         if n.get('type') == 'LITE' and n.get('lightType') == 0:
             nd['extras'] = dict(w3light=dict(
                 color=n['color'], intensity=n['intensity'],
                 attStart=n['attStart'], attEnd=n['attEnd'],
-                vis=seq_visibility(n['tracks'].get('KLAV'), M['sequences'])))
+                **_pair('vis', seq_visibility(n['tracks'].get('KLAV'),
+                                              M['sequences'], M['globalSeqs']))))
         # A ribbon is a trail dragged behind a point on the skeleton, and its
         # look comes from a *material* rather than a texture directly, so the
         # same layer rule that picks a mesh's surface picks the ribbon's.
@@ -265,7 +317,8 @@ def convert(path, out_dir=OUTDIR, name=None):
                 cols=max(1, n['columns']), slot=n['textureSlot'],
                 gravity=n['gravity'], texture=uri,
                 filter=(L['filterMode'] if L else 0),
-                vis=seq_visibility(n['tracks'].get('KRVS'), M['sequences'])))
+                **_pair('vis', seq_visibility(n['tracks'].get('KRVS'),
+                                              M['sequences'], M['globalSeqs']))))
         g.j['nodes'].append(nd)
     for n in nodes:
         parent = 0 if n['parentId'] < 0 else nid[n['parentId']]

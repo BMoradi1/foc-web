@@ -72,7 +72,7 @@ class Spray {
     // switched on for the one sequence that throws them. Until the converter
     // carried that switch across, the caller had to guess from the unit's
     // state, so a gore emitter either never fired or fired forever.
-    if (visAt(d.vis, ctx) > 0.01 && d.rate > 0) {
+    if (visAt(d, ctx) > 0.01 && d.rate > 0) {
       this.acc += d.rate * dt;
       let n = Math.min(Math.floor(this.acc), 6);
       this.acc -= n;

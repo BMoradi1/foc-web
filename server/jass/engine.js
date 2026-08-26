@@ -921,8 +921,22 @@ function installNatives(vm, eng) {
     SetCameraOrientController: () => {}, CameraSetupApply: () => {},
     CameraSetupApplyForceDuration: () => {}, CreateCameraSetup: () => H('camerasetup', {}),
     CameraSetupSetField: () => {}, CameraSetupSetDestPosition: () => {},
-    CameraSetSmoothingFactor: () => {}, ResetToGameCamera: () => {},
-    CameraSetSourceNoise: () => {}, CameraSetTargetNoise: () => {},
+    CameraSetSmoothingFactor: () => {},
+    // Camera shake. The map asks for it 91 times -- every heavy landing, every
+    // big spell -- and every one of those calls did nothing, which is most of
+    // what an impact feels like. `magnitude` is how far the camera is thrown and
+    // `velocity` how fast it rattles; the Ex forms add a vertical-only flag.
+    CameraSetTargetNoise: (mag, vel) =>
+      eng.emit({ t: 'camShake', mag: +mag || 0, vel: +vel || 0, vert: false }),
+    CameraSetSourceNoise: (mag, vel) =>
+      eng.emit({ t: 'camShake', mag: +mag || 0, vel: +vel || 0, vert: false }),
+    CameraSetTargetNoiseEx: (mag, vel, vert) =>
+      eng.emit({ t: 'camShake', mag: +mag || 0, vel: +vel || 0, vert: !!vert }),
+    CameraSetSourceNoiseEx: (mag, vel, vert) =>
+      eng.emit({ t: 'camShake', mag: +mag || 0, vel: +vel || 0, vert: !!vert }),
+    // A shake is cleared by asking for one of magnitude zero, and this is the
+    // other way the map ends one.
+    ResetToGameCamera: () => eng.emit({ t: 'camShake', mag: 0, vel: 0, vert: false }),
     SetCineFilterTexture: () => {}, SetCineFilterBlendMode: () => {},
     SetCineFilterStartUV: () => {}, SetCineFilterEndUV: () => {},
     SetCineFilterStartColor: () => {}, SetCineFilterEndColor: () => {},

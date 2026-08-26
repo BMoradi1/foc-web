@@ -88,7 +88,7 @@ function findMeta(e) {
   if (t) return { model: t.m, scale: t.s, name: t.n, isHero: !!t.h, isBuilding: !!t.b,
                   radius: t.r, locust: !!t.l,
                   // the unit's own shadow image, size and offset
-                  sh: t.sh, sw: t.sw, shh: t.shh, sx: t.sx, sy: t.sy };
+                  sh: t.sh, sw: t.sw, shh: t.shh, sx: t.sx, sy: t.sy, us: t.us };
   return {};
 }
 
@@ -115,10 +115,12 @@ function handleEvent(ev) {
     }
     case 'cast': {
       const v = view.views.get(ev.id);
-      if (v) view.play(v, 'spell', true);
+      // the ability's own Animnames if it has one, else the generic cast clip
+      if (v) view.play(v, ev.anim || 'spell', true);
       if (ev.x != null) spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0x88ccff, 120);
       break;
     }
+    case 'camShake': view.setShake(ev.mag, ev.vel, ev.vert); break;
     case 'aoe': spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xff8844, ev.r); break;
     case 'blinkIn': case 'blinkOut':
       spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xaa66ff, 110); break;
@@ -176,11 +178,13 @@ function flash() { flashT = 0.25; }
 
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
-  const [terr, heightsBuf, doodads, unitModels] = await Promise.all([
+  const [terr, heightsBuf, doodads, unitModels, ubersplats] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
     fetch('/data/unitmodels.json').then((r) => r.json()),
+    // the ground decals buildings are stamped on
+    fetch('/data/ubersplats.json').then((r) => r.json()).catch(() => ({})),
   ]);
   const doodadMeta = await fetch('/data/doodadmeta.json').then((r) => r.json()).catch(() => ({}));
   // baked cliff mesh; a map with no cliffs simply has no cliffs.json
@@ -193,6 +197,8 @@ async function boot(m) {
     } catch { return null; }
   })();
   S.unitModels = unitModels;
+  // the ground-decal table, keyed by the id a unit's uberSplat names
+  view.splats = ubersplats;
   ui.setLoading('building arena…', 0.6);
   await view.buildTerrain(terr, new Float32Array(heightsBuf), cliffs);
   await view.addDoodads(doodads, doodadMeta);
@@ -347,9 +353,13 @@ function frame() {
       // carry the body a long way (a spider's spans 170 units vertically), so a
       // looped one reads as a live unit tipping over and righting itself.
       const once = want === 'death';
-      if (v.stateName !== 'attack' && v.stateName !== 'spell' && v.stateName !== want) view.play(v, want, once);
-      else if ((v.stateName === 'attack' || v.stateName === 'spell') &&
-               v.currentAction && !v.currentAction.isRunning()) view.play(v, want, once);
+      // A state is now a Warcraft III token set -- an ability asks for
+      // "spell,slam" rather than "spell" -- so a one-shot cast or attack has to
+      // be recognised by its tokens, not by string equality, or walking would
+      // cut every such cast off on the next frame.
+      const busy = /(^|,|\s)(attack|spell)(,|\s|$)/.test(v.stateName || '');
+      if (!busy && v.stateName !== want) view.play(v, want, once);
+      else if (busy && v.currentAction && !v.currentAction.isRunning()) view.play(v, want, once);
     }
   }
   const me = S.ents.get(S.hero?.id);

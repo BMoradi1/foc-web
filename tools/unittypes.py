@@ -47,6 +47,11 @@ def from_blz(rec):
         shadow=str(rec.get('unitShadow') or rec.get('buildingShadow') or '').strip(),
         shadowW=num(rec.get('shadowW'), 0), shadowH=num(rec.get('shadowH'), 0),
         shadowX=num(rec.get('shadowX'), 0), shadowY=num(rec.get('shadowY'), 0),
+        # The ground decal a building is stamped on -- scorched earth under an
+        # orc hut, flagstones under a human one. It names a row in
+        # Splats\\UberSplatData.slk, which nothing read because that directory
+        # was never extracted.
+        uberSplat=str(rec.get('uberSplat') or '').strip(),
         soundSet=str(rec.get('unitSound', '') or ''),
         food=num(rec.get('fused'), 0), sight=num(rec.get('sight'), 1400),
         # UnitWeapons.slk 'acquire' -- how far a unit looks for a target on its
@@ -61,7 +66,7 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'ua1s': 'dmgSides', 'ua1c': 'atkCd', 'ua1r': 'atkRange', 'ua1t': 'atkType',
  'umvs': 'moveSpeed', 'umvr': 'turnRate', 'ucol': 'collision', 'usca': 'scale',
  'ushu': 'shadow', 'ushb': 'shadow', 'ushw': 'shadowW', 'ushh': 'shadowH',
- 'ushx': 'shadowX', 'ushy': 'shadowY',
+ 'ushx': 'shadowX', 'ushy': 'shadowY', 'uubs': 'uberSplat',
  # ucbs/ucpt are the cast backswing and cast point, not the collision radius:
  # reading ucbs as collision gave every hero the map's 0.1s backswing as its
  # size, and dropped the real ucol overrides entirely
@@ -135,7 +140,7 @@ def apply_mods(t, mods):
         if f in ('abilities', 'heroAbilities', 'sellItems', 'sellUnits'):
             t[f] = [x.strip() for x in str(v).split(',') if x.strip() and x.strip() != '_']
         elif f in ('name', 'properName', 'suffix', 'model', 'icon', 'race', 'armorType', 'primary',
-                   'atkType', 'missile', 'soundSet', 'tip', 'ubertip', 'weaponType',
+                   'atkType', 'missile', 'soundSet', 'tip', 'ubertip', 'weaponType', 'uberSplat',
                    'atkTargetsAllowed'):
             t[f] = v
         else:

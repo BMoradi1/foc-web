@@ -1046,11 +1046,15 @@ export class World {
     u.mana -= info.mana;
     u.cooldowns.set(key, this.now + info.cooldown * 1000);
     u.facing = Math.atan2((ty ?? u.y) - u.y, (tx ?? u.x) - u.x);
-    this.emit({ t: 'cast', id: u.id, ab: int2id(key) });
+    const abil = abilEntry(this.abilKey(key));
+    // The ability names the animation it wants, as a Warcraft III token set:
+    // "spell,slam", "attack,slam", "spell,throw", "stand,channel". 257 of this
+    // map's abilities carry one and nothing had ever read it, so every cast
+    // played whichever clip happened to be called "Spell".
+    this.emit({ t: 'cast', id: u.id, ab: int2id(key), anim: abil?.art?.anim || null });
     // 1. the engine performs the base Warcraft III ability, and draws the art
     //    that ability carries.  An ability with a missile hands its payload to
     //    the missile instead, and resolves when that lands.
-    const abil = abilEntry(this.abilKey(key));
     if (!this.launchAbilityMissile(u, abil, key, { target: targetUnit, x: tx, y: ty })) {
       this.runAbility(u, key, { target: targetUnit, x: tx, y: ty });
     }

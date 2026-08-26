@@ -13,6 +13,60 @@ const TEAM_COLOR = [0x4f8fe0, 0xe05050, 0x9a9a9a];
 // same Korean word appear across its dummy unit types.
 const NO_MODEL = new Set(['없다', '없음', '업다', '읎지여', 'none', '_', '-']);
 
+// See pickClip: whether a building's working animation counts as one of its
+// idle variants. The map's data does not settle it, so it is one constant.
+const STAND_WORK_IDLES = true;
+
+// The logical states the rest of the client asks for, as Warcraft III token
+// sets. Anything not listed is tokenised as written, so an ability's own
+// Animnames ("spell,slam") passes straight through.
+const TAGS = {
+  stand: ['stand'],
+  walk: ['walk'],
+  attack: ['attack'],
+  death: ['death'],
+  spell: ['spell'],
+};
+
+/** Attach-point tokens: punctuation and the trailing "Ref" carry no meaning. */
+function attachTokens(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+    .split(' ').filter((t) => t && t !== 'ref');
+}
+
+/**
+ * Split a sequence name into Warcraft III animation tokens.
+ *
+ * "Stand Ready Attack" -> [stand, ready, attack]. The trailing "- 2" that marks
+ * a variant is not a token; it is which of several sequences sharing a name
+ * this is, and treating it as one would stop "Stand - 2" matching a request for
+ * "stand". Commas separate tokens too, which is how the object data writes them.
+ */
+function tokensOf(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\s*-\s*\d+\s*$/, '')
+    .split(/[\s,]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Warcraft III's variant weighting. `rarity` marks a sequence as the unusual
+ * one -- the idle where the footman shifts his grip. The common variants are
+ * rarity 0 and are what plays nearly all the time; a rare one surfaces
+ * occasionally, which is the whole point of having it.
+ */
+function weightedByRarity(pool, meta) {
+  const rarityOf = (clip) => {
+    const s = meta?.sequences?.find((x) => x.name.toLowerCase() === clip);
+    return s?.rarity || 0;
+  };
+  const common = pool.filter((n) => rarityOf(n) === 0);
+  const rare = pool.filter((n) => rarityOf(n) > 0);
+  const use = (rare.length && Math.random() < 0.1) ? rare : (common.length ? common : pool);
+  return use[(Math.random() * use.length) | 0];
+}
+
 /** Map WC3 world coords -> three.js coords. */
 export const toX = (x) => x;
 export const toZ = (y) => -y;
@@ -375,7 +429,9 @@ export class Renderer {
     view.root.add(obj);
     view.obj = obj;
     view.meta = meta;
+    view.isBuilding = !!ent.isBuilding;      // decides the Stand Work question
     this.attachShadow(view, ent);
+    this.attachSplat(view, ent);
     view.emitters = this.attachEmitters(obj);
     view.ribbons = this.attachRibbons(obj);
     // Deliberately no lights on unit views: a unit lives for the whole game and
@@ -383,29 +439,7 @@ export class Renderer {
     // would leave nothing for any spell. Lights go to effects and missiles,
     // which come and go.
     this.attachSprays(obj, view);
-    view.prims = [];
-    obj.traverse((o) => { if (o.isMesh) view.prims.push(o); });
-    // honour each geoset's MDX filter mode (additive glows, modulate, alpha test)
-    view.prims.forEach((mesh, i) => {
-      const gi = meta.geosets?.[i];
-      const mt = gi ? meta.materials?.[gi.material] : null;
-      if (!mt) return;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mm of mats) {
-        if (mt.filter === 'additive' || mt.filter === 'addalpha') {
-          mm.blending = THREE.AdditiveBlending;
-          mm.transparent = true; mm.depthWrite = false;
-        } else if (mt.filter === 'modulate' || mt.filter === 'modulate2x') {
-          mm.blending = THREE.MultiplyBlending;
-          mm.transparent = true; mm.depthWrite = false;
-        } else if (mt.filter === 'blend') {
-          mm.transparent = true; mm.depthWrite = false;
-        }
-        if (mt.unshaded) { mm.emissiveIntensity = 1; }
-        if (mt.twoSided) mm.side = THREE.DoubleSide;
-        if (mt.noDepthTest) mm.depthTest = false;
-      }
-    });
+    view.prims = this.applyMaterials(obj, meta);
     // Team colour, the way Warcraft III does it: a material bound to a
     // ReplaceableTextures swatch wears the *owning player's* colour, so the
     // texture is swapped rather than the material tinted. The converter bakes
@@ -432,10 +466,57 @@ export class Renderer {
         const a = view.mixer.clipAction(clip);
         view.actions.set(clip.name.toLowerCase(), a);
       }
+      // Warcraft III draws a fresh idle variant each time the animation comes
+      // round; that is what makes a building's work animation surface every so
+      // often rather than never or always.
+      view.mixer.addEventListener('loop', (e) => {
+        if (view.stateName !== 'stand' || e.action !== view.currentAction) return;
+        this.play(view, 'stand', false, true);
+      });
     }
     view.loading = false;
     this.play(view, 'stand');
     return view;
+  }
+
+  /**
+   * Honour each geoset's MDX filter mode, and hand back the meshes in geoset
+   * order so the geoset-visibility pass can index them.
+   *
+   * This lived inside buildView and so ran for *units only*. Warcraft III
+   * effect art is glow art -- 540 of the 659 materials on this map's 312
+   * ability-art models are additive or addalpha -- and every one of those
+   * models arrives through spawnEffect or spawnMissile, which never ran this.
+   * They drew with plain glTF alpha: a flat quad where a glow belongs.
+   */
+  applyMaterials(obj, meta) {
+    const prims = [];
+    obj.traverse((o) => { if (o.isMesh) prims.push(o); });
+    prims.forEach((mesh, i) => {
+      const gi = meta?.geosets?.[i];
+      const mt = gi ? meta.materials?.[gi.material] : null;
+      if (!mt) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mm of mats) {
+        if (mt.filter === 'additive' || mt.filter === 'addalpha') {
+          mm.blending = THREE.AdditiveBlending;
+          mm.transparent = true; mm.depthWrite = false;
+        } else if (mt.filter === 'modulate' || mt.filter === 'modulate2x') {
+          mm.blending = THREE.MultiplyBlending;
+          mm.transparent = true; mm.depthWrite = false;
+        } else if (mt.filter === 'blend') {
+          mm.transparent = true; mm.depthWrite = false;
+        }
+        if (mt.unshaded) { mm.emissiveIntensity = 1; }
+        if (mt.twoSided) mm.side = THREE.DoubleSide;
+        if (mt.noDepthTest) mm.depthTest = false;
+        // priorityPlane is the model's own answer to "which of these overlapping
+        // additive layers goes on top"; it was exported and never read, leaving
+        // the order to whatever the scene graph happened to produce.
+        if (mt.priority) mesh.renderOrder = mt.priority;
+      }
+    });
+    return prims;
   }
 
   /**
@@ -448,6 +529,33 @@ export class Renderer {
     return a ? { seq: h.seqIndex ?? -1, t: a.time } : null;
   }
 
+  /**
+   * Resolve a Warcraft III attach point to a node inside the model.
+   *
+   * The script names them the way the World Editor does -- "origin", "chest",
+   * "weapon", "overhead", "right foot" -- while the model calls them
+   * "Origin Ref", "Chest Ref", "Foot Right Ref", "Head - Ref". Matching is by
+   * whole token, so word order does not matter, "Ref" and punctuation are
+   * noise, and `head` cannot accidentally match `OverHead Ref` the way a
+   * substring test would.
+   *
+   * The map does this 59 times and every one of them used to land on the unit's
+   * root: an overhead buff drawn at the feet, a weapon effect at the origin.
+   */
+  attachNode(obj, attach) {
+    const want = attachTokens(attach);
+    if (!want.length || !obj) return null;
+    let best = null, bestExtra = Infinity;
+    obj.traverse((o) => {
+      if (!o.name) return;
+      const t = attachTokens(o.name);
+      if (!t.length || !want.every((w) => t.includes(w))) return;
+      const extra = t.filter((x) => !want.includes(x)).length;
+      if (extra < bestExtra) { bestExtra = extra; best = o; }
+    });
+    return best;
+  }
+
   /** Where a clip sits in the model's sequence list, which is what `vis` is keyed by. */
   seqIndexOf(meta, clipName) {
     if (!meta?.sequences || !clipName) return -1;
@@ -455,29 +563,75 @@ export class Renderer {
     return meta.sequences.findIndex((s) => s.name.toLowerCase() === want);
   }
 
-  /** Choose the best matching MDX sequence for a logical state. */
+  /**
+   * Choose an MDX sequence for a logical state, the way Warcraft III does.
+   *
+   * The engine names animations by *token set*, not by string. The map says so
+   * itself: 257 of its abilities carry an Animnames field holding things like
+   * "spell,slam", "attack,slam", "stand,channel" -- a request for {spell, slam}
+   * that matches the sequence "Spell Slam". A sequence qualifies when its own
+   * tokens contain every token asked for.
+   *
+   * Among the qualifying sequences the engine picks one at random, weighted by
+   * `rarity` -- which is exactly what that field is for, and which was exported
+   * in the sequence meta and read by nothing. This mattered more than it looks:
+   * the old code returned the *first* exact name match and never varied, so 416
+   * of the 588 models this map places had stand variants that were unreachable
+   * for the whole game.
+   */
   pickClip(view, state) {
     if (!view.actions.size) return null;
     const names = [...view.actions.keys()];
-    const want = {
-      stand: ['stand', 'stand 1', 'stand ready', 'stand alternate'],
-      walk: ['walk', 'walk fast', 'run'],
-      attack: ['attack', 'attack 1', 'attack 2', 'attack slam'],
-      death: ['death', 'dissipate'],
-      spell: ['spell', 'spell channel', 'spell slam', 'attack 1'],
-    }[state] || [state];
-    for (const w of want) { if (view.actions.has(w)) return w; }
-    for (const w of want) {
-      const hit = names.find((n) => n === w || n.startsWith(w + ' ') || n.startsWith(w));
-      if (hit) return hit;
+    const want = TAGS[state] || tokensOf(state);
+    const cand = names
+      .map((n) => ({ n, extra: tokensOf(n).filter((t) => !want.includes(t)) }))
+      .filter(({ n }) => {
+        const t = tokensOf(n);
+        return want.every((w) => t.includes(w));
+      });
+    if (!cand.length) {
+      const loose = names.find((n) => n.startsWith(want[0] || ''));
+      return loose || names.find((n) => n.startsWith('stand')) || names[0];
     }
-    return names.find((n) => n.startsWith('stand')) || names[0];
+    // Containment alone is too loose. A request for {stand} contains "Stand
+    // Upgrade Third Attack Ready" as surely as it contains "Stand", and drawing
+    // freely among them made the arcane tower flicker between its base and all
+    // three upgraded appearances. Warcraft III keeps the extra tokens in check
+    // with the unit's required-animation list; what a unit does *not* declare,
+    // it does not play. So only an exact match qualifies --
+    let pool = cand.filter((c) => !c.extra.length);
+    // -- with one documented exception. "Stand Work" is a building's working
+    // animation, and whether the engine admits it into the plain idle pool is
+    // not decidable from this map's data: the rarity values disagree with each
+    // other (the Barracks has Stand at 1 and Stand Work at 0). It is admitted
+    // for buildings only, which is where the war mill's `work smoke` and the
+    // ammo dump's fire live. Flip this one constant to change that judgement.
+    if (STAND_WORK_IDLES && view.isBuilding && want.includes('stand')) {
+      pool = pool.concat(cand.filter((c) => c.extra.length === 1 && c.extra[0] === 'work'));
+    }
+    if (pool.length) return weightedByRarity(pool.map((c) => c.n), view.meta);
+    // Nothing matches exactly -- the arcane tower has no plain "Stand" at all.
+    // Take the closest, and settle ties by the model's own order so the choice
+    // is stable instead of flickering between equally-distant variants.
+    const min = Math.min(...cand.map((c) => c.extra.length));
+    const closest = cand.filter((c) => c.extra.length === min);
+    let best = closest[0];
+    for (const c of closest) {
+      if (this.seqIndexOf(view.meta, c.n) < this.seqIndexOf(view.meta, best.n)) best = c;
+    }
+    return best.n;
   }
 
-  play(view, state, once = false) {
+  play(view, state, once = false, reroll = false) {
     if (!view.mixer) return;
+    // Selection is a random draw among variants now, so re-entering a state the
+    // unit is already in must not re-roll on every call -- only when the state
+    // actually changes, or when the clip has come round and the engine would
+    // draw again.
+    if (!reroll && view.stateName === state && view.currentAction?.isRunning()) return;
     const clip = this.pickClip(view, state);
-    if (!clip || view.current === clip) return;
+    if (!clip) return;
+    if (view.current === clip) { view.stateName = state; return; }
     const next = view.actions.get(clip);
     if (!next) return;
     if (view.currentAction) view.currentAction.fadeOut(0.18);
@@ -641,6 +795,46 @@ export class Renderer {
     view.shadow = mesh;
   }
 
+  /**
+   * The ground decal a building is stamped on.
+   *
+   * Warcraft III lays an "ubersplat" under every building -- scorched earth
+   * beneath an orc hut, flagstones beneath a human one, the rune ring under an
+   * altar. The unit names a row in Splats\UberSplatData.slk which gives the
+   * texture and a scale; 961 of this map's unit types name one and 179 of those
+   * references resolve to art. None of it drew, because that whole directory
+   * was missing from the extraction.
+   *
+   * It sits a hair above the ground and below the unit's shadow, and does not
+   * write depth, so terrain and shadow both read through it correctly.
+   */
+  attachSplat(view, ent) {
+    const id = ent.us;
+    if (!id || view.splat) return;
+    const spec = this.splats?.[id];
+    if (!spec) return;
+    const key = 'splat:' + id;
+    let tex = this.fxTextures.get(key);
+    if (!tex) {
+      tex = new THREE.TextureLoader().load('/assets/' + spec.t);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.fxTextures.set(key, tex);
+    }
+    const s = Math.max(16, spec.s || 100);
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(s, s),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
+                                    // BlendMode 1 is the additive glow used by
+                                    // rune circles; 0 is ordinary alpha
+                                    blending: spec.b === 1 ? THREE.AdditiveBlending
+                                                           : THREE.NormalBlending }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 2;
+    mesh.renderOrder = -2;              // under the shadow, over the ground
+    view.root.add(mesh);
+    view.splat = mesh;
+  }
+
   /** Omni lights an effect carries, borrowed from the fixed pool. */
   attachLights(obj, owner) { return buildLights(obj, this.lightPool, owner); }
 
@@ -681,7 +875,9 @@ export class Renderer {
     if (onUnit) {
       const v = this.views.get(ev.id);
       if (!v) return;
-      parent = v.root;
+      // hang it off the named attach point if the model has one; the root is
+      // the fallback, and the map's "origine" typo is meant to find nothing
+      parent = this.attachNode(v.obj, ev.attach) || v.root;
     } else {
       obj.position.set(toX(ev.x), this.heightAt(ev.x, ev.y), toZ(ev.y));
     }
@@ -696,13 +892,16 @@ export class Renderer {
       act.setLoop(birth ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
       act.clampWhenFinished = true;
       act.play();
-      fx.action = act;
+      fx.currentAction = act;
+      fx.current = clip.name.toLowerCase();
       fx.seqIndex = this.seqIndexOf(rec.meta, clip.name);
       // Warcraft III effects play Birth once, then settle into Stand.
       if (birth && stand) {
         fx.mixer.addEventListener('finished', () => {
-          fx.action = fx.mixer.clipAction(stand).reset().play();
+          fx.currentAction = fx.mixer.clipAction(stand).reset().play();
+          fx.current = stand.name.toLowerCase();
           fx.seqIndex = this.seqIndexOf(rec.meta, stand.name);
+          this.applyGeosetVisibility(fx, fx.current);
         });
       } else if (birth) {
         // ...but a model with *only* a Birth has nothing to settle into, and the
@@ -713,6 +912,11 @@ export class Renderer {
         fx.mixer.addEventListener('finished', () => this.endEffect(ev.fx));
       }
     }
+    fx.meta = rec.meta;
+    fx.prims = this.applyMaterials(obj, rec.meta);
+    // and the same per-sequence geoset switching units get: an effect model's
+    // sequences hide and show parts of it just as a unit's do
+    if (fx.current) this.applyGeosetVisibility(fx, fx.current);
     fx.emitters = this.attachEmitters(obj);
     fx.ribbons = this.attachRibbons(obj);
     fx.lights = this.attachLights(obj, fx);
@@ -751,9 +955,13 @@ export class Renderer {
     if (rec.gltf.animations.length) {
       m.mixer = new THREE.AnimationMixer(obj);
       const clip = rec.gltf.animations[0];
-      m.action = m.mixer.clipAction(clip).play();
+      m.currentAction = m.mixer.clipAction(clip).play();
+      m.current = clip.name.toLowerCase();
       m.seqIndex = this.seqIndexOf(rec.meta, clip.name);
     }
+    m.meta = rec.meta;
+    m.prims = this.applyMaterials(obj, rec.meta);
+    if (m.current) this.applyGeosetVisibility(m, m.current);
     m.emitters = this.attachEmitters(obj);
     m.ribbons = this.attachRibbons(obj);
     m.lights = this.attachLights(obj, m);
@@ -893,13 +1101,38 @@ export class Renderer {
     this.camTarget.x = Math.max(b.minX, Math.min(b.maxX, this.camTarget.x));
     this.camTarget.z = Math.max(-b.maxY, Math.min(-b.minY, this.camTarget.z));
   }
-  updateCamera() {
+  /**
+   * Camera shake, as CameraSetTargetNoise asks for it.
+   *
+   * `mag` is how far the camera is thrown, `vel` how fast it rattles. A shake
+   * runs until the map cancels it with a magnitude of zero, so this holds the
+   * request rather than decaying on its own -- the script decides when it stops,
+   * and this map calls for one 91 times.
+   */
+  setShake(mag, vel, vert) {
+    this.shake = mag > 0 ? { mag, vel: Math.max(0.1, vel || 1), vert: !!vert, t: 0 } : null;
+  }
+
+  updateCamera(dt = 0) {
     const d = this.camDist;
     const cp = Math.cos(this.camPitch), sp = Math.sin(this.camPitch);
+    let ox = 0, oy = 0, oz = 0;
+    const sh = this.shake;
+    if (sh) {
+      sh.t += dt;
+      // two incommensurate frequencies per axis, so the rattle does not read as
+      // a clean sine wave the eye can follow
+      const w = sh.t * sh.vel;
+      oy = Math.sin(w * 6.3) * sh.mag;
+      if (!sh.vert) {
+        ox = Math.sin(w * 4.7 + 1.3) * sh.mag;
+        oz = Math.sin(w * 5.9 + 2.1) * sh.mag;
+      }
+    }
     this.camera.position.set(
-      this.camTarget.x + Math.sin(this.camYaw) * cp * d,
-      this.camTarget.y + sp * d,
-      this.camTarget.z + Math.cos(this.camYaw) * cp * d);
+      this.camTarget.x + Math.sin(this.camYaw) * cp * d + ox,
+      this.camTarget.y + sp * d + oy,
+      this.camTarget.z + Math.cos(this.camYaw) * cp * d + oz);
     this.camera.lookAt(this.camTarget);
   }
 
@@ -933,7 +1166,7 @@ export class Renderer {
             if (rec.gltf.animations.length) {
               g.mixer = new THREE.AnimationMixer(obj);
               const clip = rec.gltf.animations[0];
-              g.action = g.mixer.clipAction(clip).play();
+              g.currentAction = g.mixer.clipAction(clip).play();
               g.seqIndex = this.seqIndexOf(rec.meta, clip.name);
             }
           } catch { /* fall through to the marker */ }
@@ -1040,11 +1273,12 @@ export class Renderer {
       for (const r of (e.ribbons || [])) r.update(dt, ctx);
       stepLights(e.lights || [], ctx);
       for (const sp of (e.sprays || [])) sp.update(dt, ctx);
+      if (e.alphaCurve) this.tickGeosetCurves(e);
     }
     this.stepMissiles(dt);
     this.stepItems(dt);
     this.tickWater(dt);
-    this.updateCamera();
+    this.updateCamera(dt);
     this.renderer.render(this.scene, this.camera);
     return dt;
   }
