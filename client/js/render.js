@@ -516,6 +516,27 @@ export class Renderer {
       const gi = meta?.geosets?.[i];
       const mt = gi ? meta.materials?.[gi.material] : null;
       if (!mt) return;
+      // An unshaded layer is not lit. Warcraft III takes the texture as the
+      // colour and no lamp touches it; a PBR material lights it and adds an
+      // emissive copy on top, so the layer is drawn roughly three times over.
+      // On an additive layer that is what turns a soft team glow into a
+      // rectangle: the quad's near-black border (RGB 1 in the source art) gets
+      // lifted far enough to separate from the ground behind it, and the box is
+      // the quad's own outline. An unlit material is the honest expression of
+      // "not lit" and needs no compensating factors.
+      if (mt.unshaded) {
+        const swap = (mm) => {
+          const b = new THREE.MeshBasicMaterial({
+            map: mm.map || mm.emissiveMap || null,
+            color: 0xffffff, transparent: mm.transparent, opacity: mm.opacity,
+            alphaTest: mm.alphaTest, side: mm.side, depthTest: mm.depthTest,
+            depthWrite: mm.depthWrite, blending: mm.blending,
+          });
+          return b;
+        };
+        mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(swap) : swap(mesh.material);
+      }
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mm of mats) {
         if (mt.filter === 'additive' || mt.filter === 'addalpha') {
@@ -527,7 +548,6 @@ export class Renderer {
         } else if (mt.filter === 'blend') {
           mm.transparent = true; mm.depthWrite = false;
         }
-        if (mt.unshaded) { mm.emissiveIntensity = 1; }
         if (mt.twoSided) mm.side = THREE.DoubleSide;
         if (mt.noDepthTest) mm.depthTest = false;
         // priorityPlane is the model's own answer to "which of these overlapping
