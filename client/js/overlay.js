@@ -75,6 +75,7 @@ class Stats {
       `cpu  views   ${(view.perf?.views || 0).toFixed(1)}   interp ${(view.perf?.interp || 0).toFixed(1)}`,
       `     gl      ${(view.perf?.gl || 0).toFixed(1)}   ui ${(view.perf?.ui || 0).toFixed(1)}   fx ${(view.perf?.fx || 0).toFixed(1)}`,
       `[ anim ${view.frozen ? 'FROZEN' : 'on'}    ] units ${view.noUnits ? 'HIDDEN' : 'on'}`,
+      `\\ skinning ${view.skinless ? 'OFF' : 'on'}`,
       `textures     ${info.memory.textures}   geometries ${info.memory.geometries}`,
     ];
     ctx.save();

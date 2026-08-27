@@ -13,6 +13,7 @@ import { Ent } from '/shared/const.js';
 const TEAM_COLOR = [0x4f8fe0, 0xe05050, 0x9a9a9a];
 // Warcraft III tints the selection circle by what the unit is to you, not by
 // the owner's player colour.
+const NOOP = () => {};
 const SELECTION_COLOR = { own: 0x40ff40, ally: 0xffe040, enemy: 0xff4040, neutral: 0xdddddd };
 
 // Every way this map writes "there is no model here". Four spellings of the
@@ -954,6 +955,36 @@ export class Renderer {
       if (!box.isEmpty()) v.headY = Math.max(40, box.max.y - v.root.position.y) + 26;
     }
     return v.root.position.clone().setY(v.root.position.y + (v.headY ?? 140));
+  }
+
+  /**
+   * Draw every unit in its bind pose, with no skeleton work.
+   *
+   * The diagnostic the other two switches cannot give. Hiding the units removes
+   * their draw calls and their skinning together; freezing animation removes
+   * neither, because three.js rebuilds a skeleton for every skinned mesh it
+   * renders whatever the mixer did beforehand. This leaves the draw calls
+   * untouched and takes only the skeleton away, so whichever of the two costs
+   * the frame shows up alone.
+   *
+   * It stubs the skeleton's own update rather than clearing isSkinnedMesh:
+   * three.js reaches the skeleton through the mesh's matrix update, not through
+   * that flag. The models stand stiff while it is on -- it is a measurement,
+   * not a mode.
+   */
+  setSkinning(on) {
+    this.skinless = !on;
+    const seen = new Set();
+    for (const v of this.views.values()) {
+      for (const mesh of v.prims || []) {
+        const sk = mesh.skeleton;
+        if (!sk || seen.has(sk)) continue;
+        seen.add(sk);
+        if (!sk.__realUpdate) sk.__realUpdate = sk.update;
+        sk.update = on ? sk.__realUpdate : NOOP;
+      }
+    }
+    return seen.size;
   }
 
   /** Show or hide one unit's circle. `rel` is own | ally | enemy | neutral. */

@@ -361,7 +361,9 @@ addEventListener('keydown', (e) => {
       canvas.style.cursor = 'crosshair';
       if (a.targetMode === 'unit') ui.log(`${a.name}: click a target`, 'lvl');
     }
-  } else if (k === '[') { view.frozen = !view.frozen;
+  } else if (e.key === '\\') { const n = view.setSkinning(!!view.skinless);
+    ui.log(`skinning ${view.skinless ? 'OFF (bind pose)' : 'on'} \u2014 ${n} skeletons`, 'lvl'); }
+  else if (k === '[') { view.frozen = !view.frozen;
     ui.log(`animation ${view.frozen ? 'frozen' : 'running'}`, 'lvl'); }
   else if (k === ']') { view.noUnits = !view.noUnits;
     if (!view.noUnits) for (const v of view.views.values()) v.root.visible = true;
