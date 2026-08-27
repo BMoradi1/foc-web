@@ -58,6 +58,7 @@ export class UI {
     $('objective').textContent = game.meta.objective || '';
     $('lobby').classList.remove('hidden');
     $('hud').classList.add('hidden');
+    $('gameover').classList.add('hidden');
     // biggest rosters first, so the default tab is a real hero tavern rather
     // than a one-off vendor that happens to sell a hero-flagged unit
     const counts = new Map();
@@ -129,6 +130,9 @@ export class UI {
   startGame() {
     $('lobby').classList.add('hidden');
     $('hud').classList.remove('hidden');
+    // Nothing ever re-hid this, so the second match in a room was played under
+    // the first one's opaque, click-eating banner.
+    $('gameover').classList.add('hidden');
     // let the preview go: the game needs the memory more than the menu does
     if (this.onLobbyClosed) this.onLobbyClosed();
   }

@@ -89,10 +89,37 @@ PERFORMANCE
     safe to merge -- the rest share a material but not visibility, and merging
     those breaks the animated geoset switching that Bankai depends on.
 
+[ ] GPU texture handles are never released, and disposing them does not help
+    Geometry and materials now come back on removeView -- 29 -> 55 -> 29 over
+    three spawn/remove cycles, asserted in render_test. Textures do not:
+    renderer.info.memory.textures climbs 9 per unit spawned and never falls,
+    for the whole match.
+    It is not a reference we hold. At rest between cycles the scene traverses
+    to 2 meshes and 2 textures, flat, and exactly 3 Texture objects are created
+    per spawn -- the texanim layer clones, which releaseGPU does dispose.
+    The mechanism is three.js's own accounting (r185, WebGLTextures):
+    info.memory.textures counts one entry per (texture.source, sampler-state
+    key), where the key is getTextureCacheKey -- wrap, filters, anisotropy,
+    colorSpace and friends. An entry is only freed when its usedTimes reaches
+    zero, so disposing one texture that shares an entry moves nothing:
+    measured, disposing a texanim clone changes the counter by 0.
+    What has NOT been established is which 9 that is, given only 3 objects are
+    born. The next step is to instrument getTextureCacheKey rather than guess
+    -- the signature (monotonic growth, nothing retained) is what you get when
+    a shared texture's key changes after it has been uploaded, which orphans
+    the old entry forever. Look for a per-spawn write to a cached texture's
+    wrap/filter/colorSpace.
+    Worth keeping in proportion: the pixel data is uploaded once per source and
+    shared, so this is handle growth rather than image growth. It is still
+    unbounded, and it is the last thing standing between the ` counters and
+    actually flattening.
+
 [ ] o00D has no entry in unittypes.json
     Portgas D. Ace's A05N names it as a morph form and the compiled table has
     no such unit, so it reaches the client with nothing to draw. ghost_test
-    catches it. Predates the performance work.
+    catches it. Predates the performance work. It no longer produces an
+    invisible pickable unit -- spawnView falls through to the capsule stand-in
+    now -- but a capsule is a placeholder, not the model, so the entry stays.
 
 [ ] tools/ghost_test.mjs prints raw format specifiers
     Its console.log uses %-6s and friends, which Node does not support.

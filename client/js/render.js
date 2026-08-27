@@ -4,7 +4,7 @@ import { buildRibbons } from './ribbons.js';
 import { LightPool, buildLights, stepLights } from './lights.js';
 import { buildSprays } from './sprays.js';
 import { SplatField, buildEvents, stepEvents } from './splats.js';
-import { buildTexAnims, stepTexAnims } from './texanim.js';
+import { buildTexAnims, stepTexAnims, disposeTexAnims } from './texanim.js';
 import { Bolt } from './lightning.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
@@ -97,6 +97,26 @@ function weightedByRarity(pool, meta) {
 /** Map WC3 world coords -> three.js coords. */
 export const toX = (x) => x;
 export const toZ = (y) => -y;
+
+/**
+ * What a view built for itself, as against what it borrows.
+ *
+ * SkeletonUtils.clone shares geometry *and* materials with the model cache, so
+ * a unit's mesh is mostly not its own: disposing it would take the model out
+ * from under every other unit of the type, and mutating it recolours them all.
+ * Everything registered here is a copy this holder made and may be freed with
+ * it; everything else is the cache's and is left alone.
+ */
+function own(holder, ...things) {
+  const list = holder.owned || (holder.owned = []);
+  for (const t of things) if (t) list.push(t);
+  return things[0];
+}
+function disposeOwned(holder) {
+  for (const t of holder.owned || []) t.dispose?.();
+  holder.owned = null;
+}
+const matsOf = (mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material]);
 
 export class Renderer {
   constructor(canvas) {
@@ -415,6 +435,10 @@ export class Renderer {
       this.modelCache.set(name, rec);
       return rec;
     })();
+    // A 404 is remembered here forever otherwise, so a unit whose model is
+    // missing stays invisible through every respawn rather than falling back
+    // to the stand-in once.
+    p.catch(() => { if (this.pending.get(name) === p) this.pending.delete(name); });
     this.pending.set(name, p);
     return p;
   }
@@ -437,29 +461,37 @@ export class Renderer {
     // game: what settles it is that the unit is Locust and has no model. Give it
     // no stand-in mesh, or it walks the battlefield as a grey capsule -- the
     // "ghost orc" left behind by Byakuya's Senka.
-    if (!name && ent.locust) { view.loading = false; return view; }
-    if (!name) {
-      // Blizzard base models are not inside the map file; use readable stand-ins.
+    if (!name && ent.locust) { view.locust = true; view.loading = false; return view; }
+    // Blizzard base models are not inside the map file; use readable stand-ins.
+    const standIn = () => {
       if (ent.k === Ent.SHOP || ent.isBuilding) {
-        const body = new THREE.Mesh(new THREE.BoxGeometry(200, 210, 200),
-          new THREE.MeshLambertMaterial({ color: 0x6d6a63 }));
+        const body = new THREE.Mesh(own(view, new THREE.BoxGeometry(200, 210, 200)),
+          own(view, new THREE.MeshLambertMaterial({ color: 0x6d6a63 })));
         body.position.y = 105;
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(165, 130, 4),
-          new THREE.MeshLambertMaterial({ color: 0x8a5a3c }));
+        const roof = new THREE.Mesh(own(view, new THREE.ConeGeometry(165, 130, 4)),
+          own(view, new THREE.MeshLambertMaterial({ color: 0x8a5a3c })));
         roof.position.y = 275; roof.rotation.y = Math.PI / 4;
         view.root.add(body, roof);
       } else {
         const r = Math.max(14, (ent.radius || 24) * 0.9);
-        const g = new THREE.CapsuleGeometry(r, r * 2, 4, 10);
-        const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial(
-          { color: TEAM_COLOR[ent.t] ?? 0x888888 }));
+        const g = own(view, new THREE.CapsuleGeometry(r, r * 2, 4, 10));
+        const mesh = new THREE.Mesh(g, own(view, new THREE.MeshLambertMaterial(
+          { color: TEAM_COLOR[ent.t] ?? 0x888888 })));
         mesh.position.y = Math.max(14, (ent.radius || 24) * 0.9) * 2;
         view.root.add(mesh);
       }
       view.loading = false;
       return view;
-    }
-    const { gltf, meta } = await this.loadModel(name);
+    };
+    if (!name) return standIn();
+    // A model the assets do not carry is a real case -- o00D is named by a
+    // morph and has no unit type -- and it used to leave a unit that could be
+    // clicked and killed but never seen. spawnEffect and spawnMissile both
+    // catch here; this did not.
+    let rec;
+    try { rec = await this.loadModel(name); } catch { return standIn(); }
+    if (!this.views.has(ent.i)) return view;        // removed while loading
+    const { gltf, meta } = rec;
     const obj = skeletonClone(gltf.scene);
     obj.scale.setScalar(ent.scale || 1);
     view.root.add(obj);
@@ -475,7 +507,7 @@ export class Renderer {
     // an emitter's carefully built ShaderMaterial the blending rules meant for
     // a geoset. prims is indexed one-to-one against meta.geosets and must hold
     // nothing but the model's own geometry.
-    view.prims = this.applyMaterials(obj, meta);
+    view.prims = this.applyMaterials(obj, meta, view);
     view.emitters = this.attachEmitters(obj);
     view.ribbons = this.attachRibbons(obj);
     // Deliberately no lights on unit views: a unit lives for the whole game and
@@ -497,8 +529,8 @@ export class Renderer {
       if (!kind) return;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       mesh.material = mats.map((mm) => {
-        const c = mm.clone();
-        c.map = this.teamTexture(kind[1], colour) || c.map;
+        const c = own(view, mm.clone());
+        c.map = this.teamTexture(kind[1], colour) || c.map;   // the swatch is shared
         if (c.emissiveMap) c.emissiveMap = c.map;
         return c;
       });
@@ -537,7 +569,7 @@ export class Renderer {
    * models arrives through spawnEffect or spawnMissile, which never ran this.
    * They drew with plain glTF alpha: a flat quad where a glow belongs.
    */
-  applyMaterials(obj, meta) {
+  applyMaterials(obj, meta, holder) {
     const prims = [];
     obj.traverse((o) => { if (o.isMesh) prims.push(o); });
     prims.forEach((mesh, i) => {
@@ -560,7 +592,7 @@ export class Renderer {
             alphaTest: mm.alphaTest, side: mm.side, depthTest: mm.depthTest,
             depthWrite: mm.depthWrite, blending: mm.blending,
           });
-          return b;
+          return own(holder, b);
         };
         mesh.material = Array.isArray(mesh.material)
           ? mesh.material.map(swap) : swap(mesh.material);
@@ -872,9 +904,9 @@ export class Renderer {
       return t;
     })();
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, h),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.55,
-                                    depthWrite: false, color: 0x000000 }));
+      own(view, new THREE.PlaneGeometry(w, h)),
+      own(view, new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.55,
+                                              depthWrite: false, color: 0x000000 })));
     mesh.rotation.x = -Math.PI / 2;
     // shadowX/shadowY place the image's corner, not its centre
     mesh.position.set(w / 2 - (ent.sx || 0), 3, h / 2 - (ent.sy || 0));
@@ -918,9 +950,9 @@ export class Renderer {
       this.fxTextures.set(key, tex);
     }
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(r * 2, r * 2),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
-                                    color: 0x40ff40 }));
+      own(view, new THREE.PlaneGeometry(r * 2, r * 2)),
+      own(view, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
+                                              color: 0x40ff40 })));
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = 12 + (ent.sz || 0);
     // Drawn after the world's own ground art, not under it. Warcraft III shows
@@ -1024,12 +1056,12 @@ export class Renderer {
     }
     const s = Math.max(16, spec.s || 100);
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(s, s),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
+      own(view, new THREE.PlaneGeometry(s, s)),
+      own(view, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
                                     // BlendMode 1 is the additive glow used by
                                     // rune circles; 0 is ordinary alpha
                                     blending: spec.b === 1 ? THREE.AdditiveBlending
-                                                           : THREE.NormalBlending }));
+                                                           : THREE.NormalBlending })));
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = 2;
     mesh.renderOrder = -2;              // under the shadow, over the ground
@@ -1219,7 +1251,7 @@ export class Renderer {
       }
     }
     fx.meta = rec.meta;
-    fx.prims = this.applyMaterials(obj, rec.meta);
+    fx.prims = this.applyMaterials(obj, rec.meta, fx);
     fx.texAnims = buildTexAnims(fx.prims, rec.meta);
     fx.bornAt = performance.now() / 1000;
     // and the same per-sequence geoset switching units get: an effect model's
@@ -1268,7 +1300,7 @@ export class Renderer {
       m.seqIndex = this.seqIndexOf(rec.meta, clip.name);
     }
     m.meta = rec.meta;
-    m.prims = this.applyMaterials(obj, rec.meta);
+    m.prims = this.applyMaterials(obj, rec.meta, m);
     m.texAnims = buildTexAnims(m.prims, rec.meta);
     m.bornAt = performance.now() / 1000;
     if (m.current) this.applyGeosetVisibility(m, m.current);
@@ -1285,6 +1317,7 @@ export class Renderer {
     m.mixer?.stopAllAction();
     this.lightPool.release(m);         // hand the pool slot back
     this.scene.remove(m.obj);
+    this.releaseGPU(m);
   }
 
   stepMissiles(dt) {
@@ -1312,7 +1345,12 @@ export class Renderer {
       const lift = m.arc > 0 ? m.arc * m.total * 4 * k * (1 - k) : 0;
       const ground = this.heightAt(m.x, m.y) + 40;
       m.obj.position.set(nx, ground + lift, nz);
-      m.obj.rotation.y = Math.atan2(dx, dz);
+      // The pipeline's model-forward is +X at yaw 0 -- unit facing is written
+      // straight into rotation.y and Warcraft III's facing 0 is east -- so a
+      // travel direction in (x, z) turns by atan2(-dz, dx). atan2(dx, dz) is
+      // the same angle a quarter turn out, which is why every arrow and spear
+      // in the game flew sideways.
+      m.obj.rotation.y = Math.atan2(-dz, dx);
     }
   }
 
@@ -1325,6 +1363,7 @@ export class Renderer {
     e.mixer?.stopAllAction();
     this.lightPool.release(e);
     e.parent?.remove(e.obj);
+    this.releaseGPU(e);
   }
 
   /**
@@ -1373,19 +1412,53 @@ export class Renderer {
     this.applyGeosetVisibility(view, clip);
   }
 
-  /** SetUnitVertexColor: materials are cloned per view, so this is per unit. */
+  /**
+   * SetUnitVertexColor -- 21 calls in this map, and every one of them was
+   * tinting the wrong units.
+   *
+   * A view draws with the model cache's materials, which every other unit of
+   * the type draws with too: ghosting one summon to 50% used to ghost all of
+   * them, and because the mutated material stays in the cache, every unit of
+   * that type spawned afterwards arrived pre-ghosted. The first tint takes the
+   * view its own copies.
+   *
+   * The colour modulates the material's rather than replacing it, which is
+   * what a vertex colour does, and the alpha modulates the authored opacity --
+   * an additive glow written at 0.5 must not be forced to 1 by a tint that
+   * only asked for full alpha.
+   */
   tintUnit(id, r, g, b, a) {
     const v = this.views.get(id);
     if (!v) return;
+    if (!v.tinted) { this.ownPrimMaterials(v); v.tinted = true; }
     const col = new THREE.Color((r ?? 255) / 255, (g ?? 255) / 255, (b ?? 255) / 255);
     const alpha = (a ?? 255) / 255;
     for (const mesh of v.prims) {
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mm of mats) {
-        if (mm.color) mm.color.copy(col);
-        if (alpha < 1) { mm.transparent = true; mm.opacity = alpha; }
-        else if (mm.userData.__baseOpacity == null) { mm.opacity = 1; }
+      for (const mm of matsOf(mesh)) {
+        const base = mm.userData.__base;
+        if (mm.color) mm.color.copy(base.color).multiply(col);
+        mm.opacity = base.opacity * alpha;
+        mm.transparent = base.transparent || mm.opacity < 1;
       }
+    }
+  }
+
+  /**
+   * Give a view its own copy of every material it draws with, remembering what
+   * the model authored so a later tint modulates that rather than an already
+   * tinted value.
+   */
+  ownPrimMaterials(view) {
+    for (const mesh of view.prims) {
+      const copies = matsOf(mesh).map((mm) => {
+        const c = own(view, mm.clone());
+        c.userData = Object.assign({}, c.userData, {
+          __base: { color: c.color ? c.color.clone() : null,
+                    opacity: c.opacity, transparent: c.transparent },
+        });
+        return c;
+      });
+      mesh.material = copies.length === 1 ? copies[0] : copies;
     }
   }
 
@@ -1396,7 +1469,27 @@ export class Renderer {
     this.lightPool.release(v);
     this.scene.remove(v.root);
     v.mixer?.stopAllAction();
+    this.releaseGPU(v);
     this.views.delete(id);
+  }
+
+  /**
+   * Hand back what a view, effect or missile built for itself.
+   *
+   * Nothing here touches the model cache: the mesh and its materials are
+   * borrowed and other units are still drawing with them. What is freed is the
+   * copies -- team colour, texture animation, tint, and the ground quads --
+   * plus the emitters, ribbons and sprays, which own buffers of their own.
+   * Without this renderer.info.memory climbs for the whole match; the `
+   * readout is where to watch it flatten.
+   */
+  releaseGPU(holder) {
+    for (const e of (holder.emitters || [])) e.dispose();
+    for (const r of (holder.ribbons || [])) r.dispose();
+    for (const sp of (holder.sprays || [])) sp.dispose();
+    disposeTexAnims(holder.texAnims);
+    holder.emitters = holder.ribbons = holder.sprays = holder.texAnims = null;
+    disposeOwned(holder);
   }
 
   // ---------------------------------------------------------------- camera
@@ -1550,7 +1643,10 @@ export class Renderer {
     ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
     let best = null, bd = Infinity;
     for (const v of this.views.values()) {
-      if (!v.root.visible) continue;
+      // A Locust dummy is the unit the map casts its spells through and has no
+      // mesh at all; a view still loading has none yet. Neither is on screen,
+      // so neither may take a click meant for the unit behind it.
+      if (!v.root.visible || v.locust || v.loading) continue;
       const c = new THREE.Sphere(v.root.position.clone().setY(v.root.position.y + 70), 90);
       const p = new THREE.Vector3();
       if (ray.ray.intersectSphere(c, p)) {

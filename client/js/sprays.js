@@ -16,6 +16,29 @@ import { visAt } from './particles.js';
 
 const DEG = Math.PI / 180;
 
+/**
+ * Object3D.clone shares materials, and every piece is cut from one prototype
+ * that itself came from the model cache. Fading a piece therefore used to fade
+ * every piece of every corpse drawn from that model, and the faded material
+ * stayed in the cache for the rest of the session. A piece takes its own
+ * copies the first time it fades -- pieces are pooled, so this happens at most
+ * once each, and only for sprays that actually fire.
+ */
+function ownMaterials(obj) {
+  const out = [];
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((m) => {
+      const c = m.clone();
+      c.userData = Object.assign({}, c.userData, { __baseOpacity: c.opacity });
+      out.push(c);
+      return c;
+    });
+    o.material = mats.length === 1 ? mats[0] : mats;
+  });
+  return out;
+}
+
 class Spray {
   constructor(def, node, root, proto) {
     this.d = def;
@@ -29,7 +52,7 @@ class Spray {
       const obj = proto.clone(true);
       obj.visible = false;
       root.add(obj);
-      this.pieces.push({ obj, alive: false, t: 0, life: 0,
+      this.pieces.push({ obj, alive: false, t: 0, life: 0, mats: null,
                          v: new THREE.Vector3(), spin: new THREE.Vector3() });
     }
     this._p = new THREE.Vector3();
@@ -63,6 +86,8 @@ class Spray {
     p.life = Math.max(0.1, d.lifespan);
     p.alive = true;
     p.obj.visible = true;
+    // the pool hands back a piece that faded out last time it flew
+    for (const m of p.mats || []) m.opacity = m.userData.__baseOpacity;
   }
 
   update(dt, ctx) {
@@ -91,17 +116,17 @@ class Spray {
       const k = p.t / p.life;
       if (k > 0.66) {
         const a = 1 - (k - 0.66) / 0.34;
-        p.obj.traverse((o) => {
-          if (!o.isMesh) return;
-          const mats = Array.isArray(o.material) ? o.material : [o.material];
-          for (const m of mats) { m.transparent = true; m.opacity = a; }
-        });
+        if (!p.mats) p.mats = ownMaterials(p.obj);
+        for (const m of p.mats) { m.transparent = true; m.opacity = m.userData.__baseOpacity * a; }
       }
     }
   }
 
   dispose() {
-    for (const p of this.pieces) this.root.remove(p.obj);
+    for (const p of this.pieces) {
+      this.root.remove(p.obj);
+      for (const m of p.mats || []) m.dispose();   // the prototype's are the cache's
+    }
     this.pieces.length = 0;
   }
 }

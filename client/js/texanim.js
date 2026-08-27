@@ -88,9 +88,21 @@ export function buildTexAnims(prims, meta) {
       return c;
     });
     mesh.material = owned.length === 1 ? owned[0] : owned;
-    out.push({ maps: owned.map((m) => m.map).filter(Boolean), d: mt.uv });
+    out.push({ maps: owned.map((m) => m.map).filter(Boolean), d: mt.uv, mats: owned });
   });
   return out;
+}
+
+/**
+ * Free what buildTexAnims cloned. The material and the texture are copies this
+ * view alone draws with -- a fresh GPU upload per unit -- so unlike the rest of
+ * the mesh they are the view's to release when it goes.
+ */
+export function disposeTexAnims(list) {
+  for (const a of list || []) {
+    for (const m of a.mats || []) m.dispose();
+    for (const t of a.maps || []) t.dispose();
+  }
 }
 
 /** Advance every animated layer. `elapsed` is seconds since the view was built. */

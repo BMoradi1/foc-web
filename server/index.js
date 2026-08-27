@@ -21,6 +21,13 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 // are mapped to the directories they really live under.
 const STATIC_DIRS = ['client', 'public'];
 const STATIC_TREES = { '/shared/': '.', '/three/': 'node_modules' };
+// The bench pages -- modelview, cliffview, fxview -- sit in tools/ beside the
+// scripts that drive them, and every browser-driven test loads one. Closing the
+// project root took them off the wire with everything else it was meant to
+// close, which left those tests unable to reach the thing they test. They are
+// the only files under tools/ that go anywhere: the .py and .mjs next to them
+// are source, and make_serve.py strips even these three from a deploy.
+const BENCH_PAGE = /^\/tools\/[A-Za-z0-9_.-]+\.html$/;
 
 function resolveFile(urlPath) {
   let rel;
@@ -30,6 +37,7 @@ function resolveFile(urlPath) {
   rel = path.normalize(rel).replace(/^(\.\.[/\\])+/, '');
   const dirs = [...STATIC_DIRS];
   for (const [pre, d] of Object.entries(STATIC_TREES)) if (rel.startsWith(pre)) dirs.push(d);
+  if (BENCH_PAGE.test(rel)) dirs.push('.');
   for (const d of dirs) {
     const p = path.join(ROOT, d, rel);
     if (p.startsWith(path.join(ROOT, d)) && fs.existsSync(p) && fs.statSync(p).isFile()) return p;

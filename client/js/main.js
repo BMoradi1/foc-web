@@ -51,15 +51,33 @@ net.on(Msg.WELCOME, (m) => {
   boot(m).then(() => {
     ui.hideLoading();
     ui.showLobby(m.game, m.heroes);
+  }).catch((err) => {
+    // One 404 on terrain.json or heights.bin used to leave the player watching
+    // "loading terrain..." with nothing said and nothing to do.
+    console.error('boot failed', err);
+    ui.setLoading(`could not load the map: ${err && err.message || err}`, 1);
   });
 });
 
 net.on(Msg.STATE, (m) => {
+  const was = S.phase;
   S.phase = m.phase;
   ui.renderTeams(m.players, S.you, m.phase);
   ui.updateScore(m.board, m.killsToWin);
   if (m.phase === Phase.PLAYING) ui.startGame();
   if (m.phase === Phase.LOBBY && S.game) ui.showLobby(S.game, S.heroes);
+  // Second matches in one room are real now that the room lifecycle is fixed,
+  // so the state a match leaves behind has to be cleared on the way out of it:
+  // the server drops everyone's ready flag in reset() and the client has to
+  // agree, and a half-aimed spell must not survive into the lobby.
+  if (m.phase !== was) {
+    S.castPending = null;
+    canvas.style.cursor = 'default';
+    if (m.phase === Phase.LOBBY) {
+      S.ready = false;
+      document.getElementById('btnReady').textContent = 'Ready';
+    }
+  }
 });
 
 net.on(Msg.SNAPSHOT, (m) => {
@@ -82,7 +100,10 @@ net.on(Msg.SNAPSHOT, (m) => {
       view.spawnView(S.ents.get(e.i));
     }
   }
-  for (const id of [...S.ents.keys()]) if (!seen.has(id)) { S.ents.delete(id); view.removeView(id); }
+  for (const id of [...S.ents.keys()]) {
+    if (seen.has(id)) continue;
+    S.ents.delete(id); S.prev.delete(id); view.removeView(id);
+  }
   view.syncItems(m.s.items, S.game?.items);
   // (static views use negative ids and are never tracked in S.ents, so they persist)
   if (m.s.board) ui.updateScore(m.s.board, 100);
