@@ -492,12 +492,13 @@ export class World {
   addAbility(u, abilId) {
     if (!u) return false;
     const k = typeof abilId === 'number' ? abilId : id2int(abilId);
-    if (!u.abilities.has(k)) u.abilities.set(k, 1);
+    if (!u.abilities.has(k)) { u.abilities.set(k, 1); this.recalc(u); }
     return true;
   }
   removeAbility(u, abilId) {
     if (!u) return false;
     u.abilities.delete(typeof abilId === 'number' ? abilId : id2int(abilId));
+    this.recalc(u);
     return true;
   }
   abilityLevel(u, abilId) {
@@ -519,6 +520,12 @@ export class World {
     const k = typeof abilId === 'number' ? abilId : id2int(abilId);
     const n = Math.max(0, trunc(lv));
     if (n === 0) u.abilities.delete(k); else u.abilities.set(k, n);
+    // An ability can be a stat block -- Attribute Bonus and its kin grant
+    // strength, agility and intelligence -- so the moment the list changes the
+    // derived numbers are stale. They were only refreshed when something *else*
+    // recalculated, so learning Attribute Bonus did nothing at all until the
+    // next level-up, item or buff happened to run one.
+    this.recalc(u);
     return n;
   }
   resetCooldowns(u) { if (u) u.cooldowns = new Map(); return true; }
@@ -915,6 +922,23 @@ export class World {
     if (t.str_ != null) { u.str = t.str_; u.strLvl = t.strLvl || 0; }
     if (t.agi != null) { u.agi = t.agi; u.agiLvl = t.agiLvl || 0; }
     if (t.int_ != null) { u.intel = t.int_; u.intLvl = t.intLvl || 0; }
+    // The alternate form is a unit type of its own, and its ability list is
+    // usually where the transformation's real power lives: Goku's Super Saiyan
+    // forms carry the +50/+100/+150 attribute abilities, Ichigo's Bankai carries
+    // the Black Getsuga, and twelve more forms on this map do the same. Swapping
+    // only the stat block left every one of them behind.
+    //
+    // Its *hero* abilities are deliberately not touched. An alternate form
+    // declares the same hero skills precisely so they carry across, and granting
+    // them here would hand the player, at rank 1, whatever they had chosen not
+    // to learn.
+    const granted = u.morphed.granted || (u.morphed.granted = []);
+    for (const a of (t.abilities || [])) {
+      const k = id2int(a);
+      if (u.abilities.has(k)) continue;
+      u.abilities.set(k, 1);
+      granted.push(k);
+    }
     u.morphed.until = this.now + Math.max(1, seconds || 0) * 1000;
     this.recalc(u);
     if (!u.isHero) {
@@ -933,6 +957,9 @@ export class World {
     const hpFrac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
     const manaFrac = u.maxMana > 0 ? u.mana / u.maxMana : 0;
     for (const k of MORPH_FIELDS) u[k] = u.morphed.saved[k];
+    // only what the form itself added, so anything learned or granted meanwhile
+    // survives the change back
+    for (const k of (u.morphed.granted || [])) u.abilities.delete(k);
     u.morphed = null;
     this.recalc(u);
     u.hp = Math.max(1, Math.round(u.maxHp * hpFrac));

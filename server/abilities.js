@@ -450,7 +450,21 @@ export function itemUse(it) {
  * castable spell, which meant the +50 it grants was thrown at whatever the hero
  * was pointing at as 50 damage, and no hero ever got the stats.
  */
-const ATTR_SKILLS = new Set(['Aamk']);
+// Which ability bases may carry an attribute bonus is not a judgement call:
+// AbilityMetaData.slk lists it, on the useSpecific column of the Iagi, Istr and
+// Iint fields, and these twenty-four are what it names. We knew one of them, so
+// every transformation built on AIx2 granted nothing -- Goku's three Super
+// Saiyan forms are +50, +100 and +150 to all three attributes and gave none of
+// it.
+//
+// Guessing from the data instead of from this list is the trap. Reading "any
+// ability whose data1 is positive" picks up AInv, whose data1 is how many
+// inventory slots it opens, and AIcf, where it is a damage figure.
+const ATTR_SKILLS = new Set([
+  'Aamk', 'AIab', 'AIa1', 'AIa3', 'AIa4', 'AIa6', 'AIx5', 'AIx1', 'AIx2',
+  'AIs1', 'AIs3', 'AIs4', 'AIs6', 'AIi1', 'AIi3', 'AIi4', 'AIi6',
+  'AIxm', 'AIam', 'AIim', 'AIsm', 'AIgm', 'AItm', 'AInm',
+]);
 
 export function abilityBonuses(w, u) {
   const out = { agi: 0, intel: 0, str: 0 };
