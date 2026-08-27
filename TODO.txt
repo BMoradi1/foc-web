@@ -25,6 +25,17 @@ EFFECTS (cont.)
 
 GAMEPLAY / INPUT
 ----------------
+[ ] A transformation's active abilities are on the unit but not clickable
+    Fixed below: a metamorphosis now grants its alternate form's ability list,
+    so Ichigo's Bankai really does carry the Black Getsuga (A030) and Eneru's
+    Thunder God form carries its four. The passive half of that works -- the
+    Super Saiyan attribute bonuses land -- but an *active* one has no slot,
+    because sendHero and slotAbility both build the six slots from the hero
+    definition's own castable list rather than from what the unit holds.
+    Five of the sixteen morph forms grant an active ability this way; one of
+    them (O003) grants four, which is more than q/w/e/r/d/f has room for.
+    Entangled with the hotkey item below -- do them together.
+
 [ ] Hotkeys
     The map defines real `ahky` values for all 130 hero abilities. The client
     still uses hardcoded q/w/e/r/d/f, so the printed hotkey and the key that
@@ -50,6 +61,49 @@ SERVER
 [~] Ichigo's near-death transformation  (engine half FIXED, art half open)
     FIXED: he respawns, and the Hollow form grants its AGI x3 attack bonus.
     OPEN:  the buff's attached art -- see "Buff art" below.
+
+FIXED -- metamorphosis (kept for the reasoning; delete once it has bedded in)
+----------------------------------------------------------------------------
+[x] An alternate form drew as the unit it transformed from
+    Warcraft III has no native that changes a unit's model. A metamorphosis
+    swaps the unit for another *type*, and where both types name one model file
+    the difference is carried by Required Animation Names: the alternate type
+    asks for "alternateex" and the model's geoset animations show a different
+    body in its "... Alternate" sequences. Three things were in the way:
+      - tools/unittypes.py never mapped 'uani', so a map that set the field
+        itself lost it. O000 (Bankai) reached the client with an=null.
+      - pickClip treated a unit's declared tokens as a tiebreak used only when
+        nothing matched exactly, so a model carrying both "Stand" and "Stand
+        Alternate" always drew the plain one. 57 unit/animation pairs across 22
+        unit types were wrong: the Castle drew as a Town Hall, the Fortress as a
+        Great Hall, the swimming penguin as a walking one, the Obsidian
+        Destroyer as the statue, Illidan's demon form as Illidan.
+      - "alternateex" names no sequence in any of the 1101 converted models
+        while "alternate" names 214, and every unit type declaring it is the
+        morphed form of another, so it asks for "alternate".
+    Covered by tools/morph_test.mjs (needs FOC_DEBUG=1: Bankai is a level-10
+    skill and the level-to-cap key is the only way there without playing).
+
+[x] A metamorphosis left the form's own abilities behind
+    world.morph swapped the stat block and nothing else, but the alternate type
+    is where a transformation's power usually sits. Goku's three Super Saiyan
+    forms are +50/+100/+150 to all attributes and granted none of it; Ichigo's
+    Bankai carries the Black Getsuga. 16 forms are reachable through morph();
+    none of them declares Locust, Invulnerable or Permanent Invisibility, so
+    granting the list wholesale is safe. Hero abilities are deliberately not
+    granted -- an alternate form declares the same ones so they carry across,
+    and granting them would hand the player ranks they chose not to learn.
+
+[x] Attribute skills did nothing until something else recalculated
+    learnSkill changed u.abilities and never called recalc, so Attribute Bonus
+    and its kin sat inert until the next level-up, item or buff happened to run
+    one. Now every path that changes a unit's ability list recalculates.
+
+[x] ATTR_SKILLS knew one of the 24 bases that can carry an attribute bonus
+    AbilityMetaData.slk names them on the useSpecific column of Iagi/Istr/Iint.
+    We had 'Aamk', so every transformation built on AIx2 granted nothing.
+    Deriving the set from the data instead would have been wrong: AInv's data1
+    is how many inventory slots it opens and AIcf's is a damage figure.
 
 HOUSEKEEPING
 ------------
