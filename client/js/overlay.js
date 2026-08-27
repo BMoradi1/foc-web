@@ -21,11 +21,79 @@ function healthColor(frac) {
   return '#d03030';
 }
 
+/**
+ * A frame readout, because the numbers that matter are the ones on the machine
+ * complaining.
+ *
+ * A headless profile cannot answer this: Chromium falls back to software WebGL,
+ * which moves the whole cost of rasterising into the buffer swap where no timer
+ * in the page can see it. What a real GPU spends is only visible on a real GPU,
+ * so the game has to be able to say so itself.
+ *
+ * Draw calls lead, because that is the number most likely to be the problem: a
+ * Warcraft III model is many geosets and each one is its own mesh.
+ */
+class Stats {
+  constructor() {
+    this.on = false;
+    this.frames = [];
+    this.last = performance.now();
+  }
+
+  sample() {
+    const now = performance.now();
+    const dt = now - this.last;
+    this.last = now;
+    // A gap of a second is not a slow frame -- it is loading, a tab switch, or
+    // the machine asleep. Letting one in makes p99 read 20 seconds.
+    if (dt > 0 && dt < 1000) this.frames.push(dt);
+    if (this.frames.length > 120) this.frames.shift();
+  }
+
+  draw(ctx, view, ents) {
+    if (!this.on || this.frames.length < 8) return;
+    const s = [...this.frames].sort((a, b) => a - b);
+    const at = (p) => s[Math.min(s.length - 1, Math.floor(s.length * p))];
+    const info = view.renderer.info;
+    // Counting the scene means walking every object in it, which at 2000+ is
+    // real work to put a number on screen -- and it lands in the frame time the
+    // number is reporting. Once a second is plenty for a diagnostic.
+    const now = performance.now();
+    if (now - (this.countedAt || 0) > 1000) {
+      this.countedAt = now;
+      let meshes = 0, points = 0;
+      view.scene.traverse((o) => { if (o.isMesh) meshes++; else if (o.isPoints) points++; });
+      this.meshes = meshes; this.points = points;
+    }
+    const meshes = this.meshes || 0, points = this.points || 0;
+    const lines = [
+      `${(1000 / at(0.5)).toFixed(0)} fps   ${at(0.5).toFixed(1)} ms   p99 ${at(0.99).toFixed(1)} ms`,
+      `draw calls   ${info.render.calls}`,
+      `triangles    ${info.render.triangles.toLocaleString()}`,
+      `meshes       ${meshes}   emitters ${points}`,
+      `units        ${ents.size}   views ${view.views.size}`,
+      `cpu  views   ${(view.perf?.views || 0).toFixed(1)}   interp ${(view.perf?.interp || 0).toFixed(1)}`,
+      `     gl      ${(view.perf?.gl || 0).toFixed(1)}   ui ${(view.perf?.ui || 0).toFixed(1)}   fx ${(view.perf?.fx || 0).toFixed(1)}`,
+      `[ anim ${view.frozen ? 'FROZEN' : 'on'}    ] units ${view.noUnits ? 'HIDDEN' : 'on'}`,
+      `textures     ${info.memory.textures}   geometries ${info.memory.geometries}`,
+    ];
+    ctx.save();
+    ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
+    ctx.fillStyle = 'rgba(4,6,10,0.82)';
+    ctx.fillRect(innerWidth - w - 10, 52, w, lines.length * 15 + 12);
+    ctx.fillStyle = '#9fe8b0';
+    lines.forEach((l, i) => ctx.fillText(l, innerWidth - w - 2, 70 + i * 15));
+    ctx.restore();
+  }
+}
+
 export class Overlay {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.dpr = Math.min(2, devicePixelRatio || 1);
+    this.stats = new Stats();
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -51,6 +119,8 @@ export class Overlay {
   draw(view, ents, show) {
     const ctx = this.ctx;
     this.clear();
+    this.stats.sample();
+    this.stats.draw(ctx, view, ents);
     if (!show || !show.size) return;
     const w = innerWidth, h = innerHeight;
     // bars shrink with distance the way the unit does, within reason

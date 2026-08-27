@@ -361,7 +361,14 @@ addEventListener('keydown', (e) => {
       canvas.style.cursor = 'crosshair';
       if (a.targetMode === 'unit') ui.log(`${a.name}: click a target`, 'lvl');
     }
-  } else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
+  } else if (k === '[') { view.frozen = !view.frozen;
+    ui.log(`animation ${view.frozen ? 'frozen' : 'running'}`, 'lvl'); }
+  else if (k === ']') { view.noUnits = !view.noUnits;
+    if (!view.noUnits) for (const v of view.views.values()) v.root.visible = true;
+    ui.log(`units ${view.noUnits ? 'hidden' : 'shown'}`, 'lvl'); }
+  else if (k === '`') { overlay.stats.on = !overlay.stats.on;
+    ui.log(`frame stats ${overlay.stats.on ? 'on' : 'off'}`, 'lvl'); }
+  else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
   else if (k === 's') net.send({ t: Msg.STOP });
   else if (k === 'b') ui.showShop(S.game.shops, S.hero);
   else if (k === 'escape') { S.castPending = null; canvas.style.cursor = 'default'; }
@@ -437,8 +444,13 @@ document.getElementById('btnReady').onclick = () => {
 };
 
 // ------------------------------------------------------------------ main loop
+// What the frame costs outside the renderer. Four clock reads, always on, for
+// the same reason the renderer keeps its own: a slow frame says nothing about
+// which part of it is slow.
+const framePerf = { interp: 0, ui: 0 };
 function frame() {
   const dt = view.render();
+  const tRender = performance.now();
   stepRings(dt);
   // the lobby's hero turns only while the lobby is up
   if (S.phase === Phase.LOBBY && heroPreview) heroPreview.step(dt);
@@ -488,6 +500,7 @@ function frame() {
       else if (busy && v.currentAction && !v.currentAction.isRunning()) view.play(v, want, once);
     }
   }
+  const tInterp = performance.now();
   const me = S.ents.get(S.hero?.id);
   if (me && followHero) view.focus(me.x, me.y);
   if (S.bounds) view.clampCam(S.bounds);
@@ -497,6 +510,10 @@ function frame() {
     ui.drawMinimap(S.bounds, [...S.ents.values()], S.hero?.id, S.minimapImg);
   if (flashT > 0) { flashT -= dt; document.body.style.boxShadow = `inset 0 0 200px rgba(200,30,30,${flashT * 1.4})`; }
   else document.body.style.boxShadow = '';
+  const k = 0.1;
+  framePerf.interp += (tInterp - tRender - framePerf.interp) * k;
+  framePerf.ui += (performance.now() - tInterp - framePerf.ui) * k;
+  if (view.perf) { view.perf.interp = framePerf.interp; view.perf.ui = framePerf.ui; }
   requestAnimationFrame(frame);
 }
 
@@ -560,7 +577,7 @@ addEventListener('keydown', () => audio.init(), { once: true });
 // A handle for the tooling. A WebGL canvas screenshots blank unless
 // preserveDrawingBuffer is set, so the only honest way for tools/shot.mjs to
 // tell "the scene built" from "the scene is empty" is to count what is in it.
-window.FOC = { view, S, ui, net, get heroPreview() { return heroPreview; } };
+window.FOC = { view, S, ui, net, overlay, get heroPreview() { return heroPreview; } };
 
 ui.setLoading('connecting…', 0.1);
 net.connect(savedName);

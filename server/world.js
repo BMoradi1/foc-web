@@ -115,6 +115,29 @@ const FOLLOW_ITEM_RANGE = 1000;
 // item's shadow as 120x120, which is the size the game itself treats one as.
 const ITEM_REACH = 60;
 
+// Spatial bin size for unit lookups. Most acquisition ranges on this map are
+// 500 and the largest is 1150, so a 256-unit cell keeps a typical query to a
+// 5x5 block of cells rather than the whole world. BIN_COLS only has to be wider
+// than the map in cells for the key arithmetic to stay collision-free.
+const BIN = 256;
+const BIN_COLS = 1 << 12;
+const BIN_OFF = BIN_COLS >> 1;      // so a negative coordinate still keys uniquely
+
+/**
+ * Which bin a world position falls in.
+ *
+ * The offset matters: this map runs from -6144 to +6272, and folding a negative
+ * cell index straight into `row * COLS + col` lets two different cells produce
+ * the same key. Clamping rather than wrapping keeps a unit dumped far off the
+ * map in an edge bin, which is still correct -- the exact distance check behind
+ * this filters it -- instead of colliding with something in the middle.
+ */
+function binKey(x, y) {
+  const cx = Math.min(BIN_COLS - 1, Math.max(0, Math.floor(x / BIN) + BIN_OFF));
+  const cy = Math.min(BIN_COLS - 1, Math.max(0, Math.floor(y / BIN) + BIN_OFF));
+  return cy * BIN_COLS + cx;
+}
+
 const MORPH_FIELDS = ['typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
   'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'missile',
   'missileSpeed', 'missileArc', 'missileHoming', 'baseMoveSpeed', 'radius',
@@ -603,11 +626,61 @@ export class World {
 
   // ------------------------------------------------------------ enumeration
   allUnits() { return [...this.units.values()].filter((u) => u.alive && !u.hidden); }
-  enumInRange(x, y, r) {
-    const out = [];
+
+  /**
+   * Bin every live unit by position, once a tick.
+   *
+   * enumInRange used to walk the whole unit list, and every unit's AI runs one
+   * of those every tick looking for something to attack. That is quadratic, and
+   * measured on this map it is what falls over: 120 units cost 0.6 ms a tick,
+   * 620 cost 29.6 against a 33 ms budget, and 1120 cost 111.7 -- three and a
+   * half times over. 96% of what it scanned was out of range.
+   *
+   * Rebuilt whole rather than maintained as units move: it is one pass over the
+   * units against the many queries it serves, and a stale bin is a class of bug
+   * that only shows up under load.
+   */
+  rebuildBins() {
+    if (this.binTick === this.tick) return;
+    this.binTick = this.tick;
+    const bins = this.bins || (this.bins = new Map());
+    bins.clear();
     for (const u of this.units.values()) {
       if (!u.alive || u.hidden) continue;
-      if (Math.hypot(u.x - x, u.y - y) <= r) out.push(u);
+      const k = binKey(u.x, u.y);
+      const cell = bins.get(k);
+      if (cell) cell.push(u); else bins.set(k, [u]);
+    }
+  }
+
+  /** Put a unit in the current bin, so one created mid-tick is still findable. */
+  binUnit(u) {
+    if (!this.bins || this.binTick !== this.tick || !u.alive || u.hidden) return;
+    const k = binKey(u.x, u.y);
+    const cell = this.bins.get(k);
+    if (cell) cell.push(u); else this.bins.set(k, [u]);
+  }
+
+  enumInRange(x, y, r) {
+    this.rebuildBins();
+    const out = [];
+    const rr = r * r;
+    // one cell of margin: a unit moves at most a fifth of a cell in a tick, so
+    // this covers anything that shifted since the bins were built
+    const x0 = Math.floor((x - r) / BIN) - 1, x1 = Math.floor((x + r) / BIN) + 1;
+    const y0 = Math.floor((y - r) / BIN) - 1, y1 = Math.floor((y + r) / BIN) + 1;
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const cell = this.bins.get(binKey(cx * BIN, cy * BIN));
+        if (!cell) continue;
+        for (const u of cell) {
+          if (!u.alive || u.hidden) continue;
+          // squared distance: Math.hypot guards against overflow nobody here can
+          // reach, and costs several times a multiply to do it
+          const dx = u.x - x, dy = u.y - y;
+          if (dx * dx + dy * dy <= rr) out.push(u);
+        }
+      }
     }
     return out;
   }
@@ -1215,6 +1288,7 @@ export class World {
   step() {
     this.now += this.dt * 1000;
     this.tick++;
+    this.rebuildBins();
     this.stepMissiles();
     this.stepItems();
     const alive = [];

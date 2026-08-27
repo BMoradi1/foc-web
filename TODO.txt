@@ -75,6 +75,28 @@ GAMEPLAY / INPUT
 [ ] Fog of war
     Nothing exists. The whole map is visible to everyone.
 
+PERFORMANCE
+-----------
+[ ] Skinning is the suspected remaining cost, unconfirmed on real hardware
+    On a 4080 at 307 units the frame is 45 ms while the GPU has only 137k
+    triangles and 1559 draw calls to draw -- so it is CPU, not the card.
+    Freezing animation saves 29 ms with the draw calls unchanged, and only 9 ms
+    of that is measurable in our own timers; the rest is three.js recomputing
+    and uploading a skeleton per visible skinned mesh during render. Confirm
+    with the in-game keys before optimising: ` for the readout, [ to freeze
+    animation, ] to hide units.
+    Ruled out already: merging geosets to cut draw calls. Only 8% of them are
+    safe to merge -- the rest share a material but not visibility, and merging
+    those breaks the animated geoset switching that Bankai depends on.
+
+[ ] o00D has no entry in unittypes.json
+    Portgas D. Ace's A05N names it as a morph form and the compiled table has
+    no such unit, so it reaches the client with nothing to draw. ghost_test
+    catches it. Predates the performance work.
+
+[ ] tools/ghost_test.mjs prints raw format specifiers
+    Its console.log uses %-6s and friends, which Node does not support.
+
 SERVER
 ------
 [ ] Room lifecycle

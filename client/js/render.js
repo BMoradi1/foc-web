@@ -135,6 +135,10 @@ export class Renderer {
     this.clock = new THREE.Clock();
     this.selectionRing = null;
     this.terrain = null;
+    // reused every frame so the cull costs no allocation
+    this._frustum = new THREE.Frustum();
+    this._fmat = new THREE.Matrix4();
+    this._sph = new THREE.Sphere(new THREE.Vector3(), 220);
     this.floaters = [];
 
     addEventListener('resize', () => this.resize());
@@ -1535,7 +1539,43 @@ export class Renderer {
     // texture animations bound to a global sequence keep their own time,
     // independent of any clip, so they need a wall clock to loop against
     const now = performance.now() / 1000;
+    // A frame that is slow says nothing about which part of it is, and this
+    // renderer has four parts that all grow with what is on screen. Kept always
+    // on: it is four clock reads a frame, and the alternative is guessing.
+    const perf = this.perf || (this.perf = { views: 0, fx: 0, gl: 0, rest: 0 });
+    const mark = performance.now();
+    // Two switches for finding out where a slow frame goes on a real machine,
+    // which a headless profile cannot: software WebGL buries rasterising in the
+    // buffer swap, so the split between "too many draw calls" and "too much
+    // skinning" is only visible where there is a real GPU. Freezing animation
+    // leaves the same draw calls with none of the per-frame skeleton work;
+    // hiding the units leaves the terrain and doodads with neither.
+    if (this.noUnits) {
+      for (const v of this.views.values()) v.root.visible = false;
+    } else if (this.frozen) {
+      // still nothing to update, but the meshes are still drawn
+    } else {
+    // Only animate what the camera can see.
+    //
+    // Warcraft III's own answer to a busy field: a unit off screen has nothing
+    // to show, so stepping its mixer, its emitters and its texture animations
+    // is work thrown away. three.js already skips the skeleton for a culled
+    // mesh, but every one of these runs whether the unit is on screen or not,
+    // and on a full field most units are not.
+    //
+    // The test is done once per frame against the camera's frustum rather than
+    // per mesh, and it deliberately uses the view's root: a unit half out of
+    // frame keeps animating, which is what stops a walk cycle snapping as it
+    // crosses the edge.
+    this._frustum.setFromProjectionMatrix(this._fmat.multiplyMatrices(
+      this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     for (const v of this.views.values()) {
+      // a generous sphere: the root sits at the unit's feet, and a model's
+      // reach above it is what would otherwise pop
+      this._sph.center.copy(v.root.position); this._sph.center.y += 80;
+      this._sph.radius = 220;
+      if (!this._frustum.intersectsSphere(this._sph)) { v.offscreen = true; continue; }
+      v.offscreen = false;
       v.mixer?.update(dt);
       const ctx = this.animCtxOf(v);
       for (const p of (v.emitters || [])) p.update(dt, ctx);
@@ -1548,6 +1588,8 @@ export class Renderer {
       if (v.texAnims?.length) stepTexAnims(v.texAnims, ctx, now - v.bornAt);
       if (v.alphaCurve) this.tickGeosetCurves(v);
     }
+    }
+    const tViews = performance.now();
     for (const e of this.effects.values()) {
       e.mixer?.update(dt);
       const ctx = this.animCtxOf(e);
@@ -1558,13 +1600,22 @@ export class Renderer {
       if (e.texAnims?.length) stepTexAnims(e.texAnims, ctx, now - (e.bornAt || now));
       if (e.alphaCurve) this.tickGeosetCurves(e);
     }
+    const tFx = performance.now();
     this.splatField?.update(dt);
     this.stepBolts(dt);
     this.stepMissiles(dt);
     this.stepItems(dt);
     this.tickWater(dt);
     this.updateCamera(dt);
+    const tRest = performance.now();
     this.renderer.render(this.scene, this.camera);
+    const tGl = performance.now();
+    // smoothed, so the readout is legible rather than flickering
+    const k = 0.1;
+    perf.views += (tViews - mark - perf.views) * k;
+    perf.fx += (tFx - tViews - perf.fx) * k;
+    perf.rest += (tRest - tFx - perf.rest) * k;
+    perf.gl += (tGl - tRest - perf.gl) * k;
     return dt;
   }
 }

@@ -310,6 +310,21 @@ export class Room {
       `${this.eng.triggers.length} triggers, ${this.eng.timers.length} timers, ` +
       `${this.world.units.size} units, ${this.bootReport.errors.length} errors`);
     this.phase = Phase.PLAYING;
+    // A load knob for profiling: FOC_EXTRA_MOBS=200 stands that many more creeps
+    // on the field so a frame can be measured at the unit count a real match
+    // reaches rather than the one an idle test does.
+    const extra = +(process.env.FOC_EXTRA_MOBS || 0);
+    if (extra) {
+      const kinds = [...new Set([...this.world.units.values()]
+        .filter((u) => u.alive && !u.isHero && !u.isBuilding && !this.world.isDummy(u))
+        .map((u) => u.typeKey))];
+      const owner = this.eng.players[12];
+      for (let i = 0; i < extra && kinds.length; i++) {
+        this.world.createUnit(owner, kinds[i % kinds.length],
+                              -1800 + (i % 24) * 130, -1200 + Math.floor(i / 24) * 130, 0);
+      }
+      console.log(`[${this.id}] FOC_EXTRA_MOBS: +${extra} creeps for profiling`);
+    }
     for (const p of this.players.values()) if (p.ws) this.buyHero(p);
     this.broadcastState();
     this.loop = setInterval(() => this.stepLoop(), 1000 / TICK_HZ);
