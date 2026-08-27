@@ -218,7 +218,10 @@ for uid, t in types.items():
                    us=(str(t.get('uberSplat') or '').strip() or None),
                    # Required Animation Names: which variant of a shared model
                    # this unit is (the Arcane Tower is HumanTower "upgrade,third")
-                   an=(str(t.get('animProps') or '').strip().lower() or None))
+                   an=(str(t.get('animProps') or '').strip().lower() or None),
+                   # the selection circle's own scale, which is not the model's:
+                   # the Paladin is 1.25 selection against 1.0 model
+                   ss=t.get('selectScale', 1) or 1, sz=t.get('selZ', 0) or 0)
 
 # ---------------------------------------------------------------- ubersplats
 # Warcraft III stamps a ground decal under every building -- scorched earth,

@@ -29,6 +29,11 @@ def from_blz(rec):
         atkRange=num(rec.get('rangeN1'), 90), atkType=str(rec.get('atkType1', 'normal')),
         moveSpeed=num(rec.get('spd'), 270), turnRate=num(rec.get('turnRate'), 0.6),
         collision=num(rec.get('collision'), 24), scale=num(rec.get('modelScale'), 1) or 1,
+        # unitUI.slk keeps two scales and they are not the same thing: modelScale
+        # (usca) sizes the art, `scale` (ussc) sizes the selection circle. The
+        # Paladin is 1.25 selection against 1.0 model.
+        selectScale=num(rec.get('scale'), 1) or 1,
+        selZ=num(rec.get('selZ'), 0),
         level=int(num(rec.get('level'), 1)), race=str(rec.get('race', '')),
         isHero=prim in ('STR', 'AGI', 'INT'),
         str_=num(rec.get('STR'), 0), strLvl=num(rec.get('STRplus'), 0),
@@ -67,6 +72,7 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'udef': 'armor', 'udty': 'armorType', 'ua1b': 'dmgBase', 'ua1d': 'dmgDice',
  'ua1s': 'dmgSides', 'ua1c': 'atkCd', 'ua1r': 'atkRange', 'ua1t': 'atkType',
  'umvs': 'moveSpeed', 'umvr': 'turnRate', 'ucol': 'collision', 'usca': 'scale',
+ 'ussc': 'selectScale', 'uslz': 'selZ',
  'ushu': 'shadow', 'ushb': 'shadow', 'ushw': 'shadowW', 'ushh': 'shadowH',
  'ushx': 'shadowX', 'ushy': 'shadowY', 'uubs': 'uberSplat', 'udtm': 'deathTime',
  # ucbs/ucpt are the cast backswing and cast point, not the collision radius:
