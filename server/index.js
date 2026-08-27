@@ -55,6 +55,7 @@ wss.on('connection', (ws, req) => {
     let m; try { m = JSON.parse(buf); } catch { return; }
     if (!player) {
       if (m.t !== Msg.HELLO) return;
+      // join returns null for a full room, having already told the client why
       player = room.join(ws, m.name);
       return;
     }

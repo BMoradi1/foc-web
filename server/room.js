@@ -92,14 +92,19 @@ export class Room {
     const counts = [0, 1].map((t) => [...this.players.values()]
       .filter((p) => teamOfSlot(p.slot) === t).length);
     const want = counts[0] <= counts[1] ? 0 : 1;
-    let chosen = free(want) ?? free(1 - want);
-    let slot = 0;
+    const chosen = free(want) ?? free(1 - want);
+    // The map has ten playable slots and no eleventh. The old fallback walked
+    // PLAYER_SLOTS looking for a free one, ran off the end, and used the loop
+    // *index* as the slot -- which for a full room is 10, itself a real slot on
+    // team 0 and already taken. Two late joiners both became player 10, both on
+    // team 0, and the duel they were meant to fight had one side empty.
     if (chosen == null) {
-      while (used.has(PLAYER_SLOTS[slot]) && slot < PLAYER_SLOTS.length) slot++;
-      chosen = PLAYER_SLOTS[slot];
+      this.send(ws, { t: Msg.ERROR, m: 'This arena is full.' });
+      try { ws.close(); } catch { /* already gone */ }
+      return null;
     }
     const p = { id: nextPlayer++, ws, name: (name || 'Player').slice(0, 18),
-                slot: chosen ?? slot, team: teamOfSlot(chosen ?? slot),
+                slot: chosen, team: teamOfSlot(chosen),
                 heroId: null, ready: false, entId: null, kills: 0, deaths: 0 };
     this.players.set(p.id, p);
     this.send(ws, {
@@ -130,7 +135,14 @@ export class Room {
   reset() {
     if (this.loop) clearInterval(this.loop);
     this.loop = null; this.world = null; this.eng = null; this.phase = Phase.LOBBY;
-    for (const p of this.players.values()) { p.heroId = null; p.ready = false; p.entId = null; }
+    for (const p of this.players.values()) {
+      // Somebody who left during the match was kept so the script could still
+      // see their player; back in the lobby there is nothing to keep. Holding
+      // them was what filled the room: every finished match left its players
+      // behind, and after five of them the slots were gone.
+      if (!p.ws) { this.players.delete(p.id); continue; }
+      p.heroId = null; p.ready = false; p.entId = null;
+    }
   }
 
   handle(p, m) {

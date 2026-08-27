@@ -99,14 +99,16 @@ PERFORMANCE
 
 SERVER
 ------
-[ ] Room lifecycle
-    A long-lived server accumulates room state until joiners end up sharing a
-    team. Fresh server gives 11/11 on duo_test; after dozens of test clients it
-    degrades to 9/11 with both players on team 0. This is a real bug, not a
-    test artefact -- it just takes a while to show up in production.
-    Now reproduces reliably: drive a dozen puppeteer sessions at one server and
-    duo_test fails with "they are on opposing teams; they wear different player
-    colours", then passes on a fresh one.
+[x] Room lifecycle  (FIXED)
+    Two bugs stacked. reset() kept players who had left during a match, so every
+    finished match left its pair behind and after five the ten slots were gone.
+    Then the fallback for a full room walked PLAYER_SLOTS, ran off the end, and
+    used the loop *index* as the slot -- which at a full room is 10, itself a
+    real slot on team 0 and already taken. Two late joiners both became player
+    10 on team 0, and the duel they were meant to fight had one side empty.
+    Now: reset() drops anyone with no socket, and a genuinely full room refuses
+    the join instead of inventing a seat. tools/room_test.mjs drives twenty
+    match cycles through one room and checks both.
 
 [~] Ichigo's near-death transformation  (engine half FIXED, art half open)
     FIXED: he respawns, and the Hollow form grants its AGI x3 attack bonus.
