@@ -18,18 +18,39 @@ import { Renderer } from './render.js';
 const FILL = 0.84;
 const TURN = 0.5;                    // radians a second
 
+// Which way round a converted model has to be turned to face the viewer.
+//
+// The camera sits on +Z looking towards -Z, so a portrait has to face +Z, and
+// the conversion does not leave a model pointing that way at rotation zero --
+// it leaves it side-on, which is why the console portraits were all in profile.
+// Measured rather than derived: Ichigo, Goku, Luffy and Byakuya rendered at each
+// quarter turn are square to the camera at -PI/2 and side-on at 0 and PI, so it
+// is the pipeline's forward and not any one model's pose.
+const FRONT = -Math.PI / 2;
+
 export class HeroPreview {
-  constructor(canvas, size = 280) {
+  /**
+   * @param opts.spin  turn on the spot (the lobby does, the console does not --
+   *                   Warcraft III's console portrait faces you and idles)
+   * @param opts.fill  how much of the frame the model takes
+   */
+  constructor(canvas, size = 280, opts = {}) {
     this.canvas = canvas;
-    this.size = size;
+    // the console's arch is not square, so a preview has to carry a real aspect
+    this.w = typeof size === 'object' ? size.w : size;
+    this.h = typeof size === 'object' ? size.h : size;
+    this.size = this.w;
+    this.spinRate = opts.spin === false ? 0 : TURN;
+    this.fill = opts.fill ?? FILL;
+    this.head = !!opts.head;
     this.r = new Renderer(canvas);
     // Renderer sizes itself to the window and re-does it on every resize event,
     // which for a panel-sized canvas means a preview the size of the screen.
     // Replacing the instance's own method also disarms that listener, since it
     // is what the listener calls.
     this.r.resize = () => {
-      this.r.renderer.setSize(this.size, this.size, false);
-      this.r.camera.aspect = 1;
+      this.r.renderer.setSize(this.w, this.h, false);
+      this.r.camera.aspect = this.w / this.h;
       this.r.camera.updateProjectionMatrix();
     };
     this.r.resize();
@@ -42,7 +63,7 @@ export class HeroPreview {
 
     this.view = null;
     this.id = null;
-    this.spin = 0;
+    this.spin = FRONT;
     this.token = 0;                  // guards against a slow load landing late
   }
 
@@ -66,6 +87,8 @@ export class HeroPreview {
     if (!v) return;
     this.view = v;
     this.r.play(v, 'stand');
+    this.spin = FRONT;
+    v.root.rotation.y = FRONT;
     for (let i = 0; i < 30; i++) v.mixer?.update(1 / 30);   // settle into the pose
     this.fit();
   }
@@ -117,16 +140,29 @@ export class HeroPreview {
       const visible = 2 * r.camDist * Math.tan(fov / 2);
       r.camTarget.y += (((y0 + y1) / 2) / N - 0.5) * visible;
       r.camDist = Math.max(40, r.camDist
-        * (Math.max((y1 - y0 + 1) / N, (x1 - x0 + 1) / N) / FILL));
+        * (Math.max((y1 - y0 + 1) / N, (x1 - x0 + 1) / N) / this.fill));
     }
     rt.dispose();
+    // Warcraft III's console portrait is a head, not a figure. The measured fit
+    // above frames the whole model, so close in on the top of it -- taken from
+    // the built model rather than from an extent, for the same reason the fit is.
+    if (this.head) {
+      // Relative to the fit, not to a fresh bounding box: the box's top is
+      // whatever the model holds highest, and half these heroes are holding a
+      // sword over their head, which frames the sword and loses the face.
+      const fov = r.camera.fov * Math.PI / 180;
+      const half = r.camDist * Math.tan(fov / 2) * this.fill;   // half the figure
+      r.camTarget.y += half * 0.70;
+      r.camDist = Math.max(20, r.camDist * 0.36);
+      r.camPitch = 0.05;
+    }
     r.updateCamera();
   }
 
   step(dt) {
     const v = this.view;
     if (!v) return;
-    this.spin += dt * TURN;
+    this.spin += dt * this.spinRate;
     v.root.rotation.y = this.spin;
     v.mixer?.update(dt);
     this.r.renderer.render(this.r.scene, this.r.camera);
