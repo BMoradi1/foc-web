@@ -35,11 +35,18 @@ FILES = [
 
 # compiled game data the server reads at boot
 DATA = ['abilities.json', 'game.json', 'unittypes.json', 'itemtypes.json',
-        'soundsets.json', 'gameplay.json', 'spell_targets.json']
+        'soundsets.json', 'gameplay.json', 'spell_targets.json',
+        # the build counter, so the deployed game reports the same build number
+        # as the machine it was packed on rather than starting over at 1
+        'build.json']
+
+# the bundle is the same product as the source tree, so it carries the same
+# version -- server/build.js reads it back out to label the build on screen
+VERSION = json.load(open('package.json'))['version']
 
 PACKAGE = {
     'name': 'foc-web-serve',
-    'version': '1.0.0',
+    'version': VERSION,
     'private': True,
     'type': 'module',
     'description': 'Fight of Characters 7.7b - browser port, runtime only',

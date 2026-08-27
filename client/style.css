@@ -161,3 +161,17 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
 #gameclock b{font-size:20px;color:var(--gold);font-variant-numeric:tabular-nums;
   letter-spacing:.5px}
 #gameclock.soon b{color:var(--red)}
+
+/* ---- build tag -------------------------------------------------------- */
+/* Bottom-left, except in a match, where the minimap already owns that corner
+   and it sits just above instead. #hud precedes #build, so the sibling
+   combinator can ask whether a match is up. */
+#build{position:fixed;left:11px;bottom:9px;z-index:40;pointer-events:none;
+  font-size:10px;letter-spacing:.4px;color:#5a6478;text-shadow:0 1px 2px #000;
+  font-variant-numeric:tabular-nums;user-select:none}
+/* Two things already own the bottom-left: the lobby's footer strip and, in a
+   match, the minimap. The tag steps over whichever is up. */
+#lobby:not(.hidden) ~ #build{bottom:72px}
+#hud:not(.hidden) ~ #build{bottom:320px}
+#build b{color:#8792a8;font-weight:600}
+#build .dbg{color:#e0a13a;font-weight:700}

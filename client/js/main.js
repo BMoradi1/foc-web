@@ -27,7 +27,7 @@ const S = {
   prev: new Map(),           // id -> previous state (for interpolation)
   lastSnap: 0, snapDt: 1 / 15,
   selected: null, bounds: null, ready: false, showScore: false,
-  castPending: null, minimapImg: null,
+  castPending: null, minimapImg: null, debug: false,
   unitModels: null,          // also feeds the lobby's rotating hero preview
 };
 
@@ -35,6 +35,14 @@ const S = {
 net.on(Msg.WELCOME, (m) => {
   S.you = m.you; net.you = m.you;
   S.game = m.game; S.heroes = m.heroes; S.bounds = m.game.bounds;
+  // The server decides whether the debugging keys exist at all; the client only
+  // binds what it was told about, so nothing here can reach a deployed build.
+  S.debug = !!m.debug;
+  ui.setBuild(m.build, S.debug);
+  if (S.debug) {
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent += ' \u00b7 L max level';
+  }
   ui.setLoading('loading terrain…', 0.35);
   boot(m).then(() => {
     ui.hideLoading();
@@ -318,7 +326,8 @@ addEventListener('keydown', (e) => {
       canvas.style.cursor = 'crosshair';
       if (a.targetMode === 'unit') ui.log(`${a.name}: click a target`, 'lvl');
     }
-  } else if (k === 's') net.send({ t: Msg.STOP });
+  } else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
+  else if (k === 's') net.send({ t: Msg.STOP });
   else if (k === 'b') ui.showShop(S.game.shops, S.hero);
   else if (k === 'escape') { S.castPending = null; canvas.style.cursor = 'default'; }
   else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }

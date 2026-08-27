@@ -3,6 +3,7 @@
 import { World, TYPES, int2id, id2int } from './world.js';
 import { JassEngine } from './jass/engine.js';
 import { Phase, Msg, TICK_HZ, SNAP_HZ } from '../shared/const.js';
+import { BUILD } from './build.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -20,6 +21,12 @@ function teamOfSlot(slot) {
   const t = TEAMS.find((x) => x.players.includes(slot));
   return t ? t.id : 0;
 }
+
+// Debugging aids -- the level-to-cap key, so far -- are off unless the server
+// was started with FOC_DEBUG=1. The client is told, and only binds the key when
+// it is on, so a deployed build has no way to reach them and no key that quietly
+// does nothing. Turn them on with:  FOC_DEBUG=1 npm start
+const DEBUG = process.env.FOC_DEBUG === '1';
 
 let nextPlayer = 1;
 
@@ -96,7 +103,7 @@ export class Room {
                 heroId: null, ready: false, entId: null, kills: 0, deaths: 0 };
     this.players.set(p.id, p);
     this.send(ws, {
-      t: Msg.WELCOME, you: p.id, phase: this.phase,
+      t: Msg.WELCOME, you: p.id, phase: this.phase, build: BUILD, debug: DEBUG,
       game: { meta: GAME.meta, bounds: GAME.bounds, shops: GAME.shops, spawns: GAME.spawns,
               // every item type, so the client can draw whatever it finds lying
               // in the world -- a recipe result is in no shop's stock list
@@ -204,6 +211,20 @@ export class Room {
       case 'useItem': {
         const it = (u.items || [])[m.slot];
         if (it) { this.world.useItem(u, it); this.sendHero(p); }
+        break;
+      }
+      // ---- level a hero to the cap, for testing a late-game build
+      //
+      // A level at a time rather than one jump to the cap: stepping is what
+      // grants each skill point and fires EVENT_PLAYER_HERO_LEVEL, and the map's
+      // own triggers listen for that. Assigning the level outright would leave a
+      // level-50 hero with one skill point and skip whatever the script hands
+      // out on the way up, which is a different bug to debug against.
+      case 'debugLevel': {
+        if (!DEBUG) return;
+        while (u.level < W.maxHeroLevel) W.setHeroLevel(u, u.level + 1);
+        u.xp = 0;
+        this.sendHero(p);
         break;
       }
       case 'dropItem': {

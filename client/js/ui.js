@@ -69,6 +69,7 @@ export class UI {
     const grid = $('heroGrid'); grid.innerHTML = '';
     for (const h of heroes.filter((x) => x.tavern === this.tavern)) {
       const c = el('div', 'hcard' + (h.model ? '' : ' nomodel') + (this.selected === h.id ? ' sel' : ''));
+      c.dataset.id = h.id;                 // so a test can pick a named hero
       c.innerHTML = `<img src="${portrait(h.id)}" data-icon="${icon(h.icon)}"
           onerror="if(this.dataset.icon){this.src=this.dataset.icon;this.dataset.icon='';}
                    else this.style.opacity=.25">
@@ -282,6 +283,24 @@ export class UI {
       };
       box.appendChild(s);
     });
+  }
+
+  /**
+   * The build tag in the corner.
+   *
+   * The build number is the useful half day to day -- it answers "is the server
+   * running what I just changed?" -- so it leads. The hash is what identifies a
+   * build to anyone else, and the date is only ever wanted once, so both go in
+   * the tooltip rather than on screen.
+   */
+  setBuild(b, debug) {
+    const box = $('build');
+    if (!box || !b) return;
+    box.innerHTML = `v${b.v} \u00b7 <b>build ${b.n}</b>`
+      + (debug ? ' \u00b7 <span class="dbg">DEBUG</span>' : '');
+    const when = b.t ? new Date(b.t) : null;
+    box.title = `${b.hash}${when ? ` \u00b7 ${when.toLocaleString()}` : ''}`
+      + (debug ? '\nFOC_DEBUG is on: L levels the hero to the cap' : '');
   }
 
   log(text, cls) {
