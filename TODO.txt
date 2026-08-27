@@ -184,6 +184,16 @@ FIXED -- metamorphosis (kept for the reasoning; delete once it has bedded in)
     Deriving the set from the data instead would have been wrong: AInv's data1
     is how many inventory slots it opens and AIcf's is a damage figure.
 
+NETWORK
+-------
+[ ] No rejoin, only a reload
+    A dropped socket now says so and offers a refresh, which is what the review
+    asked for as a minimum. Actually rejoining means the server holding the slot
+    for a moment rather than dropping the player on close, and the client
+    replaying WELCOME and the next snapshot onto the world it already has. The
+    room already knows how to evict a player with no socket, so the missing
+    half is the grace period and the client-side re-attach.
+
 HOUSEKEEPING
 ------------
 [ ] Five tests are stale, not one

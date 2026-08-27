@@ -67,6 +67,19 @@ export class HeroPreview {
     this.token = 0;                  // guards against a slow load landing late
   }
 
+  /**
+   * Re-measure after the window has changed size.
+   *
+   * The console is laid out in percentages and rescales itself, but a canvas
+   * keeps the drawing buffer it was given, so without this the portrait is
+   * drawn at the old size and stretched into the new arch.
+   */
+  setSize(w, h) {
+    if (!(w > 0) || !(h > 0) || (w === this.w && h === this.h)) return;
+    this.w = w; this.h = h; this.size = w;
+    this.r.resize();
+  }
+
   /** Show one hero. Safe to call repeatedly, including while another is loading. */
   async show(hero, meta) {
     if (!hero || hero.id === this.id) return;

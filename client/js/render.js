@@ -221,6 +221,7 @@ export class Renderer {
     this.terrain = mesh;
     this.terrInfo = terr;
     this.heights = heights;
+    this.cliffCells = skip;               // heightAt must not ramp across these
     if (cliffs) await this.buildCliffs(cliffs);
     await this.buildWater(terr);
     // splats lie on the terrain, so the field can only exist once it does
@@ -355,13 +356,36 @@ export class Renderer {
     if (w.mat.map !== w.frames[f]) { w.mat.map = w.frames[f]; w.mat.needsUpdate = true; }
   }
 
+  /**
+   * The ground height under a world point.
+   *
+   * A unit stands on the surface that is drawn, so this reads the triangle the
+   * renderer built rather than the nearest vertex.  buildTerrain splits every
+   * cell along the (i+1,j)--(i,j+1) diagonal, which puts a point in the a,b,c
+   * half while u+v <= 1 and in the b,d,c half after that; taking the plane of
+   * its own half is what pickGround's raycast returns for the same spot.
+   * Rounding to a vertex made a unit climb a ramp in tile-sized steps.
+   *
+   * Cells carrying a cliff are the exception, for the reason buildTerrain
+   * leaves them out of the ground mesh: there is no surface between the two
+   * levels there, only the cliff model's own step, and interpolating across it
+   * would float a unit halfway up the face.  Those keep the nearest corner.
+   */
   heightAt(wx, wy) {
     const t = this.terrInfo;
     if (!t || !this.heights) return 0;
+    const W = t.width, H = t.height;
     const fx = (wx - t.offsetX) / t.tileSize, fy = (wy - t.offsetY) / t.tileSize;
-    const i = Math.max(0, Math.min(t.width - 1, Math.round(fx)));
-    const j = Math.max(0, Math.min(t.height - 1, Math.round(fy)));
-    return this.heights[j * t.width + i] || 0;
+    const i = Math.max(0, Math.min(W - 2, Math.floor(fx)));
+    const j = Math.max(0, Math.min(H - 2, Math.floor(fy)));
+    const r = j * W + i;
+    const a = this.heights[r] || 0, b = this.heights[r + 1] || 0;
+    const c = this.heights[r + W] || 0, d = this.heights[r + W + 1] || 0;
+    const u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fy - j));
+    if (this.cliffCells && this.cliffCells.has(j * (W - 1) + i))
+      return u < 0.5 ? (v < 0.5 ? a : c) : (v < 0.5 ? b : d);
+    return u + v <= 1 ? a + (b - a) * u + (c - a) * v
+                      : d + (c - d) * (1 - u) + (b - d) * (1 - v);
   }
 
   async addDoodads(list, meta = {}) {

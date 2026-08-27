@@ -50,7 +50,12 @@ net.on(Msg.WELCOME, (m) => {
   ui.setLoading('loading terrain…', 0.35);
   boot(m).then(() => {
     ui.hideLoading();
-    ui.showLobby(m.game, m.heroes);
+    // The room does not wait for anyone's download, so the match can start
+    // while the terrain is still loading. This continuation used to put the
+    // lobby back up over a running game and nothing took it down again: the
+    // server sends STATE when the phase changes, and it already had.
+    if (S.phase === Phase.PLAYING) { ui.startGame(); refitConsole(); }
+    else ui.showLobby(m.game, m.heroes);
   }).catch((err) => {
     // One 404 on terrain.json or heights.bin used to leave the player watching
     // "loading terrain..." with nothing said and nothing to do.
@@ -73,6 +78,10 @@ net.on(Msg.STATE, (m) => {
   if (m.phase !== was) {
     S.castPending = null;
     canvas.style.cursor = 'default';
+    // The console's two canvases can only be measured once the HUD is on
+    // screen: the fit at load time runs while #hud is still hidden, where
+    // every box is zero and fitMinimap declines to size a canvas from it.
+    if (m.phase === Phase.PLAYING) refitConsole();
     if (m.phase === Phase.LOBBY) {
       S.ready = false;
       document.getElementById('btnReady').textContent = 'Ready';
@@ -126,7 +135,10 @@ net.on(Msg.EVENT, (m) => {
 
 net.on(Msg.CHATMSG, (m) => ui.log(`<b>${escapeHtml(m.from)}:</b> ${escapeHtml(m.text)}`));
 net.on(Msg.ERROR, (m) => ui.log(m.m, 'kill'));
-net.on('closed', () => ui.log('disconnected from server', 'kill'));
+net.on('closed', () => {
+  ui.log('disconnected from server', 'kill');
+  ui.showDisconnected();
+});
 
 /** Where the player is listening from: their hero, else the camera focus. */
 function listener() {
@@ -263,8 +275,10 @@ async function boot(m) {
     ui.cardCells = slots.cells;
     ui.invCells = slots.inv;
     ui.placeCard();
-    // the minimap is sized by the art now, so its drawing buffer has to follow
-    // or a 200x300 map is squashed into a landscape opening
+    // The minimap is sized by the art now, so its drawing buffer has to follow
+    // or a 200x300 map is squashed into a landscape opening. This is the fit
+    // for art that arrives mid-match; the first one happens when the HUD is
+    // shown, since nothing here has a size while it is hidden.
     ui.fitMinimap();
     showUnitPortrait();
     // the console says what the controls are; the crib sheet was for before it
@@ -598,10 +612,38 @@ document.getElementById('pname').value = savedName;
 document.getElementById('pname').onchange = (e) => localStorage.setItem('focs.name', e.target.value);
 addEventListener('pointerdown', () => audio.init(), { once: true });
 addEventListener('keydown', () => audio.init(), { once: true });
+/**
+ * The two canvases the console owns are sized in pixels once, when the art
+ * first lands. Everything else in the frame is laid out in percentages and
+ * rescales itself, so after a window resize those two -- and only those two --
+ * are drawing at the old size into a box that is now a different shape.
+ *
+ * Coalesced onto a frame: a drag emits resize continuously, and reallocating
+ * a drawing buffer per event is the expensive half of this.
+ */
+let refitQueued = false;
+function refitConsole() {
+  if (refitQueued) return;
+  refitQueued = true;
+  requestAnimationFrame(() => {
+    refitQueued = false;
+    ui.fitMinimap();
+    const cv = document.getElementById('unitPortrait');
+    if (unitPortrait && cv) {
+      const box = cv.getBoundingClientRect();
+      unitPortrait.setSize(Math.max(48, Math.round(box.width)),
+                           Math.max(48, Math.round(box.height)));
+    }
+  });
+}
+addEventListener('resize', refitConsole);
+
 // A handle for the tooling. A WebGL canvas screenshots blank unless
 // preserveDrawingBuffer is set, so the only honest way for tools/shot.mjs to
 // tell "the scene built" from "the scene is empty" is to count what is in it.
-window.FOC = { view, S, ui, net, overlay, get heroPreview() { return heroPreview; } };
+window.FOC = { view, S, ui, net, overlay, refitConsole,
+               get heroPreview() { return heroPreview; },
+               get unitPortrait() { return unitPortrait; } };
 
 ui.setLoading('connecting…', 0.1);
 net.connect(savedName);

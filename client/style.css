@@ -139,6 +139,11 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
 .item:hover{background:#1a1d28}
 .item img{width:30px;height:30px;border-radius:4px;background:#05060a}
 .item .g{margin-left:auto;color:var(--gold);font-size:12px}
+#disconnected{position:fixed;inset:0;display:grid;place-items:center;
+  background:rgba(5,6,10,.9);z-index:60}
+#disconnected .box{text-align:center}
+#disconnected h2{font-size:32px;margin:0 0 8px;color:var(--red);letter-spacing:1px}
+#disconnected p{color:var(--dim);margin:0 0 14px}
 #score{position:fixed;inset:0;display:grid;place-items:center;background:rgba(5,6,10,.9);z-index:30}
 #score table{border-collapse:collapse;background:var(--panel);border:1px solid var(--line)}
 #score th,#score td{padding:6px 14px;border-bottom:1px solid var(--line);font-size:13px;text-align:left}

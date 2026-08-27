@@ -355,6 +355,21 @@ export class UI {
     c.height = Math.round(r.height * dpr);
   }
 
+  /**
+   * The connection is gone.
+   *
+   * Rejoining properly means the server keeping the slot and the client
+   * replaying state onto it; until that exists, the honest thing is to say so
+   * rather than leave a frozen battlefield looking playable.
+   */
+  showDisconnected() {
+    const d = $('disconnected');
+    if (!d || !d.classList.contains('hidden')) return;
+    d.classList.remove('hidden');
+    const b = $('btnRejoin');
+    if (b) b.onclick = () => location.reload();
+  }
+
   log(text, cls) {
     this.logLines.push({ text, cls, t: performance.now() });
     if (this.logLines.length > 9) this.logLines.shift();

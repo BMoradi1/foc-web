@@ -89,6 +89,15 @@
 </div>
 <div id="score" class="hidden"></div>
 
+<!-- A dropped socket leaves the last frame standing with nothing moving in it,
+     which reads as the game having hung. Say what happened instead. Outside
+     #hud and #lobby because the connection can go at either. -->
+<div id="disconnected" class="hidden"><div class="box">
+  <h2>connection lost</h2>
+  <p>the server closed the connection. refresh to rejoin.</p>
+  <button id="btnRejoin">Refresh</button>
+</div></div>
+
 <!-- which build is on screen. Deliberately outside #hud and #lobby: the first
      question about a bug is always which build it is, and that is as true at
      the character select as it is mid-match. -->
