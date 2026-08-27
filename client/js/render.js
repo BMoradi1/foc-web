@@ -54,6 +54,26 @@ function tokensOf(name) {
 }
 
 /**
+ * The tokens a unit's Required Animation Names actually ask for.
+ *
+ * Almost always the field is the token list itself -- "upgrade,third" for the
+ * Arcane Tower, "swim" for the water sheep. `alternateex` is the exception, and
+ * it is Blizzard's own: it names no sequence in any of this map's 1101 converted
+ * models, while `alternate` names 214, and every unit type that declares it is
+ * the morphed form of another one -- Bear Form, Crow Form, Illidan's demon form,
+ * the Obsidian Destroyer, Ichigo's Bankai. Read literally it is inert and every
+ * one of those draws as its unmorphed self, so it asks for `alternate`.
+ */
+function animTokens(an) {
+  const out = [];
+  for (const t of tokensOf(an)) {
+    out.push(t);
+    if (t === 'alternateex' && !out.includes('alternate')) out.push('alternate');
+  }
+  return out;
+}
+
+/**
  * Warcraft III's variant weighting. `rarity` marks a sequence as the unusual
  * one -- the idle where the footman shifts his grip. The common variants are
  * rarity 0 and are what plays nearly all the time; a rare one surfaces
@@ -438,7 +458,7 @@ export class Renderer {
     view.obj = obj;
     view.meta = meta;
     view.isBuilding = !!ent.isBuilding;      // decides the Stand Work question
-    view.animProps = tokensOf(ent.an);       // Required Animation Names
+    view.animProps = animTokens(ent.an);     // Required Animation Names
     this.attachShadow(view, ent);
     this.attachSplat(view, ent);
     // Materials first, and prims with them. Emitters, ribbons and sprays add
@@ -641,34 +661,40 @@ export class Renderer {
     // Upgrade Third Attack Ready" as surely as it contains "Stand", and drawing
     // freely among them made the arcane tower flicker between its base and all
     // three upgraded appearances. Warcraft III keeps the extra tokens in check
-    // with the unit's required-animation list; what a unit does *not* declare,
-    // it does not play. So only an exact match qualifies --
-    let pool = cand.filter((c) => !c.extra.length);
-    // -- with one documented exception. "Stand Work" is a building's working
+    // with the unit's Required Animation Names: what a unit does *not* declare,
+    // it does not play.
+    const req = view.animProps || [];
+    // The one documented widening. "Stand Work" is a building's working
     // animation, and whether the engine admits it into the plain idle pool is
     // not decidable from this map's data: the rarity values disagree with each
     // other (the Barracks has Stand at 1 and Stand Work at 0). It is admitted
     // for buildings only, which is where the war mill's `work smoke` and the
     // ammo dump's fire live. Flip this one constant to change that judgement.
-    if (STAND_WORK_IDLES && view.isBuilding && want.includes('stand')) {
-      pool = pool.concat(cand.filter((c) => c.extra.length === 1 && c.extra[0] === 'work'));
+    const allow = STAND_WORK_IDLES && view.isBuilding && want.includes('stand')
+      ? req.concat('work') : req;
+    let pool = cand.filter((c) => c.extra.every((t) => allow.includes(t)));
+    // What a unit declares, it *prefers*. This was the missing half: the rule
+    // was "an exact match wins, and the declared tokens only break a tie when
+    // nothing matched exactly", which is right for the arcane tower -- it has no
+    // plain Stand, only "Stand Upgrade Third" and four siblings -- and wrong for
+    // everything whose model carries both. The Castle drew as a Town Hall, the
+    // Fortress as a Great Hall, the swimming penguin as a walking one, Illidan's
+    // demon form as Illidan, and Ichigo's Bankai as Ichigo: 57 unit/animation
+    // pairs across 22 unit types, every one of them the plain variant of a model
+    // that had the right one all along.
+    const score = (c) => c.extra.filter((t) => req.includes(t)).length;
+    if (pool.length) {
+      const best = Math.max(...pool.map(score));
+      pool = pool.filter((c) => score(c) === best);
+      return weightedByRarity(pool.map((c) => c.n), view.meta);
     }
-    if (pool.length) return weightedByRarity(pool.map((c) => c.n), view.meta);
-    // Nothing matches exactly -- the arcane tower has no plain "Stand" at all,
-    // only "Stand Upgrade Third Attack Ready" and four siblings. Which of those
-    // it is comes from its Required Animation Names: the Scout Tower, Guard
-    // Tower and Arcane Tower are one model, and only "upgrade,first" against
-    // "upgrade,third" separates them. Rank by how much of that a sequence
-    // satisfies, then by how little else it drags in, then by the model's own
-    // order so the choice is stable rather than flickering between equals.
-    const req = view.animProps || [];
-    const score = (c) => {
-      const wanted = c.extra.filter((t) => req.includes(t)).length;
-      return [-wanted, c.extra.length, this.seqIndexOf(view.meta, c.n)];
-    };
-    let best = cand[0], bs = score(best);
+    // Nothing the unit is allowed to play matches. Take the closest thing:
+    // most of what it declares, then least of what it does not, then the model's
+    // own order so the choice is stable rather than flickering between equals.
+    const rank = (c) => [-score(c), c.extra.length, this.seqIndexOf(view.meta, c.n)];
+    let best = cand[0], bs = rank(best);
     for (const c of cand.slice(1)) {
-      const s2 = score(c);
+      const s2 = rank(c);
       for (let i = 0; i < s2.length; i++) {
         if (s2[i] !== bs[i]) { if (s2[i] < bs[i]) { best = c; bs = s2; } break; }
       }

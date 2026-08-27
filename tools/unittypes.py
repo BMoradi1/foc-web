@@ -80,6 +80,12 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'ua1m': 'missile', 'ua1z': 'missileSpeed', 'uma1': 'missileArc',
  'usnd': 'soundSet', 'utip': 'tip', 'utub': 'ubertip',
  'usei': 'sellItems', 'useu': 'sellUnits', 'ua1g': 'atkTargetsAllowed', 'ua1w': 'weaponType', 'uabi': 'abilities',
+ # Required Animation Names.  Only the *.UnitFunc.txt side of this was read, so
+ # a map that set the field itself lost it -- which is how Ichigo's Bankai form
+ # went unnoticed: O000 is the same ichigo3.mdl asking for "alternateex", and
+ # without that token the alternate half of the model is unreachable and he
+ # transforms into himself.
+ 'uani': 'animProps',
  'ua1h': 'splashArea',
  'uhab': 'heroAbilities', 'umh1': 'missileHoming',
 }
