@@ -15,6 +15,9 @@
 </head>
 <body>
 <canvas id="view"></canvas>
+<!-- the flat layer between world and interface: health bars over units, drawn
+     in world space but as rectangles, the way Warcraft III draws them -->
+<canvas id="overlay"></canvas>
 
 <div id="loading"><div class="box"><h1>FOC<span>S</span></h1>
   <p id="loadmsg">connecting…</p><div class="bar"><i id="loadbar"></i></div></div></div>

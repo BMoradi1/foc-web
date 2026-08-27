@@ -162,6 +162,8 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
   letter-spacing:.5px}
 #gameclock.soon b{color:var(--red)}
 
+#overlay{position:fixed;inset:0;pointer-events:none;z-index:10}
+
 /* ---- build tag -------------------------------------------------------- */
 /* Bottom-left, except in a match, where the minimap already owns that corner
    and it sits just above instead. #hud precedes #build, so the sibling

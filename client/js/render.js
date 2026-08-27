@@ -11,6 +11,9 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { Ent } from '/shared/const.js';
 
 const TEAM_COLOR = [0x4f8fe0, 0xe05050, 0x9a9a9a];
+// Warcraft III tints the selection circle by what the unit is to you, not by
+// the owner's player colour.
+const SELECTION_COLOR = { own: 0x40ff40, ally: 0xffe040, enemy: 0xff4040, neutral: 0xdddddd };
 
 // Every way this map writes "there is no model here". Four spellings of the
 // same Korean word appear across its dummy unit types.
@@ -873,6 +876,90 @@ export class Renderer {
     mesh.renderOrder = -1;
     view.root.add(mesh);
     view.shadow = mesh;
+  }
+
+  /**
+   * Warcraft III's selection circle.
+   *
+   * Every number here is measured from the game's own art rather than chosen.
+   * UI\Feedback\selectioncircle\selectioncircle.mdx is a flat quad spanning
+   * +/-38.2 world units at selection scale 1, sitting 12 units above the
+   * ground so it does not fight the terrain for depth -- so that is the radius
+   * and that is the lift. The scale itself is the unit type's own `ussc`, which
+   * is a different field from the model scale: the Paladin is 1.25 selection
+   * against 1.0 model, and this map sets Ichigo to 1.1 and his Bankai form to
+   * 1.25.
+   *
+   * Warcraft III ships three ring textures rather than one, and the reason is
+   * visible in the art: the band is 5 pixels wide in Small, 3 in Med and 1 in
+   * Large, so a circle drawn bigger keeps the same stroke on screen. Which one
+   * the engine picks at which size is not in any data file, so the thresholds
+   * below are ours; everything above them is the game's.
+   *
+   * The colour is by relationship, not by player: green for yours, red for an
+   * enemy, yellow for an ally. The art is a white alpha mask, which is what
+   * lets one texture serve all three.
+   */
+  selectionCircle(view, ent) {
+    if (view.circle) return view.circle;
+    const r = 38.2 * (ent.ss || 1);
+    const tier = r < 60 ? 'Small' : r < 110 ? 'Med' : 'Large';
+    const key = 'sel:' + tier;
+    let tex = this.fxTextures.get(key);
+    if (!tex) {
+      tex = new THREE.TextureLoader().load(
+        `/assets/textures/ReplaceableTextures/Selection/SelectionCircle${tier}.png`);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.fxTextures.set(key, tex);
+    }
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(r * 2, r * 2),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
+                                    color: 0x40ff40 }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 12 + (ent.sz || 0);
+    // Drawn after the world's own ground art, not under it. Warcraft III shows
+    // the circle over whatever a unit is standing on, and several heroes here
+    // carry a big additive ground glow -- Ichigo's is 384 units across -- which
+    // is (SrcAlpha, One) over anything beneath it and washes a green ring to
+    // nothing. This sits above every priorityPlane a model can ask for, and it
+    // still depth-tests, so the unit itself is in front of it as it should be.
+    mesh.renderOrder = 900;
+    mesh.visible = false;
+    view.root.add(mesh);
+    view.circle = mesh;
+    return mesh;
+  }
+
+  /**
+   * Where a unit's health bar hangs, in world space.
+   *
+   * Measured off the built model once and cached, not taken from the MDX
+   * extent: this map's extents are unreliable enough that Ichigo's claims 835
+   * units against a body of 184, which would hang his bar off the top of the
+   * screen. A bounding box over the bind pose is not exact under skinning but
+   * it is the right size, which is all a bar needs.
+   */
+  barAnchor(v) {
+    // A view spawns before its glTF arrives, so measuring on the first frame
+    // measures nothing. Cache only once there is geometry to measure, or every
+    // unit in the game keeps the fallback for its whole life.
+    if (v.headY == null && v.prims && v.prims.length) {
+      const box = new THREE.Box3();
+      for (const m of v.prims) box.expandByObject(m);
+      if (!box.isEmpty()) v.headY = Math.max(40, box.max.y - v.root.position.y) + 26;
+    }
+    return v.root.position.clone().setY(v.root.position.y + (v.headY ?? 140));
+  }
+
+  /** Show or hide one unit's circle. `rel` is own | ally | enemy | neutral. */
+  markSelected(id, rel, ent) {
+    const v = this.views.get(id);
+    if (!v) return;
+    if (!rel && !v.circle) return;               // nothing to hide, nothing to build
+    const c = this.selectionCircle(v, ent || {});
+    c.visible = !!rel;
+    if (rel) c.material.color.setHex(SELECTION_COLOR[rel] ?? SELECTION_COLOR.neutral);
   }
 
   /**

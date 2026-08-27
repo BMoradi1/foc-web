@@ -3,12 +3,14 @@ import { Net } from './net.js';
 import { Renderer, toX, toZ } from './render.js';
 import { UI, Lang } from './ui.js';
 import { HeroPreview } from './heroview.js';
+import { Overlay } from './overlay.js';
 import { Audio } from './audio.js';
 import { Msg, Phase, Ent } from '/shared/const.js';
 
 const net = new Net();
 const ui = new UI(net);
 const view = new Renderer(document.getElementById('view'));
+const overlay = new Overlay(document.getElementById('overlay'));
 const audio = new Audio();
 // The hero turning in the character-select pane. Built lazily on the first pick
 // so a player who never opens the lobby never pays for a second WebGL context.
@@ -28,6 +30,7 @@ const S = {
   lastSnap: 0, snapDt: 1 / 15,
   selected: null, bounds: null, ready: false, showScore: false,
   castPending: null, minimapImg: null, debug: false,
+  hoverId: null, altHeld: false,
   unitModels: null,          // also feeds the lobby's rotating hero preview
 };
 
@@ -108,7 +111,9 @@ function findMeta(e) {
   if (t) return { model: t.m, scale: t.s, name: t.n, isHero: !!t.h, isBuilding: !!t.b,
                   radius: t.r, locust: !!t.l,
                   // the unit's own shadow image, size and offset
-                  sh: t.sh, sw: t.sw, shh: t.shh, sx: t.sx, sy: t.sy, us: t.us, an: t.an };
+                  sh: t.sh, sw: t.sw, shh: t.shh, sx: t.sx, sy: t.sy, us: t.us, an: t.an,
+                  // the selection circle's own scale and height off the ground
+                  ss: t.ss, sz: t.sz };
   return {};
 }
 
@@ -335,12 +340,37 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   if (e.key === 'Tab') { S.showScore = false; ui.toggleScore(false); }
+  if (e.key === 'Alt') S.altHeld = false;
 });
+// Warcraft III shows every visible unit's bar for as long as ALT is held
+addEventListener('keydown', (e) => { if (e.key === 'Alt') S.altHeld = true; });
+addEventListener('blur', () => { S.altHeld = false; });
 ui.onCastSlot = (slot) => {
   const a = S.hero?.abilities?.[slot];
   if (!a || a.lvl < 1) return;
   S.castPending = slot; canvas.style.cursor = 'crosshair';
 };
+
+/**
+ * What the cursor is over, and what a unit is to you.
+ *
+ * Warcraft III circles the unit under the pointer as well as the one you have
+ * selected, and colours both by relationship rather than by the owner's colour:
+ * green yours, yellow an ally, red an enemy.
+ */
+let mouseNX = 0, mouseNY = 0;
+addEventListener('mousemove', (e) => {
+  mouseNX = (e.clientX / innerWidth) * 2 - 1;
+  mouseNY = -(e.clientY / innerHeight) * 2 + 1;
+});
+function relationTo(e) {
+  if (!e) return null;
+  if (e.i === S.hero?.id) return 'own';
+  const me = S.ents.get(S.hero?.id);
+  if (e.p != null && me && e.p === me.p) return 'own';
+  if (e.t == null || !me || me.t == null) return 'neutral';
+  return e.t === me.t ? 'ally' : 'enemy';
+}
 
 // edge / drag panning
 let dragging = false, lastX = 0, lastY = 0, followHero = true;
@@ -431,11 +461,40 @@ function frame() {
   const me = S.ents.get(S.hero?.id);
   if (me && followHero) view.focus(me.x, me.y);
   if (S.bounds) view.clampCam(S.bounds);
+  if (S.phase === Phase.PLAYING) drawUnitUI();
   if (S.phase === Phase.PLAYING && S.bounds)
     ui.drawMinimap(S.bounds, [...S.ents.values()], S.hero?.id, S.minimapImg);
   if (flashT > 0) { flashT -= dt; document.body.style.boxShadow = `inset 0 0 200px rgba(200,30,30,${flashT * 1.4})`; }
   else document.body.style.boxShadow = '';
   requestAnimationFrame(frame);
+}
+
+/**
+ * The layer Warcraft III draws over the world: a circle under the unit you are
+ * pointing at and under your own hero, and a health bar over each of them --
+ * over everything, while ALT is held.
+ */
+const barsShown = new Set();
+function drawUnitUI() {
+  const hover = view.pickEntity(mouseNX, mouseNY);
+  const hoverId = hover ? hover.id : null;
+  if (hoverId !== S.hoverId) {
+    if (S.hoverId != null && S.hoverId !== S.hero?.id) view.markSelected(S.hoverId, null);
+    S.hoverId = hoverId ?? null;
+  }
+  // your own hero keeps its circle whatever the pointer is doing
+  if (S.hero?.id != null) view.markSelected(S.hero.id, 'own', S.ents.get(S.hero.id));
+  if (S.hoverId != null && S.hoverId !== S.hero?.id) {
+    const e = S.ents.get(S.hoverId);
+    view.markSelected(S.hoverId, relationTo(e), e);
+  }
+  barsShown.clear();
+  if (S.altHeld) for (const id of S.ents.keys()) barsShown.add(id);
+  else {
+    if (S.hero?.id != null) barsShown.add(S.hero.id);
+    if (S.hoverId != null) barsShown.add(S.hoverId);
+  }
+  overlay.draw(view, S.ents, barsShown);
 }
 
 function escapeHtml(s) {
