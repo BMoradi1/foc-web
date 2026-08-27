@@ -14,13 +14,23 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
   '.glb': 'model/gltf-binary', '.mp3': 'audio/mpeg', '.bin': 'application/octet-stream',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 
-const STATIC_DIRS = ['client', 'public', 'node_modules', '.'];  // '.' exposes /shared
+// The working directory itself is deliberately not served: it also holds the
+// map, the Blizzard archives and the server source, none of which belong on
+// the wire. The client reaches exactly two subtrees by absolute path -- its
+// /shared imports and the /three import map -- so those URL prefixes alone
+// are mapped to the directories they really live under.
+const STATIC_DIRS = ['client', 'public'];
+const STATIC_TREES = { '/shared/': '.', '/three/': 'node_modules' };
 
 function resolveFile(urlPath) {
-  let rel = decodeURIComponent(urlPath.split('?')[0]);
+  let rel;
+  try { rel = decodeURIComponent(urlPath.split('?')[0]); }
+  catch { return null; }                       // bad %-escape is a 404, not a crash
   if (rel === '/' ) rel = '/index.html';
   rel = path.normalize(rel).replace(/^(\.\.[/\\])+/, '');
-  for (const d of STATIC_DIRS) {
+  const dirs = [...STATIC_DIRS];
+  for (const [pre, d] of Object.entries(STATIC_TREES)) if (rel.startsWith(pre)) dirs.push(d);
+  for (const d of dirs) {
     const p = path.join(ROOT, d, rel);
     if (p.startsWith(path.join(ROOT, d)) && fs.existsSync(p) && fs.statSync(p).isFile()) return p;
   }
@@ -53,6 +63,8 @@ wss.on('connection', (ws, req) => {
   let player = null;
   ws.on('message', (buf) => {
     let m; try { m = JSON.parse(buf); } catch { return; }
+    // JSON.parse('null') parses fine; reading m.t off it would not
+    if (!m || typeof m !== 'object') return;
     if (!player) {
       if (m.t !== Msg.HELLO) return;
       // join returns null for a full room, having already told the client why
@@ -61,8 +73,11 @@ wss.on('connection', (ws, req) => {
     }
     try { room.handle(player, m); } catch (e) { console.error('handle', m.t, e.message); }
   });
-  ws.on('close', () => room.leave(player));
-  ws.on('error', () => room.leave(player));
+  // an emptied room is dropped from the map, or a client reconnecting with a
+  // fresh ?room= each time would grow it without bound
+  const drop = () => { room.leave(player); if (!room.players.size) rooms.delete(room.id); };
+  ws.on('close', drop);
+  ws.on('error', drop);
 });
 
 server.listen(PORT, HOST, () => {

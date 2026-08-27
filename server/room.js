@@ -69,6 +69,7 @@ export class Room {
     this.loop = null;
     this.snapAcc = 0;
     this.bootReport = null;
+    this.resetTimer = null;
   }
 
   get list() {
@@ -134,6 +135,10 @@ export class Room {
 
   reset() {
     if (this.loop) clearInterval(this.loop);
+    // the post-victory timer, or it fires 20 s later into whatever match has
+    // started since and tears down the wrong world
+    if (this.resetTimer) clearTimeout(this.resetTimer);
+    this.resetTimer = null;
     this.loop = null; this.world = null; this.eng = null; this.phase = Phase.LOBBY;
     for (const p of this.players.values()) {
       // Somebody who left during the match was kept so the script could still
@@ -363,24 +368,27 @@ export class Room {
       const vic = scriptEvents.find((e) => e.t === 'victory');
       if (vic != null && this.phase === Phase.PLAYING) {
         this.phase = Phase.ENDED;
-        const team = vic.player < 5 ? 0 : vic.player < 10 ? 1 : null;
+        // the winning slot's team as config() assigned it -- the reporting
+        // unit can belong to any of the ten seats, 10 and 11 included
+        const team = teamOfSlot(vic.player);
         this.broadcast({ t: Msg.EVENT, ev: [{ t: 'gameover', winner: team,
                          board: this.scriptBoard() }] });
         this.broadcastState();
         clearInterval(this.loop); this.loop = null;
-        setTimeout(() => { this.reset(); this.broadcastState(); }, 20000);
+        this.resetTimer = setTimeout(() => { this.reset(); this.broadcastState(); }, 20000);
         return;
       }
       if (all.length) this.broadcast({ t: Msg.EVENT, ev: all.slice(0, 200) });
+      if (++this.snapAcc >= TICK_HZ / SNAP_HZ) {
+        this.snapAcc = 0;
+        const snap = this.world.snapshot();
+        snap.board = this.scriptBoard();
+        this.broadcast({ t: Msg.SNAPSHOT, s: snap });
+        for (const p of this.players.values()) if (p.ws && p.entId) this.sendHero(p);
+      }
     } catch (e) {
+      // one bad tick is a logged error; killing the process kills every room
       console.error('sim error:', e.message);
-    }
-    if (++this.snapAcc >= TICK_HZ / SNAP_HZ) {
-      this.snapAcc = 0;
-      const snap = this.world.snapshot();
-      snap.board = this.scriptBoard();
-      this.broadcast({ t: Msg.SNAPSHOT, s: snap });
-      for (const p of this.players.values()) if (p.ws && p.entId) this.sendHero(p);
     }
   }
 
