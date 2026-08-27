@@ -103,7 +103,7 @@ net.on(Msg.EVENT, (m) => {
   for (const ev of m.ev) handleEvent(ev);
 });
 
-net.on(Msg.CHATMSG, (m) => ui.log(`<b>${m.from}:</b> ${escapeHtml(m.text)}`));
+net.on(Msg.CHATMSG, (m) => ui.log(`<b>${escapeHtml(m.from)}:</b> ${escapeHtml(m.text)}`));
 net.on(Msg.ERROR, (m) => ui.log(m.m, 'kill'));
 net.on('closed', () => ui.log('disconnected from server', 'kill'));
 
@@ -132,7 +132,7 @@ function handleEvent(ev) {
       const v = view.views.get(ev.id);
       if (v) view.play(v, 'death', true);
       const e = S.ents.get(ev.id);
-      ui.log(`${e?.name || 'a unit'} was slain`, 'kill');
+      ui.log(`${escapeHtml(e?.name || 'a unit')} was slain`, 'kill');
       break;
     }
     case 'respawn': { const v = view.views.get(ev.id); if (v) view.play(v, 'stand'); break; }
@@ -161,7 +161,8 @@ function handleEvent(ev) {
     case 'blinkIn': case 'blinkOut':
       spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xaa66ff, 110); break;
     case 'boss': ui.log('BOSS MULDER HAS FALLEN', 'kill'); break;
-    case 'text': if (ev.s) ui.log(String(ev.s).replace(/\|c........|\|r/g, ''), 'lvl'); break;
+    // the script's DisplayText often embeds GetPlayerName -- player-typed
+    case 'text': if (ev.s) ui.log(escapeHtml(String(ev.s).replace(/\|c........|\|r/g, '')), 'lvl'); break;
     case 'teleport': { const v = view.views.get(ev.id);
       if (v) spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0x66ddff, 130);
       break; }

@@ -6,6 +6,11 @@ const el = (tag, cls, html) => {
   return e;
 };
 const icon = (p) => (p ? `/assets/${p}` : '/assets/textures/_teamcolor.png');
+// For anything a *player* typed -- names, and the scoreboard cells the map
+// script builds from them -- before it lands in innerHTML. A name of
+// `<img onerror=...>` is script in every connected browser otherwise.
+export const esc = (s) => String(s)
+  .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // A hero's own model, rendered at build time by tools/hero_portraits.mjs. The
 // map ships no icons for its heroes -- every one of them carries whatever art
 // the Warcraft III unit it was built from had, so Goku picks as a Paladin and
@@ -112,7 +117,7 @@ export class UI {
       for (const p of players.filter((x) => x.team === t)) {
         const hero = this.heroes.find((h) => h.id === p.heroId);
         const row = el('div', 'pslot' + (p.id === you ? ' me' : ''));
-        row.innerHTML = `<i class="rd ${p.ready ? 'on' : ''}"></i><span>${p.name}</span>
+        row.innerHTML = `<i class="rd ${p.ready ? 'on' : ''}"></i><span>${esc(p.name)}</span>
                          <small>${hero ? hero.name : '—'}</small>`;
         box.appendChild(row);
       }
@@ -375,7 +380,7 @@ export class UI {
     const g = $('gameover');
     g.classList.remove('hidden');
     const rows = (board && board.rows || [])
-      .map((r) => `${String(r.label).replace(/\|c........|\|r/g, '')} ${r.value}`).join(' &nbsp;·&nbsp; ');
+      .map((r) => `${esc(String(r.label).replace(/\|c........|\|r/g, ''))} ${esc(r.value)}`).join(' &nbsp;·&nbsp; ');
     g.innerHTML = `<div class="box"><h2>${winner != null ? `Team ${winner + 1} wins` : 'Match over'}</h2>
       <p class="dim">${rows}</p></div>`;
   }
@@ -387,14 +392,14 @@ export class UI {
     // prefer the map's own scoreboard when it built one
     if (this.board?.kind === 'multiboard' && this.board.rows.length) {
       const [head, ...body] = this.board.rows;
-      s.innerHTML = `<table><caption>${this.board.title}</caption><tr>${
-        head.map((h) => `<th>${h}</th>`).join('')}</tr>${
-        body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+      s.innerHTML = `<table><caption>${esc(this.board.title)}</caption><tr>${
+        head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>${
+        body.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`;
       return;
     }
     const rows = this.players.map((p) => {
       const h = this.heroes.find((x) => x.id === p.heroId);
-      return `<tr><td>${p.name}</td><td>${h ? h.name : '—'}</td>
+      return `<tr><td>${esc(p.name)}</td><td>${h ? h.name : '—'}</td>
               <td>Team ${p.team + 1}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`;
     }).join('');
     s.innerHTML = `<table><tr><th>Player</th><th>Hero</th><th>Team</th><th>K</th><th>D</th></tr>${rows}</table>`;
