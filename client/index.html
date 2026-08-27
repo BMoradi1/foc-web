@@ -53,6 +53,9 @@
 
 <!-- in-game HUD -->
 <div id="hud" class="hidden">
+  <!-- Warcraft III's own console, built from ConsoleUI.fdf. First child so it
+       sits behind every panel that lives in its slots. -->
+  <div id="console"></div>
   <div id="topbar">
     <div class="score"><b id="k0">0</b><span>Team 1</span></div>
     <div class="score-mid" id="scoreMid">first to 100 kills</div>
@@ -61,7 +64,12 @@
   <!-- Warcraft III's timer dialog: this map runs its duel countdown through one -->
   <div id="gameclock" class="hidden"><span id="clockTitle"></span><b id="clockTime"></b></div>
   <div id="minimap"><canvas id="mmcanvas" width="200" height="300"></canvas></div>
+  <!-- Warcraft III's console shows the unit itself, animated, in its own arch
+       between the minimap and the info panel. Same renderer as the lobby
+       preview, so it is lit the way the game lights it. -->
+  <canvas id="unitPortrait" width="160" height="160"></canvas>
   <div id="portrait">
+    <div class="pinfo">
     <div id="pname2"></div>
     <div class="bars">
       <div class="bar hp"><i id="hpbar"></i><span id="hptext"></span></div>
@@ -69,6 +77,7 @@
       <div class="bar xp"><i id="xpbar"></i></div>
     </div>
     <div id="stats"></div>
+    </div>
   </div>
   <div id="inventory"></div>
   <div id="abilities"></div>

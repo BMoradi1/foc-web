@@ -4,6 +4,7 @@ import { Renderer, toX, toZ } from './render.js';
 import { UI, Lang } from './ui.js';
 import { HeroPreview } from './heroview.js';
 import { Overlay } from './overlay.js';
+import { buildConsole, placeIn } from './console.js';
 import { Audio } from './audio.js';
 import { Msg, Phase, Ent } from '/shared/const.js';
 
@@ -88,7 +89,15 @@ net.on(Msg.SNAPSHOT, (m) => {
   ui.updateClock(m.s.clock);
 });
 
-net.on('hero', (m) => { S.hero = m.h; ui.updateHero(m.h); });
+net.on('hero', (m) => {
+  const changed = S.hero?.unitId !== m.h.unitId;
+  S.hero = m.h;
+  ui.updateHero(m.h);
+  // The console is built during boot, before any hero exists, so the portrait
+  // has to be asked for again once there is one -- and again when the unit type
+  // underneath it changes, which a metamorphosis does.
+  if (changed) showUnitPortrait();
+});
 
 net.on(Msg.EVENT, (m) => {
   for (const ev of m.ev) handleEvent(ev);
@@ -219,6 +228,27 @@ async function boot(m) {
     fetch('/data/animsounds.json').then((r) => r.json()).catch(() => ({})),
     fetch('/data/lightning.json').then((r) => r.json()).catch(() => ({})),
   ]);
+  // Warcraft III's console frame, from its own ConsoleUI.fdf, with our panels
+  // moved into the openings the art leaves for them.
+  fetch('/data/console.json').then((r) => r.json()).then((spec) => {
+    const slots = buildConsole(spec, document.getElementById('console'));
+    placeIn(document.getElementById('minimap'), slots.minimap);
+    placeIn(document.getElementById('portrait'), slots.info);
+    placeIn(document.getElementById('unitPortrait'), slots.portrait);
+    // The card is four across and three down, which is twelve: the six
+    // abilities fill it the way Warcraft III fills one, row by row, and the six
+    // inventory slots take the rest.
+    ui.cardCells = slots.cells;
+    ui.invCells = slots.inv;
+    ui.placeCard();
+    // the minimap is sized by the art now, so its drawing buffer has to follow
+    // or a 200x300 map is squashed into a landscape opening
+    ui.fitMinimap();
+    showUnitPortrait();
+    // the console says what the controls are; the crib sheet was for before it
+    const hint = document.getElementById('hint');
+    if (hint && slots.cells.length) hint.style.display = 'none';
+  }).catch(() => {});
   const doodadMeta = await fetch('/data/doodadmeta.json').then((r) => r.json()).catch(() => ({}));
   // baked cliff mesh; a map with no cliffs simply has no cliffs.json
   const cliffs = await (async () => {
@@ -462,6 +492,7 @@ function frame() {
   if (me && followHero) view.focus(me.x, me.y);
   if (S.bounds) view.clampCam(S.bounds);
   if (S.phase === Phase.PLAYING) drawUnitUI();
+  if (S.phase === Phase.PLAYING && unitPortrait) unitPortrait.step(dt);
   if (S.phase === Phase.PLAYING && S.bounds)
     ui.drawMinimap(S.bounds, [...S.ents.values()], S.hero?.id, S.minimapImg);
   if (flashT > 0) { flashT -= dt; document.body.style.boxShadow = `inset 0 0 200px rgba(200,30,30,${flashT * 1.4})`; }
@@ -474,6 +505,26 @@ function frame() {
  * pointing at and under your own hero, and a health bar over each of them --
  * over everything, while ALT is held.
  */
+/**
+ * The console's own portrait: the hero, animated, in the arch.
+ *
+ * Built lazily and only once -- it owns a WebGL context, so rebuilding it per
+ * hero would leak one every time. It does not turn: Warcraft III's console
+ * portrait faces the player and idles, and only the lobby's spins.
+ */
+let unitPortrait = null;
+function showUnitPortrait() {
+  const cv = document.getElementById('unitPortrait');
+  const h = S.heroes?.find((x) => x.id === S.hero?.unitId)
+         || S.heroes?.find((x) => x.id === ui.selected);
+  if (!cv || !h) return;
+  const box = cv.getBoundingClientRect();
+  const size = { w: Math.max(48, Math.round(box.width) || 128),
+                 h: Math.max(48, Math.round(box.height) || 128) };
+  if (!unitPortrait) unitPortrait = new HeroPreview(cv, size, { spin: false, fill: 0.9, head: true });
+  unitPortrait.show(h, (S.unitModels || {})[h.id]).catch(() => {});
+}
+
 const barsShown = new Set();
 function drawUnitUI() {
   const hover = view.pickEntity(mouseNX, mouseNY);

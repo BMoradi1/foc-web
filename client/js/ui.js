@@ -207,6 +207,7 @@ export class UI {
    * half of what an inventory is for.
    */
   renderInventory(h) {
+    queueMicrotask(() => this.placeCard());
     const box = $('inventory');
     if (!box) return;
     box.innerHTML = '';
@@ -233,6 +234,7 @@ export class UI {
   }
 
   renderAbilities(h) {
+    queueMicrotask(() => this.placeCard());
     const box = $('abilities');
     const keys = ['Q', 'W', 'E', 'R', 'D', 'F'];
     box.innerHTML = '';
@@ -301,6 +303,47 @@ export class UI {
     const when = b.t ? new Date(b.t) : null;
     box.title = `${b.hash}${when ? ` \u00b7 ${when.toLocaleString()}` : ''}`
       + (debug ? '\nFOC_DEBUG is on: L levels the hero to the cap' : '');
+  }
+
+  /**
+   * Lay the ability and inventory buttons into the command card's own cells.
+   *
+   * The cells are measured out of the console art rather than chosen, so this
+   * only has to hand each button the rectangle the game left for it. Called
+   * again after either panel re-renders, since both replace their children.
+   */
+  placeCard() {
+    const cells = this.cardCells;
+    if (!cells || !cells.length) return;
+    const put = (el, style) => {
+      if (!el || !style) return;
+      el.style.position = 'fixed';
+      for (const k of ['left', 'right', 'top', 'bottom']) el.style[k] = 'auto';
+      Object.assign(el.style, style);
+      el.style.width = style.width;
+      el.style.height = style.height;
+    };
+    const slots = [...document.querySelectorAll('#abilities .slot')];
+    const items = [...document.querySelectorAll('#inventory .islot')];
+    for (const host of ['abilities', 'inventory']) {
+      const e = $(host);
+      if (e) { e.style.position = 'static'; e.style.display = 'contents'; }
+    }
+    // The command card is the abilities' and the inventory has its own six
+    // slots beside it, which is where Warcraft III puts them.
+    slots.forEach((el, i) => put(el, cells[i]));
+    items.forEach((el, i) => put(el, (this.invCells || [])[i]));
+  }
+
+  /** Match the minimap's drawing buffer to the opening the console gives it. */
+  fitMinimap() {
+    const c = $('mmcanvas');
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    c.width = Math.round(r.width * dpr);
+    c.height = Math.round(r.height * dpr);
   }
 
   log(text, cls) {
