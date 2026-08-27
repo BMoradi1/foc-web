@@ -23,6 +23,31 @@ EFFECTS (cont.)
     attach Abilities\Spells\Undead\DeathCoil\DeathCoilMissile.mdl at "head".
     That missing orb is the unchanged-model half of the report.
 
+INTERFACE (the Warcraft III console)
+------------------------------------
+The frame, the slots, the selection circles and the health bars are in. What
+Warcraft III's own screenshot still has and we do not:
+
+[ ] The camera does not know the console takes 29% of the screen
+    That height is the game's own number, but our view was built for a full
+    window, so the world is squashed into what is left rather than framed for
+    it. This is the one item with a gameplay cost, not just a visual one, and
+    it is the reason to do it before the rest.
+
+[ ] The top strip is drawn and empty
+    Warcraft III hangs Quests/Menu/Allies/Chat off the left of it and gold,
+    lumber, food and upkeep off the right. UI\FrameDef\UI\ResourceBar.fdf and
+    UpperButtonBar.fdf carry those layouts and tools/fdf.py already parses them;
+    the art is extracted. Nothing new is needed but the wiring.
+
+[ ] The command card's fourth column is clipped
+    ConsoleUI.fdf genuinely splits it across Tile03 and Tile04. This is the same
+    seam that cuts the portrait arch in half, and seamArch() in console.js
+    already solves that case -- it wants generalising to the card.
+
+[ ] The info panel's bottom row clips against its arch
+    GOLD and K/D run out of the opening at 1440x900.
+
 GAMEPLAY / INPUT
 ----------------
 [ ] A transformation's active abilities are on the unit but not clickable
@@ -57,6 +82,9 @@ SERVER
     team. Fresh server gives 11/11 on duo_test; after dozens of test clients it
     degrades to 9/11 with both players on team 0. This is a real bug, not a
     test artefact -- it just takes a while to show up in production.
+    Now reproduces reliably: drive a dozen puppeteer sessions at one server and
+    duo_test fails with "they are on opposing teams; they wear different player
+    colours", then passes on a fresh one.
 
 [~] Ichigo's near-death transformation  (engine half FIXED, art half open)
     FIXED: he respawns, and the Hollow form grants its AGI x3 attack bonus.
