@@ -104,8 +104,16 @@ for rec in uisnd:
         continue
     files = entry_files(rec)
     if files:
+        # Flags matter as much as the file here. Every one of these rows carries
+        # NODUPLICATES, which is what stops "Our hero has fallen" stacking on
+        # itself in a fight where heroes die constantly -- which is every fight
+        # in this map. MinDistance and MaxDistance are 0, which is the table
+        # saying outright that the warning is not a 3D sound.
         warn[name] = dict(files=files,
-                          vol=float(rec.get('Volume', 127) or 127) / 127.0)
+                          vol=float(rec.get('Volume', 127) or 127) / 127.0,
+                          flags=[f for f in str(rec.get('Flags', '') or '').split(',')
+                                 if f and f != '0'],
+                          prio=int(float(rec.get('Priority', 0) or 0)))
 
 os.makedirs('data', exist_ok=True)
 json.dump(warn, open('data/uisounds.json', 'w'), indent=1)

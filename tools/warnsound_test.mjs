@@ -32,6 +32,9 @@ check('it carries a row for your own hero and an ally\'s',
       rows.filter((r) => /Human$/.test(r)).join(', '));
 check('and none for an enemy, as Warcraft III has none',
       !rows.some((r) => /enemy/i.test(r)));
+check('the rows carry their flags, not just a file',
+      Object.values(table).every((v) => Array.isArray(v.flags) && v.flags.includes('NODUPLICATES')),
+      Object.values(table)[0]?.flags?.join(',') || 'no flags compiled');
 check('every row resolves to a real file',
       Object.values(table).every((v) => v.files?.length),
       `${Object.values(table).reduce((n, v) => n + v.files.length, 0)} files`);
@@ -94,6 +97,18 @@ const out = await page.evaluate(() => {
 
   const r = { own: fire(me), ally: fire(ally.i), enemy: fire(enemy.i),
               creep: creep ? fire(creep.i) : null };
+  // NODUPLICATES: the row says Warcraft III will not start this while it is
+  // already playing, and in this map heroes die constantly. Two deaths back to
+  // back must announce once. (playUI is stubbed, so this exercises the guard in
+  // audio.js only if we let the real one run -- restore it and count.)
+  delete audio.playUI;
+  const started = [];
+  const realPlay = audio.play.bind(audio);
+  audio.play = (f, g, rt) => { started.push(f); return realPlay(f, g, rt); };
+  audio.playing.clear();
+  net.handlers.get('event')({ t: 'event', ev: [{ t: 'death', id: me }] });
+  net.handlers.get('event')({ t: 'event', ev: [{ t: 'death', id: me }] });
+  r.doubled = started.length;
   S.ents.delete(ally.i); S.ents.delete(enemy.i);
   return Object.assign(r, { race: S.hero?.race, rows: Object.keys(S.uiSounds || {}).length });
 });
@@ -114,6 +129,8 @@ check('an enemy hero is silent, as Warcraft III leaves it',
       out.enemy.length === 0, out.enemy.join(', ') || '');
 check('and a unit that is not a hero says nothing',
       out.creep === null || out.creep.length === 0, (out.creep || []).join(', '));
+check('two deaths in a row announce once, as NODUPLICATES says',
+      out.doubled === 1, `${out.doubled} sound(s) started for 2 deaths`);
 check('no console errors', errs.length === 0, errs.slice(0, 2).join(' | '));
 
 const passed = results.filter((r) => r.pass).length;

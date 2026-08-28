@@ -7,6 +7,7 @@ export class Audio {
     this.volume = 0.55;
     this.enabled = true;
     this.missing = new Set();      // paths the archives did not supply
+    this.playing = new Set();      // NODUPLICATES: what must not start twice
   }
   init() {
     if (this.ctx) return;
@@ -41,6 +42,7 @@ export class Audio {
     g.gain.value = gain;
     src.connect(g); g.connect(this.master);
     src.start();
+    return src;
   }
   /**
    * Play a sound the map's script started, attenuated by distance from the
@@ -74,10 +76,28 @@ export class Audio {
    * not the battlefield's, so this deliberately skips the distance falloff
    * playWorld applies.
    */
-  playUI(path, vol = 1) {
+  playUI(path, vol = 1, flags = null) {
     if (!path || this.missing.has(path)) return;
     const gain = Math.max(0, Math.min(1, vol));
     if (gain <= 0.01) return;
+    // NODUPLICATES, straight off the row: Warcraft III will not start one of
+    // these while it is already playing. Every warning in the table carries it,
+    // and in a map where heroes die constantly it is the difference between a
+    // warning and a pile-up. CHANNELFULLPREEMPT is deliberately not honoured --
+    // it decides what to evict when a mixer channel is full, and there is no
+    // channel model here to be full.
+    const solo = Array.isArray(flags) && flags.includes('NODUPLICATES');
+    if (solo) {
+      if (this.playing.has(path)) return;
+      this.playing.add(path);
+      this.play(path, gain, 1)
+        .then((src) => {
+          if (src) src.onended = () => this.playing.delete(path);
+          else this.playing.delete(path);
+        })
+        .catch(() => this.playing.delete(path));
+      return;
+    }
     this.play(path, gain, 1);
   }
 

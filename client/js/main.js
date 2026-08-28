@@ -173,7 +173,7 @@ function heroDownWarning(e) {
   const row = table[key] || table.HeroDiesGeneric;
   if (!row?.files?.length) return;
   audio.playUI(`/assets/${row.files[Math.floor(Math.random() * row.files.length)]}`,
-               row.vol ?? 1);
+               row.vol ?? 1, row.flags);
 }
 
 /** Where the player is listening from: their hero, else the camera focus. */

@@ -161,7 +161,17 @@ SOUND
     volume wherever the hero fell, because the voice is yours and not the
     battlefield's. 25 of the 26 heroes are race human and one is orc, so the
     race is read from unittypes rather than assumed.
-    tools/warnsound_test.mjs, 13 checks, covering all four branches.
+    The rows also carry Flags, and every one of them is NODUPLICATES: Warcraft
+    III will not start the warning while it is already playing, which in a map
+    where heroes die constantly is the difference between a warning and a
+    pile-up. Honoured. CHANNELFULLPREEMPT is deliberately not -- it decides what
+    to evict when a mixer channel is full, and there is no channel model here.
+    The premise was checked rather than assumed: mapmakers ask how to *remove*
+    this sound, so it fires in custom maps by default, and FOC never suppresses
+    it -- zero VolumeGroupSetVolume, zero SetSoundVolumeBJ, no VOLUME_GROUP_*
+    anywhere in war3map.j. What is still unverified is the exact firing rule in
+    a 10-player free-for-all; worth a listen in the real client.
+    tools/warnsound_test.mjs, 15 checks, covering all four branches.
 
 [ ] The rest of the UISounds warning family is still unported
     The same table drives TownAttack<Race>, AllyUnderAttack<Race> and a dozen
