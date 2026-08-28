@@ -221,6 +221,51 @@ Warcraft III's own screenshot still has and we do not:
     tools/card_test.mjs, 7 checks, including that the portrait arch did not
     regress while its helper was generalised.
 
+[x] Missing textures at the map's two city gates  (FIXED)
+    Reported from play: the doors at the top left and top right drew flat white
+    slabs where their pillars should be.
+
+    Not a 404 -- nothing failed to load. CityEnteranceGate.mdx has two geosets:
+    one takes Textures\\CityStructures.blp and draws the bars and beams, the
+    other takes texture 4, which is replaceableId 11 with an empty path.
+    Warcraft III's slot 11 is "this tileset's cliff texture", the same slot the
+    cliff meshes use. mdx2gltf.py's tex_uri handled ids 1 and 2 (team colour and
+    glow) and returned None for everything else with no path, so the material
+    got no texture and drew white.
+
+    tex_uri now resolves 11 the way tools/cliffs.py resolves it for the terrain:
+    TerrainArt\\CliffTypes.slk names the texture unqualified and every tileset
+    bar Lordaeron Summer ships its own recolour as <tileset>_<texFile>.blp.
+    Where a map declares more than one cliff type it takes the one the terrain
+    actually uses -- this map lists CYdi and CYsq, but cliffTex is CYsq on 4321
+    vertices against CYdi on 37, and taking the first entry instead gave the
+    gates Cliff0, a cliff that appears almost nowhere here. It now resolves to
+    Y_Cliff1.png, the same texture the cliff mesh draws.
+    Exactly 2 placements, which is the two gates. tools/doodadtex_test.mjs.
+
+[ ] 27 tree destructables draw untextured
+    Found by doodadtex_test while fixing the gates, and registered in
+    run_tests.mjs KNOWN rather than hidden: 17 LTlt (LordaeronTree) and 10 BTtw
+    (BarrensTree) have one material with no texture at all.
+
+    Same root cause -- a replaceable slot with no path -- but a different fix,
+    and the gates' one will not extend to it. Units\\DestructableData.slk
+    carries texID and texFile per *destructable type*:
+      LTlt  texID 31  ReplaceableTextures\\LordaeronTree\\LordaeronSummerTree
+      BTtw  texID 33  ReplaceableTextures\\BarrensTree\\BarrensTree
+      YTcx  texID 11  ReplaceableTextures\\Cliff\\Cliff1.tga
+    146 destructables name a texID. The texture belongs to the destructable
+    type and not to the model: 52 models carry one and 32 of them are shared by
+    types that disagree -- lordaerontree alone is used by five destructables
+    with five different tree textures. So it cannot be resolved per model the
+    way slot 11 was; it has to be compiled per type and applied when the doodad
+    is built, which also means being careful not to mutate a cached material
+    shared with every other instance.
+
+    The art is in the archives and simply never extracted, because nothing
+    references it by path -- the listfile has all eight LordaeronTree variants
+    and both BarrensTree ones. Extraction has to be driven from texFile.
+
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.
 

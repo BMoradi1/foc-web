@@ -223,9 +223,62 @@ def _replaceable(kind):
     return ASSET_BASE + ('textures/_teamcolor.png' if kind == 'TeamColor'
                          else 'textures/_teamglow.png')
 
+def _cliff_texture():
+    """Replaceable slot 11: "this tileset's cliff texture".
+
+    The same slot the cliff meshes use, resolved the same way -- TerrainArt\\
+    CliffTypes.slk names the texture unqualified and every tileset bar Lordaeron
+    Summer ships its own recolour as <tileset>_<texFile>.blp, so the bare name
+    would hand a Cityscape map grassy Lordaeron cliffs. tools/cliffs.py does this
+    for the terrain; it runs after this script, so its output cannot be read and
+    the table is read again here.
+
+    It is not only cliffs that ask for the slot. Doodads built to sit against the
+    terrain use it too, and with an empty path and no handling they came out
+    untextured -- flat white. On this map that is the two city entrance gates.
+    """
+    import json as _json
+    from slk import parse_slk
+    try:
+        t = _json.load(open('data/terrain.json'))
+    except OSError:
+        return None
+    tileset = str(t.get('tileset') or '')
+    cliffs = t.get('cliffTiles') or []
+    # Which cliff type, when a map declares more than one? The one the terrain
+    # actually uses. This map lists CYdi and CYsq, but its cliffTex is CYsq on
+    # 4321 vertices against CYdi on 37, and the cliff meshes are drawn with
+    # CYsq's Y_Cliff1 -- taking the first entry instead would texture the gates
+    # with a cliff that appears almost nowhere on the map.
+    import collections as _c
+    seen = _c.Counter(v for v in (t.get('cliffTex') or []) if v < len(cliffs))
+    order = [cliffs[i] for i, _ in seen.most_common()] or cliffs
+    rows = {str(r.get('cliffID') or ''): r
+            for r in parse_slk('war3_extracted/TerrainArt/CliffTypes.slk')}
+    for cid in order:
+        row = rows.get(cid)
+        if not row:
+            continue
+        d = str(row.get('texDir') or 'ReplaceableTextures\\Cliff').replace('/', '\\')
+        f = str(row.get('texFile') or 'Cliff0')
+        for cand in ('%s\\%s_%s.blp' % (d, tileset, f), '%s\\%s.blp' % (d, f)):
+            k = cand.lower()
+            if k in TEXIDX:
+                return ASSET_BASE + TEXIDX[k]
+    return None
+
+
+_CLIFF_TEX = None
+
+
 def tex_uri(path, replaceable):
+    global _CLIFF_TEX
     if replaceable == 1: return _replaceable('TeamColor')
     if replaceable == 2: return _replaceable('TeamGlow')
+    if replaceable == 11:
+        if _CLIFF_TEX is None:
+            _CLIFF_TEX = _cliff_texture() or ''
+        return _CLIFF_TEX or None
     if not path: return None
     key = path.replace('/', '\\').lower()
     base = key.split('\\')[-1]
