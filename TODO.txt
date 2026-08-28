@@ -146,6 +146,29 @@ PERFORMANCE
     but none of printf's width flags, so the specifier printed itself and
     shifted every argument after it by one (hence the "xNaN"). padEnd instead.
 
+SOUND
+-----
+[x] Warcraft III's own hero-death warning  (FIXED)
+    "Our hero has fallen!" is the engine's, not the map's: nothing in
+    war3map.j mentions it, which is why it had never been ported. UISounds.slk
+    carries HeroDies<Race> for your own hero and AllyHeroDies<Race> for an
+    ally's, all 11 rows already converted to ogg by the existing audio step.
+    Three details that make it more than "play a sound on hero death": the
+    voice is the *listening* player's race rather than the dead hero's, so the
+    row is chosen per client and the server only reports the death; there is no
+    enemy row in the table at all, so Warcraft III is silent when the other side
+    loses one, and so are we; and it is not a 3D sound -- it plays at its own
+    volume wherever the hero fell, because the voice is yours and not the
+    battlefield's. 25 of the 26 heroes are race human and one is orc, so the
+    race is read from unittypes rather than assumed.
+    tools/warnsound_test.mjs, 13 checks, covering all four branches.
+
+[ ] The rest of the UISounds warning family is still unported
+    The same table drives TownAttack<Race>, AllyUnderAttack<Race> and a dozen
+    others on the same pattern. Only the hero-death rows are compiled into
+    data/uisounds.json so far. Nothing else is wired to fire them yet, so this
+    is a "when there is something to warn about" item, not a gap in what plays.
+
 SERVER
 ------
 [x] Room lifecycle  (FIXED)

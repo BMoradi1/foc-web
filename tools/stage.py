@@ -9,6 +9,10 @@ os.makedirs(PUB + '/data', exist_ok=True)
 
 # game data
 shutil.copy('data/game.json', PUB + '/data/game.json')
+# the engine's own hero-death warning; the client picks the row, since which
+# one plays depends on who is listening
+if os.path.exists('data/uisounds.json'):
+    shutil.copy('data/uisounds.json', PUB + '/data/uisounds.json')
 
 # terrain: compact height + tile arrays
 t = json.load(open('data/terrain.json'))

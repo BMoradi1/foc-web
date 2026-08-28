@@ -420,6 +420,9 @@ export class Room {
       id: u.id, unitId: u.typeKey, name: u.properName || u.name, title: hero.title || '',
       titleEn: hero.titleEn || '',
       model: hero.model, level: u.level, xp: Math.round(u.xp),
+      // Warcraft III speaks its warnings in the *listening* player's race
+      // voice, not the dead unit's, so the client needs to know its own.
+      race: (this.world.type(u.typeKey) || {}).race || '',
       skillPoints: u.skillPoints,
       xpNeed: Math.round(this.world.xpForLevel(u.level)),
       maxLevel: this.world.maxHeroLevel,

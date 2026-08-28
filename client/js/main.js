@@ -140,6 +140,42 @@ net.on('closed', () => {
   ui.showDisconnected();
 });
 
+/**
+ * "Our hero has fallen!"
+ *
+ * Warcraft III says this itself when a hero dies -- no map script is involved,
+ * which is why nothing in war3map.j mentions it and it had never been ported.
+ * UISounds.slk carries a row per race for your own hero and another for an
+ * ally's, and the voice is the *listening* player's race rather than the dead
+ * hero's, because it is your own advisor speaking. Which is also why the
+ * decision is made here and not on the server: every client hears a different
+ * answer, and some hear nothing.
+ *
+ * There is deliberately no enemy row in the table. Warcraft III is silent when
+ * the other side loses a hero, and so is this.
+ */
+function heroDownWarning(e) {
+  if (!e || e.k !== 1) return;                     // k=1 is a hero
+  const table = S.uiSounds;
+  if (!table) return;
+  const mine = S.hero?.id;
+  const myTeam = mine != null ? S.ents.get(mine)?.t : null;
+  const prefix = e.i === mine ? 'HeroDies'
+               : (myTeam != null && e.t === myTeam) ? 'AllyHeroDies'
+               : null;
+  if (!prefix) return;
+  // matched against the table's own row names rather than a list of races
+  // written out here, so the data stays the thing that decides
+  const want = (prefix + (S.hero?.race || '')).toLowerCase();
+  const key = Object.keys(table).find((k) => k.toLowerCase() === want);
+  // HeroDiesGeneric is the only fallback Warcraft III ships; a race with no row
+  // of its own gets it.
+  const row = table[key] || table.HeroDiesGeneric;
+  if (!row?.files?.length) return;
+  audio.playUI(`/assets/${row.files[Math.floor(Math.random() * row.files.length)]}`,
+               row.vol ?? 1);
+}
+
 /** Where the player is listening from: their hero, else the camera focus. */
 function listener() {
   const me = S.ents.get(S.hero?.id);
@@ -166,6 +202,7 @@ function handleEvent(ev) {
       if (v) view.play(v, 'death', true);
       const e = S.ents.get(ev.id);
       ui.log(`${escapeHtml(e?.name || 'a unit')} was slain`, 'kill');
+      heroDownWarning(e);
       break;
     }
     case 'respawn': { const v = view.views.get(ev.id); if (v) view.play(v, 'stand'); break; }
@@ -249,7 +286,7 @@ function flash() { flashT = 0.25; }
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
   const [terr, heightsBuf, doodads, unitModels, ubersplats,
-         splatTable, spawnTable, animSounds, boltTable] = await Promise.all([
+         splatTable, spawnTable, animSounds, boltTable, uiSounds] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
@@ -261,7 +298,10 @@ async function boot(m) {
     fetch('/data/spawns.json').then((r) => r.json()).catch(() => ({})),
     fetch('/data/animsounds.json').then((r) => r.json()).catch(() => ({})),
     fetch('/data/lightning.json').then((r) => r.json()).catch(() => ({})),
+    // Warcraft III's own warnings, off UISounds.slk -- the hero-death line
+    fetch('/data/uisounds.json').then((r) => r.json()).catch(() => ({})),
   ]);
+  S.uiSounds = uiSounds;
   // Warcraft III's console frame, from its own ConsoleUI.fdf, with our panels
   // moved into the openings the art leaves for them.
   fetch('/data/console.json').then((r) => r.json()).then((spec) => {
@@ -641,7 +681,7 @@ addEventListener('resize', refitConsole);
 // A handle for the tooling. A WebGL canvas screenshots blank unless
 // preserveDrawingBuffer is set, so the only honest way for tools/shot.mjs to
 // tell "the scene built" from "the scene is empty" is to count what is in it.
-window.FOC = { view, S, ui, net, overlay, refitConsole,
+window.FOC = { view, S, ui, net, overlay, audio, refitConsole,
                get heroPreview() { return heroPreview; },
                get unitPortrait() { return unitPortrait; } };
 

@@ -11,6 +11,7 @@ BASE = 'war3_extracted'
 ack = parse_slk(os.path.join(BASE, 'UI/SoundInfo/UnitAckSounds.slk'))
 combat = parse_slk(os.path.join(BASE, 'UI/SoundInfo/UnitCombatSounds.slk'))
 ui = parse_slk(os.path.join(BASE, 'Units/unitUI.slk'))
+uisnd = parse_slk(os.path.join(BASE, 'UI/SoundInfo/UISounds.slk'))
 have = json.load(open('assets/sounds.json')) if os.path.exists('assets/sounds.json') else {}
 
 def entry_files(rec):
@@ -89,9 +90,28 @@ for uid, t in types.items():
     build_for(uid, str(t.get('soundSet') or '').strip(), str(t.get('weaponType') or '').strip())
 sets = {k: v for k, v in sets.items() if v}
 
+# Warcraft III's own warning when a hero falls -- "Our hero has fallen!"
+#
+# Nothing in a map's script plays this: the engine does it, off UISounds.slk,
+# in the *listening* player's race voice rather than the dead hero's. The table
+# has a row per race for your own hero and another for an ally's, plus a
+# Generic fallback -- and, tellingly, no row at all for an enemy's, which is
+# why Warcraft III is silent when the other side loses one.
+warn = {}
+for rec in uisnd:
+    name = str(rec.get('SoundName') or '')
+    if not (name.startswith('HeroDies') or name.startswith('AllyHeroDies')):
+        continue
+    files = entry_files(rec)
+    if files:
+        warn[name] = dict(files=files,
+                          vol=float(rec.get('Volume', 127) or 127) / 127.0)
+
 os.makedirs('data', exist_ok=True)
+json.dump(warn, open('data/uisounds.json', 'w'), indent=1)
 json.dump(sets, open('data/soundsets.json', 'w'))
 covered = sum(1 for v in sets.values() if v.get('death'))
+print('hero-death warnings: %d  (%s)' % (len(warn), ', '.join(sorted(warn))))
 print('sound entries with audio: %d' % len(sounds))
 print('unit types with a sound set: %d  (with a death sound: %d)' % (len(sets), covered))
 ex = [u for u in sets if sets[u].get('death')][:5]

@@ -66,5 +66,20 @@ export class Audio {
     if (gain <= 0.01) return;
     this.play(path, gain, pitch);
   }
+  /**
+   * A sound with no place on the map: the advisor in your ear.
+   *
+   * Warcraft III's warnings -- "Our hero has fallen!" -- are not 3D. They play
+   * at their own volume wherever the hero died, because the voice is yours and
+   * not the battlefield's, so this deliberately skips the distance falloff
+   * playWorld applies.
+   */
+  playUI(path, vol = 1) {
+    if (!path || this.missing.has(path)) return;
+    const gain = Math.max(0, Math.min(1, vol));
+    if (gain <= 0.01) return;
+    this.play(path, gain, 1);
+  }
+
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
 }
