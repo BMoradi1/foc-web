@@ -117,6 +117,30 @@ EFFECTS (cont.)
     which is upscaling, not detail. Whether that is worth it is a judgement
     call and wants a look at the real thing first.
 
+[ ] Ramp transitions: the CliffTrans wedges are never placed
+    Also reported from play -- the transition art at a cliff edge is absent.
+    CliffTypes.slk gives every cliff type a *second* model directory --
+    `rampModelDir`, CityCliffTrans for this map's CYsq -- holding the wedges
+    Warcraft III sets where a ramp meets a cliff. cliffs.py reads
+    cliffModelDir only, so those cells get ordinary cliff walls and the ramp
+    mouth has a hard edge instead of a carried-down ground.
+    What is established, so the next attempt starts here rather than from
+    scratch:
+      - the art exists: 16 CityCliffTrans models, and Models.path() already
+        builds exactly the right filename for them
+      - their codes letter a ramped corner H or L by which layer it sits on
+        rather than A/B/C, which is why every one of the 16 has exactly one H
+        and one L
+      - this map has 4 fully-ramped cells and 20 cliff cells touching them
+    What is NOT established, and where an attempt failed: which cells take a
+    wedge. Coding every cell whose ramp-flagged corners span both layers gives
+    12 cells, and all 12 codes have art -- but the resulting mesh fails
+    cliff_test with 64 height mismatches (max 128, exactly one layer) and 8
+    cells covered that were never declared, and some of the 12 sit three rows
+    from the ramp mouth. So the corner-to-letter rule is close but the
+    selection or the base layer is wrong, and it wants Blizzard's actual
+    placement rule rather than another inference. Reverted; the tree is green.
+
 INTERFACE (the Warcraft III console)
 ------------------------------------
 The frame, the slots, the selection circles and the health bars are in. What
