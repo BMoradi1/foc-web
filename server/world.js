@@ -36,6 +36,12 @@ const ITEMS = (() => {
 const SOUNDSETS = (() => {
   try { return readJSON('data/soundsets.json'); } catch { return {}; }
 })();
+// Which buffs draw something. Only these are worth telling a client about: the
+// rest are numbers it never sees, and a snapshot goes out fifteen times a
+// second to everyone.
+const BUFF_ART = (() => {
+  try { return readJSON('data/buffart.json'); } catch { return {}; }
+})();
 const HEIGHTS = new Float32Array(fs.readFileSync(path.join(ROOT, 'public/data/heights.bin')).buffer);
 
 const DEG = Math.PI / 180;
@@ -1720,6 +1726,12 @@ export class World {
                   h: Math.round(u.hp), H: Math.round(u.maxHp),
                   m: Math.round(u.mana), M: Math.round(u.maxMana),
                   l: u.level, mv: u.path ? 1 : 0 });
+      // Warcraft III hangs the buff's model on the unit for as long as the buff
+      // is on it. Sent only when there is one, so the common unit costs nothing.
+      const art = [];
+      for (const b of (u.buffs || []))
+        if (b.code && BUFF_ART[b.code] && (!b.until || b.until > this.now)) art.push(b.code);
+      if (art.length) ents[ents.length - 1].b = art;
     }
     // Items lying in the world. They were tracked server-side and never sent,
     // so a dropped item existed, was owned by nobody and sat at the right

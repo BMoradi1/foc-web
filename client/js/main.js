@@ -108,6 +108,8 @@ net.on(Msg.SNAPSHOT, (m) => {
       view.removeView(e.i);
       view.spawnView(S.ents.get(e.i));
     }
+    // the models the unit's buffs hang on it; a no-op unless the set changed
+    if (e.b || old?.b) view.syncBuffArt(e.i, e.b, S.buffArt);
   }
   for (const id of [...S.ents.keys()]) {
     if (seen.has(id)) continue;
@@ -288,7 +290,7 @@ function flash() { flashT = 0.25; }
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
   const [terr, heightsBuf, doodads, unitModels, ubersplats,
-         splatTable, spawnTable, animSounds, boltTable, uiSounds] = await Promise.all([
+         splatTable, spawnTable, animSounds, boltTable, uiSounds, buffArt] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
@@ -302,8 +304,11 @@ async function boot(m) {
     fetch('/data/lightning.json').then((r) => r.json()).catch(() => ({})),
     // Warcraft III's own warnings, off UISounds.slk -- the hero-death line
     fetch('/data/uisounds.json').then((r) => r.json()).catch(() => ({})),
+    // the model a buff hangs on a unit, and the point it hangs from
+    fetch('/data/buffart.json').then((r) => r.json()).catch(() => ({})),
   ]);
   S.uiSounds = uiSounds;
+  S.buffArt = buffArt;
   // Warcraft III's console frame, from its own ConsoleUI.fdf, with our panels
   // moved into the openings the art leaves for them.
   fetch('/data/console.json').then((r) => r.json()).then((spec) => {

@@ -30,7 +30,7 @@ EFFECTS (closing out the effects pass)
 
 EFFECTS (cont.)
 ---------------
-[~] Buff art -- no buff ever shows its attached model  (DATA DONE, ENGINE OPEN)
+[x] Buff art -- no buff ever shows its attached model  (FIXED)
     Warcraft III gives a buff a Target Attachment model and an attachment point
     (w3h fields ftat / fta0). No buff in the map has ever drawn its art.
     Visible example: Ichigo's Hollow form (B001) and Vizard form (B000) both
@@ -62,9 +62,22 @@ EFFECTS (cont.)
       client attach/detach .......... MISSING, but the renderer already resolves
                                       attachment points and AddSpecialEffectTarget
                                       already attaches the map's own 59 effects
-    So the remaining work is the middle: applying a buff with its id when an
-    ability's effect lands, then carrying it to the client. The art half is done
-    and staged as data/buffart.json.
+    DONE. The middle turned out to be half-built already: the AUfa/AUfu/ACfa
+    case in abilities.js was the one applyBuff call carrying `code: i.buff`, and
+    it is exactly the path this map uses -- it casts Frost Armor off a dummy
+    purely to stamp a named buff. So only two pieces were missing, and both are
+    in: the snapshot now carries the codes of buffs that draw something (and
+    only those -- a snapshot goes to everyone fifteen times a second), and
+    render.js syncBuffArt hangs the models through the same route
+    AddSpecialEffectTarget takes, so a buff model gets its emitters, ribbons and
+    texture animation like any other effect.
+    Ichigo's mask lands on Head_Ref, eight levels into the skeleton rather than
+    on the root, and comes down when the buff ends. removeView names the buff
+    effects explicitly: they hang off a bone, so the existing sweep for effects
+    parented to v.root could not see them.
+    tools/buffart_test.mjs, 11 checks, driven through the real cast rather than
+    through applyBuff -- the lesson from the hero-death warning, which passed
+    every check while the game stayed silent.
 
 INTERFACE (the Warcraft III console)
 ------------------------------------

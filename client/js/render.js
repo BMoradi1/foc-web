@@ -1558,9 +1558,52 @@ export class Renderer {
     }
   }
 
+  /**
+   * The models a unit's buffs hang on it, kept in step with the buffs it has.
+   *
+   * Warcraft III draws a buff's Target Attachment for as long as the buff is
+   * on the unit -- Ichigo's Hollow form is DeathCoilMissile at "head", and this
+   * map stamps that buff on him by casting Frost Armor off a dummy purely to
+   * name it. `ftat` is a model *list*, one per attachment point, which is how
+   * Thorny Shield hangs four shields and Bloodlust two.
+   *
+   * Reuses the same path AddSpecialEffectTarget takes, so a buff model gets its
+   * emitters, ribbons and texture animation like any other effect.
+   */
+  syncBuffArt(id, codes, table) {
+    const v = this.views.get(id);
+    if (!v) return;
+    const want = new Set(codes || []);
+    const held = v.buffFx || (v.buffFx = new Map());
+    for (const [code, ids] of [...held]) {
+      if (want.has(code)) continue;
+      for (const fx of ids) this.endEffect(fx);
+      held.delete(code);
+    }
+    for (const code of want) {
+      if (held.has(code)) continue;
+      const rec = table && table[code];
+      if (!rec || !rec.target || !rec.target.length) continue;
+      const points = rec.points || [];
+      const ids = [];
+      rec.target.forEach((path, n) => {
+        const fx = `buff:${id}:${code}:${n}`;
+        ids.push(fx);
+        // no point named is the unit's origin, which is where the game puts it
+        this.spawnEffect({ fx, path, id, attach: points[n] || points[0] || 'origin' }, true);
+      });
+      held.set(code, ids);
+    }
+  }
+
   removeView(id) {
     const v = this.views.get(id);
     if (!v) return;
+    // buff art hangs off a bone rather than the root, so the sweep below cannot
+    // see it; it has to be named
+    for (const ids of (v.buffFx || new Map()).values())
+      for (const fx of ids) this.endEffect(fx);
+    v.buffFx = null;
     for (const [fx, e] of this.effects) if (e.parent === v.root) this.endEffect(fx);
     this.lightPool.release(v);
     this.scene.remove(v.root);
