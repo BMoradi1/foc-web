@@ -11,11 +11,11 @@ authoritative Node server with a Three.js top-down 3D client. Powered by a JASS 
 # [Video](https://www.youtube.com/watch?v=vcHNVRgg-5s)
 ## Screenshots
 ### In-Game
-<img width="1283" height="973" alt="image" src="https://github.com/user-attachments/assets/f771653d-2b7c-4628-8a8d-5edb1b424419" />
+<img width="1385" height="981" alt="image" src="https://github.com/user-attachments/assets/0d7900a4-79f6-4d45-aa8f-017afe8b14e3" />
+<img width="1403" height="1006" alt="image" src="https://github.com/user-attachments/assets/179c79bf-a8fa-41b1-918d-21df728b0019" />
+<img width="1388" height="1001" alt="image" src="https://github.com/user-attachments/assets/4ac8ee8f-648e-42e6-8520-9c402cca6483" />
 
-<img width="1485" height="981" alt="Screenshot_20260825_015529" src="https://github.com/user-attachments/assets/0997b900-60ac-46a5-b092-3766ed0449d8" />
-<img width="1513" height="984" alt="image" src="https://github.com/user-attachments/assets/2459ecd9-f3a7-423b-a919-cbf6718cba96" />
-<img width="1281" height="972" alt="image" src="https://github.com/user-attachments/assets/715ba281-deaf-49f9-8a34-30993efe484e" />
+<img width="1400" height="1013" alt="image" src="https://github.com/user-attachments/assets/3b671237-cb96-4624-9806-0b1024419321" />
 
 
 
