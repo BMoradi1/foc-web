@@ -30,15 +30,41 @@ EFFECTS (closing out the effects pass)
 
 EFFECTS (cont.)
 ---------------
-[ ] Buff art -- no buff ever shows its attached model
+[~] Buff art -- no buff ever shows its attached model  (DATA DONE, ENGINE OPEN)
     Warcraft III gives a buff a Target Attachment model and an attachment point
-    (w3h fields ftat / fta0). Nothing reads w3h, buffs are never serialised to
-    the client, and no attach/detach path exists -- so no buff in the map has
-    ever drawn its art. 19 models are referenced and all 19 are already
-    converted, so this is wiring, not extraction.
+    (w3h fields ftat / fta0). No buff in the map has ever drawn its art.
     Visible example: Ichigo's Hollow form (B001) and Vizard form (B000) both
     attach Abilities\Spells\Undead\DeathCoil\DeathCoilMissile.mdl at "head".
     That missing orb is the unchanged-model half of the report.
+
+    Measured 2026-08-27, and the old note here was wrong twice. It said "nothing
+    reads w3h" -- abilities.py already did -- and it called the job wiring, on a
+    count of 19 models. The real shape, layer by layer:
+      w3h buff art .................. 149 buffs carry a target model
+      distinct models ............... 88, of which 86 are converted; the two
+                                      that are not (SleepSpecialArt, WebTarget)
+                                      are absent from the archives entirely,
+                                      like the stale rows in the sound tables
+      ability -> buff id ............ ALREADY COMPILED: 545 of 1046 abilities
+                                      carry one per level, 87 of them naming a
+                                      buff that has art
+      attachment points ............. DONE now -- fta0..N and ftac compiled, and
+                                      ftat split on commas, because it is a
+                                      model *list*, one per point (Thorny Shield
+                                      hangs four, Bloodlust two). 11 buffs name
+                                      a point; 9 of those are reachable in play
+      server applies a buff by id ... MISSING. Across 130 casts the only buff
+                                      ever applied is an anonymous 'stun', 9x,
+                                      from the hand-written approximations in
+                                      abilities.js. Nothing ever says "unit U
+                                      now has B000"
+      buffs serialised to a client .. MISSING
+      client attach/detach .......... MISSING, but the renderer already resolves
+                                      attachment points and AddSpecialEffectTarget
+                                      already attaches the map's own 59 effects
+    So the remaining work is the middle: applying a buff with its id when an
+    ability's effect lands, then carrying it to the client. The art half is done
+    and staged as data/buffart.json.
 
 INTERFACE (the Warcraft III console)
 ------------------------------------

@@ -13,6 +13,9 @@ shutil.copy('data/game.json', PUB + '/data/game.json')
 # one plays depends on who is listening
 if os.path.exists('data/uisounds.json'):
     shutil.copy('data/uisounds.json', PUB + '/data/uisounds.json')
+# the model a buff hangs on a unit, and where it hangs it
+if os.path.exists('data/buffart.json'):
+    shutil.copy('data/buffart.json', PUB + '/data/buffart.json')
 
 # terrain: compact height + tile arrays
 t = json.load(open('data/terrain.json'))

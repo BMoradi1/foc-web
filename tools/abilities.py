@@ -115,6 +115,11 @@ ART_W3A = {'acat': 'caster', 'atat': 'target', 'asat': 'special', 'aeat': 'effec
 # "1" as a model path if the map is written too loosely.
 BUFF_ART_FIELDS = {'ftat': 'target', 'fsat': 'special', 'feat': 'effect',
                    'faea': 'area', 'fmat': 'missile', 'flig': 'lightning'}
+# Where the art hangs, which is not art and so cannot go through is_model().
+# Warcraft III takes an attachment point as a token list -- "right,hand" is the
+# hand bone on the right side -- and `ftac` says how many points to use, so one
+# buff can hang the same model off both hands.
+BUFF_POINT_FIELDS = {'fta0': 0, 'fta1': 1, 'fta2': 2, 'fta3': 3, 'fta4': 4, 'fta5': 5}
 
 
 def is_model(v):
@@ -137,15 +142,29 @@ def buff_art_table():
         art = {}
         for k, slot in ART_FUNC.items():
             if d.get(k): art[slot] = d[k]
+        pts = {}
+        for k, i in BUFF_POINT_FIELDS.items():
+            if d.get(k): pts[i] = d[k]
+        if d.get('ftac'): art['count'] = int(num(d['ftac'], 1) or 1)
+        if pts: art['points'] = [pts[i] for i in sorted(pts)]
         if art: out[bid] = art
 
     def apply(dst, mods):
+        pts = {}
         for key, raw in mods.items():
             fid = key.split(':')[0]
-            slot = BUFF_ART_FIELDS.get(fid)
             v = text(raw)
+            slot = BUFF_ART_FIELDS.get(fid)
             if slot and v is not None and (slot == 'lightning' or is_model(v)):
                 dst[slot] = v
+            elif fid in BUFF_POINT_FIELDS and v:
+                pts[BUFF_POINT_FIELDS[fid]] = v
+            elif fid == 'ftac' and v is not None:
+                dst['count'] = int(num(v, 1) or 1)
+        if pts:
+            # the map's points replace the origin's outright rather than merging,
+            # which is how the object editor treats a repeated field
+            dst['points'] = [pts[i] for i in sorted(pts)]
         return dst
 
     try:
@@ -319,6 +338,29 @@ os.makedirs('data', exist_ok=True)
 # pointer; resolve them so the runtime never sees the pointer
 table = resolve_deep(table)
 json.dump(table, open('data/abilities.json', 'w'))
+
+# The buff art table, on its own rather than only folded into each ability's.
+#
+# Warcraft III hangs a model on a unit for as long as a buff is on it, at the
+# attachment point the buff names -- Ichigo's Hollow form is DeathCoilMissile at
+# "head". That is a different thing from the cast-time art art_for() already
+# merges, and it needs the buff keyed by its own id, so it gets its own file.
+# Only the buffs that actually carry a target model are worth writing.
+# `ftat` is a model *list*, one per attachment point, which is why it pairs with
+# `ftac` and the fta0..N points: Thorny Shield hangs four shields, Bloodlust two.
+# Taken whole it is not a path and resolves to nothing.
+buffart = {}
+for _b, _a in BUFF_ART.items():
+    if not _a.get('target'):
+        continue
+    _r = dict(_a)
+    _r['target'] = [m.strip() for m in str(_a['target']).split(',') if m.strip()]
+    buffart[_b] = _r
+json.dump(buffart, open('data/buffart.json', 'w'), indent=1)
+_pts = sum(1 for a in buffart.values() if a.get('points'))
+_multi = sum(1 for a in buffart.values() if len(a['target']) > 1)
+print('buffs with target art: %d  (%d name an attachment point, %d hang more than one model)'
+      % (len(buffart), _pts, _multi))
 print('ability table: %d entries' % len(table))
 if unknown_fields:
     print('  w3a fields with no AbilityMetaData row: %d distinct -> %s'
