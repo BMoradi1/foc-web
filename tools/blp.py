@@ -43,4 +43,11 @@ def to_png(src, dst):
     return im.size
 
 if __name__ == '__main__':
-    print(to_png('extracted/war3mapMap.blp', '/tmp/claude-1000/-home-bijan-Desktop-FOC/ffc7ddc2-5801-4bd4-b056-ba8d79530acf/scratchpad/minimap.png'))
+    # A decoder is more use as a converter than as one machine's demo: this
+    # block hardcoded a scratchpad path, username and session id and all.
+    #
+    #   python3 tools/blp.py <in.blp> [out.png]
+    src = sys.argv[1] if len(sys.argv) > 1 else 'extracted/war3mapMap.blp'
+    dst = sys.argv[2] if len(sys.argv) > 2 else \
+        os.path.splitext(os.path.basename(src))[0] + '.png'
+    print(to_png(src, dst))

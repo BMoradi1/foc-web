@@ -4,14 +4,19 @@
   "private": true,
   "type": "module",
   "description": "Fight of Characters Second (FOCS) - browser port with authoritative Node server",
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node tools/run_tests.mjs"
   },
   "dependencies": {
-    "puppeteer-core": "^24.43.1",
     "three": "^0.185.1",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.43.1"
   }
 }
