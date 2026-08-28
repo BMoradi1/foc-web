@@ -6,11 +6,12 @@
 //
 //   PORT=8077 node tools/fps_test.mjs
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const SECONDS = +(process.env.SECS || 8);
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          `--user-data-dir=.tmp/chrome-fps-${process.pid}`, '--disable-crash-reporter',
          '--disable-breakpad', '--no-first-run', '--disable-dev-shm-usage'],

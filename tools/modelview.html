@@ -34,10 +34,19 @@ view.spawnTable = await fetch('/data/spawns.json').then(r => r.json()).catch(() 
 window.ready = true;
 
 let id = 90000;
-window.showUnit = async (model, colour = 0, scale = 1) => {
+// `unitId` matters whenever a model is shared, which is most of them.
+// Five unit types draw as the Demon Hunter -- Illidan, his two metamorphosis
+// forms, a hero of this map's own and Osam -- and the first one this lookup
+// happens to reach declares "alternateex". Spawning Osam with it hands him
+// Metamorphosis's Required Animation Names, pickClip duly prefers "Stand
+// Alternate", and the demon form's geoset animation hides the body it is
+// supposed to be showing: 17 prims, 4 visible, an empty portrait. Naming the
+// unit takes its own row instead of a sibling's.
+window.showUnit = async (model, colour = 0, scale = 1, unitId = null) => {
   for (const [k, v] of [...view.views]) view.removeView(k);
   const um = window.__unitModels || {};
-  const meta = Object.values(um).find((t) => t.m === model) || {};
+  const meta = (unitId && um[unitId])
+            || Object.values(um).find((t) => t.m === model) || {};
   const ent = { i: ++id, k: 1, t: 0, p: colour, c: colour, x: 0, y: 0, f: 2.2,
                 model, scale, isHero: true, radius: 32, name: model,
                 // the shadow the real game would give this unit

@@ -120,9 +120,14 @@ PERFORMANCE
     catches it. Predates the performance work. It no longer produces an
     invisible pickable unit -- spawnView falls through to the capsule stand-in
     now -- but a capsule is a placeholder, not the model, so the entry stays.
+    This is the one test `npm test` reports as known-failing rather than as a
+    failure; the fix is to delete its row in tools/run_tests.mjs once o00D has
+    an entry, not to edit the test.
 
-[ ] tools/ghost_test.mjs prints raw format specifiers
-    Its console.log uses %-6s and friends, which Node does not support.
+[x] tools/ghost_test.mjs prints raw format specifiers  (FIXED)
+    Its console.log used %-6s and friends: Node's format understands %s and %d
+    but none of printf's width flags, so the specifier printed itself and
+    shifted every argument after it by one (hence the "xNaN"). padEnd instead.
 
 SERVER
 ------

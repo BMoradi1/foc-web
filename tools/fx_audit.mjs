@@ -2,9 +2,10 @@
 //   node server/index.js &   # 8077
 //   node tools/fx_audit.mjs kisame RedDragon ichigo3
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 const PORT = process.env.PORT || 8077;
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', `--user-data-dir=.tmp/chrome-fxa-${process.pid}`,
          '--disable-crash-reporter', '--disable-breakpad', '--no-first-run',

@@ -18,6 +18,7 @@
 //   node server/index.js &        # port 8077
 //   node tools/render_test.mjs
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const MODEL = process.env.MODEL || 'units~creeps~heroflamelord~heroflamelord';
@@ -28,7 +29,7 @@ const check = (name, pass, detail = '') => {
 };
 
 const browser = await puppeteer.launch({
-  executablePath: process.env.CHROME || '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', '--disable-crash-reporter', '--disable-breakpad',
          '--no-first-run', `--user-data-dir=.tmp/chrome-render-${process.pid}`],

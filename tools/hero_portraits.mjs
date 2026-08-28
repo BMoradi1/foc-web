@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const S = +(process.env.S || 256);
@@ -49,7 +50,7 @@ console.log('rendering %d portrait(s) at %dx%d', heroes.length, S, S);
 fs.mkdirSync(OUT, { recursive: true });
 
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', '--disable-crash-reporter', '--disable-breakpad',
          '--no-first-run', `--user-data-dir=.tmp/chrome-portrait-${process.pid}`],
@@ -68,10 +69,13 @@ const failed = [];
 for (const h of heroes) {
   let out;
   try {
-  out = await page.evaluate(async ({ model, scale, size, CARD_BG }) => {
+  out = await page.evaluate(async ({ id, model, scale, size, CARD_BG }) => {
     const THREE = await import('/three/build/three.module.js');
     const view = window.view;
-    await window.showUnit(model, 0, scale || 1);
+    // By id, not by model: a shared model reaches whichever unit type the
+    // lookup finds first, and for the five that draw as the Demon Hunter that
+    // is a metamorphosis form whose animation set hides the ordinary body.
+    await window.showUnit(model, 0, scale || 1, id);
     const v = [...view.views.values()][0];
     if (!v) return { error: 'no view' };
 
@@ -193,7 +197,7 @@ for (const h of heroes) {
     ctx.putImageData(img, 0, 0);
     return { png: cv.toDataURL('image/png'), coverage: +(lit / (size * size)).toFixed(3),
              dist: Math.round(view.camDist), prims: v.prims.length };
-  }, { model: h.model, scale: h.scale, size: S, CARD_BG });
+  }, { id: h.id, model: h.model, scale: h.scale, size: S, CARD_BG });
   } catch (e) {
     // one hero that will not load must not take the other 25 with it
     console.log('  FAIL %s  %s  %s', h.id.padEnd(5), (h.model || '').slice(-34).padEnd(34),

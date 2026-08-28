@@ -1,11 +1,12 @@
 // Screenshot units as the game builds them: PORT=8077 node tools/model_shot.mjs Byakuya2 Enel2
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 const PORT = process.env.PORT || 8077;
 const OUT = process.env.OUT || '.tmp';
 const want = process.argv.slice(2);
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          // a fresh profile every run: chromium's disk cache will otherwise keep
          // serving the copy of the page it had before the last edit, and

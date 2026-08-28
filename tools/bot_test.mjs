@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-const URL = 'ws://127.0.0.1:8080/ws?room=test';
+const URL = `ws://127.0.0.1:${process.env.PORT || 8080}/ws?room=test`;
 const log = (...a) => console.log(...a);
 
 function bot(name, heroPick, team) {

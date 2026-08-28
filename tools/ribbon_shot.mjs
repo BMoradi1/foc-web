@@ -8,13 +8,14 @@
 //   node tools/ribbon_shot.mjs kisame Byakuya2 SandWaveMissile
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const OUT = process.env.OUT || '.tmp';
 const want = process.argv.slice(2);
 
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', `--user-data-dir=${OUT}/chrome-rib-${process.pid}`,
          '--disable-crash-reporter', '--disable-breakpad', '--no-first-run',

@@ -18,6 +18,10 @@ PRE2_FLAGS = {
 }
 TEXIDX = json.load(open('assets/textures.json'))
 OUTDIR = 'assets/models'
+# How many models may fail before the run is called broken. The archives hold
+# the odd malformed MDX; they do not hold hundreds, and a client cannot draw a
+# model that was never written.
+FAIL_FLOOR = int(os.environ.get('FOC_MODEL_FAIL_FLOOR', '5'))
 
 # ---------------------------------------------------------------- track eval
 def track_keys(tr):
@@ -694,3 +698,13 @@ if __name__ == '__main__':
     print('converted %d, reused %d, indexed %d (%.1f MB glb), %d failed'
           % (built, skipped, len(index), tot / 1e6, len(fails)))
     for n, e in fails[:20]: print('  FAIL', n, e)
+    if len(fails) > 20:
+        print('  ... and %d more' % (len(fails) - 20))
+    # This used to print its failures and exit 0, so a rebuild that converted
+    # nothing still came out of pipeline.sh green -- and the client 404s on
+    # every model that was never written. One stray MDX is the archives'
+    # business; a wall of them is a broken converter or a missing dependency.
+    if len(fails) > FAIL_FLOOR or not index:
+        print('\nmodel conversion failed: %d of %d model(s) would not convert.'
+              % (len(fails), len(files)))
+        sys.exit(1)

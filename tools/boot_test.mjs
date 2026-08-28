@@ -24,3 +24,8 @@ if (r.unimplemented.length) {
   console.log(`\n${r.unimplemented.length} unimplemented natives were called:`);
   for (const [n, c] of r.unimplemented.slice(0, 20)) console.log('   ' + n.padEnd(34) + c);
 }
+// The pipeline's verify stage used to be green over a broken boot: this printed
+// the count and exited 0 whatever it was. An unimplemented native is not a
+// failure -- the port is deliberately partial and each one is a listed no-op --
+// but a runtime error in the map's own script is what this exists to catch.
+process.exit(r.errors.length ? 1 : 0);

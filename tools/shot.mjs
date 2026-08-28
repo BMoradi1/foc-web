@@ -1,7 +1,8 @@
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 const SP = process.env.SP || '/tmp';
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader', '--user-data-dir=.tmp/chrome', '--disable-crash-reporter', '--disable-breakpad', '--no-first-run',
          '--window-size=1440,900', '--disable-dev-shm-usage'],
   defaultViewport: { width: 1440, height: 900 },

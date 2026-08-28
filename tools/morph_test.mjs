@@ -18,6 +18,7 @@
 // FOC_DEBUG is required: Bankai is a level-10 skill and the level-to-cap key is
 // the only way to get there without playing the match.
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 import fs from 'node:fs';
 
 const PORT = process.env.PORT || 8077;
@@ -54,7 +55,7 @@ check(!!aNorm && !!aAlt && JSON.stringify(aNorm) !== JSON.stringify(aAlt),
 
 // ------------------------------------------------------------- the client
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          `--user-data-dir=.tmp/chrome-morph-${process.pid}`, '--disable-crash-reporter',
          '--disable-breakpad', '--no-first-run', '--disable-dev-shm-usage'],

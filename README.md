@@ -80,6 +80,19 @@ The retail archives (`War3Patch.mpq`, `War3x.mpq`, `war3.mpq`, and the `*local` 
 have them) go next to the `.w3x`. They are read in Warcraft III's own priority order by
 `tools/gamedata.py`.
 
+Besides Python, the pipeline shells out to three things and fails loudly without them:
+
+| | |
+|---|---|
+| **ffmpeg**, built with libvorbis | 6 192 sounds → Ogg. Check with `ffmpeg -encoders \| grep vorbis` — an ffmpeg without it converts nothing. |
+| **Node 20.11+** | the trigger prober, the portrait bake and every test |
+| **Chromium** | step 8 renders each hero's own model for the lobby. `CHROME=/path/to/chrome` if it is not on one of the usual paths (`tools/chrome.mjs` lists them). |
+
+Step 8 starts a server on 8077 for the length of the portrait bake and stops it again;
+`FOC_PORT` moves it. The last step verifies the build — the cliff geometry, a full script
+boot and a trigger audit — and now exits nonzero when any of them is unhappy. The whole
+test suite is `npm test`, which starts its own server and runs everything.
+
 ## Controls
 
 | Input | Action |

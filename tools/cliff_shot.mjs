@@ -3,11 +3,12 @@
 // bad cliff shows up without the rest of the game in the way.
 //   PORT=8077 node tools/cliff_shot.mjs      (needs the server running)
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const OUT = process.env.OUT || '.tmp';
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', '--user-data-dir=.tmp/chrome',
          '--disable-crash-reporter', '--disable-breakpad', '--no-first-run',

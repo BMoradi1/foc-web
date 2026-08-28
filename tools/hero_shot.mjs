@@ -9,6 +9,7 @@
 //   node tools/hero_shot.mjs [outfile]
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const OUT = process.argv[2] || '.tmp/hero.png';
@@ -18,7 +19,7 @@ const ZOOM = +(process.env.ZOOM || 0.28);
 const PITCH = +(process.env.PITCH || 0.42);
 
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', '--disable-crash-reporter', '--disable-breakpad',
          '--no-first-run', `--user-data-dir=.tmp/chrome-hero-${process.pid}`],

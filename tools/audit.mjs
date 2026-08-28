@@ -152,3 +152,7 @@ console.log(`runtime errors: ${eng.errors.length} (${errs.length} distinct)`);
 for (const e of errs.slice(0, 6)) console.log('  !', e);
 console.log('unimplemented natives called:', [...eng.unimplemented].map(([n, c]) => `${n}(${c})`).join(', ') || 'none');
 console.log('units in world:', world.units.size);
+// Same as boot_test: this reported the error count and exited 0 regardless, so
+// pipeline.sh's verify stage could not fail. Unimplemented natives stay
+// advisory; a runtime error does not.
+process.exit(eng.errors.length ? 1 : 0);

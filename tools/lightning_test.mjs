@@ -15,6 +15,7 @@
 //   node tools/lightning_test.mjs
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 import { World, id2int } from '../server/world.js';
 import { JassEngine } from '../server/jass/engine.js';
 
@@ -74,7 +75,7 @@ check('casting one emits a lightning event', emitted.length > 0,
 
 // ---- client half: does it become geometry that moves and then clears?
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', '--disable-crash-reporter', '--disable-breakpad',
          '--no-first-run', `--user-data-dir=.tmp/chrome-lit-${process.pid}`],

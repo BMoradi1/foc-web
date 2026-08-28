@@ -13,6 +13,7 @@
 //   node server/index.js &        # port 8077
 //   node tools/anim_test.mjs
 import puppeteer from 'puppeteer-core';
+import { CHROME } from './chrome.mjs';
 
 const PORT = process.env.PORT || 8077;
 const SECONDS = +(process.env.SECONDS || 45);
@@ -24,7 +25,7 @@ const check = (name, pass, detail = '') => {
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium', headless: true,
+  executablePath: CHROME, headless: true,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-gl=swiftshader',
          '--disable-dev-shm-usage', '--disable-crash-reporter', '--disable-breakpad',
          '--no-first-run', `--user-data-dir=.tmp/chrome-anim-${process.pid}`],

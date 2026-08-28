@@ -69,8 +69,11 @@ if (!offenders.size) {
   console.log('  none');
 } else {
   for (const o of offenders.values()) {
-    console.log('  %-6s locust=%-5s  model=%-24s  first seen: %s %s  x%d',
-      o.type, String(o.locust), String(o.model).slice(0, 24), o.from, o.ability, o.n);
+    // console.log understands %s and %d but none of printf's width flags, so
+    // '%-6s' printed itself and shifted every argument after it by one.
+    console.log('  %s locust=%s  model=%s  first seen: %s %s  x%d',
+      String(o.type).padEnd(6), String(o.locust).padEnd(5),
+      String(o.model).slice(0, 24).padEnd(24), o.from, o.ability, o.n);
   }
 }
 process.exit(offenders.size ? 1 : 0);
