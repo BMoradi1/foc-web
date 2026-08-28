@@ -124,6 +124,8 @@ net.on(Msg.SNAPSHOT, (m) => {
 net.on('hero', (m) => {
   const changed = S.hero?.unitId !== m.h.unitId;
   S.hero = m.h;
+  // before the card is drawn: the labels read the keys this assigns
+  KEY_SLOT = resolveHotkeys(m.h.abilities);
   ui.updateHero(m.h);
   // The console is built during boot, before any hero exists, so the portrait
   // has to be asked for again once there is one -- and again when the unit type
@@ -379,7 +381,40 @@ async function boot(m) {
 
 // --------------------------------------------------------------------- input
 const canvas = document.getElementById('view');
-const KEY_SLOT = { q: 0, w: 1, e: 2, r: 3, d: 4, f: 5 };
+
+// Where the fixed Q/W/E/R/D/F row used to be.
+//
+// The map assigns each ability its own key in war3map.w3a ('ahky') and 109 of
+// the 130 hero abilities declare one -- including T, B, V and C, which that row
+// could not produce, while D and F are declared by no ability at all. So on most
+// heroes the letter printed on the button and the key that actually cast were
+// different keys.
+//
+// Resolved once, here, and written back onto the ability as `key`: the command
+// card labels from the same field the keydown handler binds, so the two cannot
+// drift apart again. Nothing is invented -- a slot the map leaves blank (16 of
+// them, 3 innate) falls back to its position, and only to a letter no declared
+// hotkey on that hero has already taken. Three heroes need that guard.
+const POS_KEYS = ['q', 'w', 'e', 'r', 'd', 'f'];
+
+function resolveHotkeys(abilities) {
+  const taken = new Set();
+  for (const a of abilities || []) {
+    const k = String(a.hotkey || '').trim().toLowerCase();
+    a.key = k && !taken.has(k) ? k : '';
+    if (a.key) taken.add(a.key);
+  }
+  (abilities || []).forEach((a, i) => {
+    if (a.key) return;
+    const pref = [POS_KEYS[i], ...POS_KEYS].find((k) => k && !taken.has(k));
+    if (pref) { a.key = pref; taken.add(pref); }
+  });
+  const map = {};
+  (abilities || []).forEach((a, i) => { if (a.key) map[a.key] = i; });
+  return map;
+}
+
+let KEY_SLOT = {};
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => {

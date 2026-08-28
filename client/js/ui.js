@@ -245,7 +245,9 @@ export class UI {
   renderAbilities(h) {
     queueMicrotask(() => this.placeCard());
     const box = $('abilities');
-    const keys = ['Q', 'W', 'E', 'R', 'D', 'F'];
+    // The key each ability actually binds to, resolved in main.js from the
+    // map's own 'ahky' -- read here rather than re-derived, so the letter
+    // printed on the button is by construction the letter that casts it.
     box.innerHTML = '';
 
     // Unspent skill points are easy to miss, and a hero that cannot cast because
@@ -275,7 +277,7 @@ export class UI {
       const how = canRank ? '\nClick + to learn (or right-click the icon)' : '';
       s.title = `${T(a, 'name')}${gate}${how}\n${T(a, 'desc')}`;
 
-      s.innerHTML = `<span class="key">${keys[i] || ''}</span>
+      s.innerHTML = `<span class="key">${(a.key || '').toUpperCase()}</span>
         <span class="lv">${a.lvl}/${a.maxLvl}</span>
         ${a.cdLeft > 0.1 ? `<span class="cd">${a.cdLeft.toFixed(0)}</span>` : ''}
         ${gated ? `<span class="req">Lv ${a.reqLevel}</span>` : ''}

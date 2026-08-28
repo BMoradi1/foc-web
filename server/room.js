@@ -417,6 +417,11 @@ export class Room {
       const isInnate = (hero.innate || []).includes(aid);
       const cd = (u.cooldowns && u.cooldowns.get(key)) || 0;
       return { slot: i, id: aid, lvl, name: ab.name || aid, icon: ab.icon,
+               // the key the map itself assigns this ability (w3a 'ahky').
+               // 109 of the 130 hero abilities declare one, and they include
+               // T, B, V and C -- none of which the client's old fixed
+               // Q/W/E/R/D/F row could produce.
+               hotkey: ab.hotkey || '',
                desc: ab.desc || ab.tip, archetype: ab.archetype,
                nameEn: ab.nameEn, descEn: ab.descEn || ab.tipEn,
                maxLvl: ab.maxLvl || (ab.levels || []).length || 1,

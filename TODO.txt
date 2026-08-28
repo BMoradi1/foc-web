@@ -179,10 +179,38 @@ GAMEPLAY / INPUT
     them (O003) grants four, which is more than q/w/e/r/d/f has room for.
     Entangled with the hotkey item below -- do them together.
 
-[ ] Hotkeys
-    The map defines real `ahky` values for all 130 hero abilities. The client
-    still uses hardcoded q/w/e/r/d/f, so the printed hotkey and the key that
-    actually fires disagree on most heroes.
+[x] Hotkeys  (FIXED)
+    The map assigns each hero ability its own key in war3map.w3a ('ahky'). The
+    client used a fixed Q/W/E/R/D/F row, so on most heroes the letter printed on
+    the button and the key that actually cast were different keys.
+
+    The old note here was wrong twice about the data. It said all 130 abilities
+    declare a hotkey -- 109 of the 130 do -- and it implied nothing compiled the
+    field. compile_game.py:206 already emitted it (`hotkey=clean(lvl_get(m,
+    'ahky', 0, ''))`) and had all along; abilities.py drops it deliberately as
+    presentation the *server* never needs, which is correct. The only real gap
+    was sendHero, which built the client's ability payload without it.
+
+    Measured before touching anything:
+      declared hotkeys .......... 109 of 130 hero abilities
+      distinct keys ............. Q 24, W 24, R 23, E 21, T 7, B 4, V 4, C 2
+                                  -- T, B, V and C were unreachable, and D and F
+                                  are declared by no ability at all
+      collisions ................ 0 heroes give two castable abilities the same
+                                  key, so binding needs no tie-breaking
+      slots with no hotkey ...... 16 of 125 castable (3 innate); they fall back
+                                  to their position, and only to a letter no
+                                  declared hotkey on that hero already holds --
+                                  3 heroes need that guard
+
+    Resolved once in main.js and written back onto the ability as `key`: the
+    command card labels from the same field the keydown handler binds, so the
+    printed letter is by construction the letter that casts. That single
+    resolution point is the fix -- the bug was two places deriving the key
+    independently.
+    tools/hotkey_test.mjs, 9 checks, driven through a real match: Byakuya
+    Kuchiki, whose six abilities are C Q W E B V, so every slot moves off its
+    old position and a regression cannot pass silently.
 
 [ ] SetUnitTimeScale -- 36 calls, currently a no-op
     Animation speed changes (hastes, slows, channel speeds) do nothing.
