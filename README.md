@@ -1,7 +1,7 @@
 # FOC Web — *Fight of Characters 7.7b* in the browser
 
 A browser port of the Warcraft III community map **Fight of Characters**, running on an
-authoritative Node server with a Three.js top-down 3D client.
+authoritative Node server with a Three.js top-down 3D client. Powered by a JASS VM running the real map scripts from the w3x file in real time. 
 
 
 **🤖I handled direction, architecture choices such as the 1:1 trigger mapping, designing verification audits, review and QA. Everything else in this repository is LLM-generated including the code, the tooling, execution of the audits and this README. Written with Claude Code and Codex under an agentic workflow.** 🤖
