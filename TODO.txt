@@ -171,7 +171,13 @@ SOUND
     it -- zero VolumeGroupSetVolume, zero SetSoundVolumeBJ, no VOLUME_GROUP_*
     anywhere in war3map.j. What is still unverified is the exact firing rule in
     a 10-player free-for-all; worth a listen in the real client.
-    tools/warnsound_test.mjs, 15 checks, covering all four branches.
+    tools/warnsound_test.mjs, 18 checks, covering all four branches.
+    Shipped broken first time and caught in play: the client passed
+    `/assets/${file}` to playUI, but audio.load prefixes /assets/ itself, so the
+    URL doubled, 404'd, and the game stayed silent. Every check still passed --
+    they asserted that playUI was *called*. The test now drives a real hero
+    death through a debug kill and asks the mixer whether the clip decoded,
+    which is the only assertion that could have failed.
 
 [ ] The rest of the UISounds warning family is still unported
     The same table drives TownAttack<Race>, AllyUnderAttack<Race> and a dozen

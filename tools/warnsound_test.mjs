@@ -131,6 +131,53 @@ check('and a unit that is not a hero says nothing',
       out.creep === null || out.creep.length === 0, (out.creep || []).join(', '));
 check('two deaths in a row announce once, as NODUPLICATES says',
       out.doubled === 1, `${out.doubled} sound(s) started for 2 deaths`);
+
+// Everything above hands the client a death event it made up. That is the shape
+// of test that passes while the real path is broken, so this kills the hero for
+// real and listens: server-side death, real broadcast, real handler.
+const real = await page.evaluate(async () => {
+  const { S, net, audio } = window.FOC;
+  // Wrap playUI and call through. Stubbing audio.play underneath it measures
+  // the wrong layer: playUI can decline for its own reasons and never reach
+  // play, which reads as "the warning did not fire" when the harness moved.
+  const started = [];
+  const realUI = audio.playUI.bind(audio);
+  audio.playUI = (path, vol, flags) => { started.push(path); return realUI(path, vol, flags); };
+  audio.playing.clear();
+
+  const alive = () => S.ents.get(S.hero?.id)?.a;
+  const before = alive();
+  // A hero revives, and quickly. Watching for the *final* state can miss the
+  // death entirely, so this records having ever seen it down.
+  let died = false;
+  net.send({ t: 'debugKill' });
+  for (let i = 0; i < 60; i++) {
+    if (alive() === 0) died = true;
+    if (died && started.length) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // The check that matters. playUI being *called* proves nothing: the path can
+  // still 404, which is exactly what a doubled /assets/ prefix did -- every
+  // other check passed while the game stayed silent. audio.buffers is keyed by
+  // the path as handed to load(), so ask it with that, not with a basename.
+  const path = started[0] || null;
+  for (let i = 0; i < 30 && path && !audio.buffers.has(path); i++)
+    await new Promise((r) => setTimeout(r, 100));
+  const buf = path ? await audio.buffers.get(path) : null;
+  return { before, died, started: started.map((x) => String(x).split('/').pop()),
+           missing: path ? audio.missing.has(path) : null,
+           decoded: !!buf, seconds: buf ? +buf.duration.toFixed(2) : null };
+});
+console.log(JSON.stringify(real));
+check('the hero actually died', real.before === 1 && real.died === true,
+      `alive ${real.before}, saw it down: ${real.died}`);
+check('a real death announces it, not just a synthetic one',
+      real.started.some((f) => /herodies/i.test(f)),
+      real.started.join(', ') || 'nothing played');
+check('and the clip actually loads rather than 404ing',
+      real.decoded === true && real.missing === false,
+      real.decoded ? `${real.seconds}s of audio decoded` : 'the path did not resolve');
 check('no console errors', errs.length === 0, errs.slice(0, 2).join(' | '));
 
 const passed = results.filter((r) => r.pass).length;

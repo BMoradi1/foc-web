@@ -244,6 +244,18 @@ export class Room {
         this.sendHero(p);
         break;
       }
+      // ---- kill your own hero outright, for testing what a death does
+      //
+      // Sibling of debugLevel and gated the same way. The hero-death warning
+      // was covered only by tests that handed the client a synthetic death
+      // event, which is exactly the shape of test that passes while the real
+      // path is broken -- there was no way to make a hero actually die on
+      // demand, so nothing ever drove one.
+      case 'debugKill': {
+        if (!DEBUG) return;
+        this.world.killUnit(u, null);
+        break;
+      }
       case 'dropItem': {
         const it = (u.items || [])[m.slot];
         if (it) { this.world.dropItem(u, it); this.sendHero(p); }

@@ -172,7 +172,9 @@ function heroDownWarning(e) {
   // of its own gets it.
   const row = table[key] || table.HeroDiesGeneric;
   if (!row?.files?.length) return;
-  audio.playUI(`/assets/${row.files[Math.floor(Math.random() * row.files.length)]}`,
+  // bare path: audio.load prefixes /assets/ itself, as it does for every sound
+  // the map's own script plays
+  audio.playUI(row.files[Math.floor(Math.random() * row.files.length)],
                row.vol ?? 1, row.flags);
 }
 
