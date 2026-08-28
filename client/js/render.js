@@ -578,6 +578,7 @@ export class Renderer {
         this.play(view, 'stand', false, true);
       });
     }
+    this.armGeosetClock(view, meta);
     view.loading = false;
     this.play(view, 'stand');
     return view;
@@ -800,7 +801,7 @@ export class Renderer {
     view.prims.forEach((mesh, i) => {
       const a = alpha[i];
       if (a === undefined) return;
-      mesh.visible = a > 0.05;
+      this.setGeosetAlpha(view, mesh, a);
     });
     // some sequences fade a geoset in or out partway through (gore appearing
     // mid-death, flesh dissolving during Decay); those get ticked per frame
@@ -808,10 +809,16 @@ export class Renderer {
   }
 
   /** Sample the in-sequence alpha curves against the clip's current time. */
-  tickGeosetCurves(view) {
+  tickGeosetCurves(view, dt = 0) {
     const curves = view.alphaCurve;
-    if (!curves || !view.currentAction) return;
-    const t = view.currentAction.time;
+    if (!curves) return;
+    let t;
+    if (view.currentAction) t = view.currentAction.time;
+    else if (view.geoClock) {                  // a model whose only animation is this
+      const c = view.geoClock;
+      c.t = c.dur > 0 ? (c.t + dt) % c.dur : 0;
+      t = c.t;
+    } else return;
     for (let i = 0; i < curves.length; i++) {
       const c = curves[i], mesh = view.prims[i];
       if (!c || !mesh) continue;
@@ -825,7 +832,73 @@ export class Renderer {
         const span = t1 - t0;
         a = span <= 0 ? a0 : a0 + (a1 - a0) * ((t - t0) / span);
       }
-      mesh.visible = a > 0.05;
+      this.setGeosetAlpha(view, mesh, a);
+    }
+  }
+
+  /**
+   * A clock for a model whose only animation *is* its geoset alpha.
+   *
+   * Devotion Aura and the Voodoo Aura have no bone or node animation at all --
+   * nothing on them moves, the ring simply breathes -- so the converter writes
+   * no glTF clip and there is no mixer to read a time from. Both were drawn
+   * frozen on their first frame, which for these two is fully transparent. The
+   * sequence still carries its duration, so this gives them one of their own.
+   */
+  armGeosetClock(holder, meta) {
+    if (holder.mixer || holder.geoClock || !meta?.sequences) return;
+    const seq = meta.sequences.find((x) => /^stand/i.test(x.name) && x.geosetAlphaCurve)
+             || meta.sequences.find((x) => x.geosetAlphaCurve);
+    if (!seq || !(seq.duration > 0)) return;
+    holder.current = seq.name.toLowerCase();
+    this.applyGeosetVisibility(holder, holder.current);
+    if (holder.alphaCurve) holder.geoClock = { t: 0, dur: seq.duration };
+  }
+
+  /**
+   * One geoset's alpha, as Warcraft III applies it: a fade, not a switch.
+   *
+   * A geoset animation carries a real 0..1 track and the game draws the geoset
+   * at that alpha, which is how an aura's ring breathes and how flesh dissolves
+   * during Decay.  Reading it as `visible = a > 0.05` turned every one of those
+   * into a pop.  19 of the 1105 converted models carry a value strictly between
+   * clear and solid -- the auras, War Stomp's and Thunder Clap's caster rings,
+   * three missiles and the feathers -- so the material is only touched when one
+   * of them is actually part-way through a fade.  Everything else keeps the old
+   * visibility-only path and its cost.
+   *
+   * Fully clear is still not drawn at all: cheaper, and identical on screen.
+   */
+  setGeosetAlpha(view, mesh, a) {
+    mesh.visible = a > 0.02;
+    const prev = mesh.userData.__geoA ?? 1;
+    if (Math.abs(a - prev) < 0.002) return;      // solid every frame: the common case
+    mesh.userData.__geoA = a;
+    if (!mesh.visible) return;                   // nothing drawn, nothing to shade
+    this.ownPrimMaterials(view);
+    this.applyMeshAlpha(view, mesh);
+  }
+
+  /**
+   * Push a mesh's authored colour and opacity through everything modulating it.
+   *
+   * Warcraft III multiplies rather than replaces, so a geoset animation holding
+   * a layer at 40% and a SetUnitVertexColor ghosting the unit to 50% leave it
+   * at 20%.  Both used to write `opacity` straight, which meant whichever ran
+   * last simply won and the other was lost.
+   */
+  applyMeshAlpha(view, mesh) {
+    const geo = mesh.userData.__geoA ?? 1;
+    const tintA = view.tintA ?? 1;
+    for (const mm of matsOf(mesh)) {
+      const base = mm.userData.__base;
+      if (!base) continue;
+      if (mm.color && base.color) {
+        if (view.tintColor) mm.color.copy(base.color).multiply(view.tintColor);
+        else mm.color.copy(base.color);
+      }
+      mm.opacity = base.opacity * geo * tintA;
+      mm.transparent = base.transparent || mm.opacity < 1;
     }
   }
 
@@ -1281,6 +1354,7 @@ export class Renderer {
     // and the same per-sequence geoset switching units get: an effect model's
     // sequences hide and show parts of it just as a unit's do
     if (fx.current) this.applyGeosetVisibility(fx, fx.current);
+    this.armGeosetClock(fx, rec.meta);
     fx.emitters = this.attachEmitters(obj);
     fx.ribbons = this.attachRibbons(obj);
     fx.lights = this.attachLights(obj, fx);
@@ -1328,6 +1402,7 @@ export class Renderer {
     m.texAnims = buildTexAnims(m.prims, rec.meta);
     m.bornAt = performance.now() / 1000;
     if (m.current) this.applyGeosetVisibility(m, m.current);
+    this.armGeosetClock(m, rec.meta);
     m.emitters = this.attachEmitters(obj);
     m.ribbons = this.attachRibbons(obj);
     m.lights = this.attachLights(obj, m);
@@ -1454,17 +1529,12 @@ export class Renderer {
   tintUnit(id, r, g, b, a) {
     const v = this.views.get(id);
     if (!v) return;
-    if (!v.tinted) { this.ownPrimMaterials(v); v.tinted = true; }
-    const col = new THREE.Color((r ?? 255) / 255, (g ?? 255) / 255, (b ?? 255) / 255);
-    const alpha = (a ?? 255) / 255;
-    for (const mesh of v.prims) {
-      for (const mm of matsOf(mesh)) {
-        const base = mm.userData.__base;
-        if (mm.color) mm.color.copy(base.color).multiply(col);
-        mm.opacity = base.opacity * alpha;
-        mm.transparent = base.transparent || mm.opacity < 1;
-      }
-    }
+    this.ownPrimMaterials(v);
+    v.tintColor = new THREE.Color((r ?? 255) / 255, (g ?? 255) / 255, (b ?? 255) / 255);
+    v.tintA = (a ?? 255) / 255;
+    // through applyMeshAlpha rather than straight onto the material, so a
+    // geoset animation part-way through a fade is multiplied, not overwritten
+    for (const mesh of v.prims) this.applyMeshAlpha(v, mesh);
   }
 
   /**
@@ -1473,6 +1543,8 @@ export class Renderer {
    * tinted value.
    */
   ownPrimMaterials(view) {
+    if (view.ownsMats) return;                 // idempotent: both callers may ask
+    view.ownsMats = true;
     for (const mesh of view.prims) {
       const copies = matsOf(mesh).map((mm) => {
         const c = own(view, mm.clone());
@@ -1737,7 +1809,7 @@ export class Renderer {
       for (const sp of (v.sprays || [])) sp.update(dt, ctx);
       if (v.events?.length) stepEvents(v.events, ctx, (e) => this.fireEvent(e));
       if (v.texAnims?.length) stepTexAnims(v.texAnims, ctx, now - v.bornAt);
-      if (v.alphaCurve) this.tickGeosetCurves(v);
+      if (v.alphaCurve) this.tickGeosetCurves(v, dt);
     }
     }
     const tViews = performance.now();
@@ -1749,7 +1821,7 @@ export class Renderer {
       stepLights(e.lights || [], ctx);
       for (const sp of (e.sprays || [])) sp.update(dt, ctx);
       if (e.texAnims?.length) stepTexAnims(e.texAnims, ctx, now - (e.bornAt || now));
-      if (e.alphaCurve) this.tickGeosetCurves(e);
+      if (e.alphaCurve) this.tickGeosetCurves(e, dt);
     }
     const tFx = performance.now();
     this.splatField?.update(dt);

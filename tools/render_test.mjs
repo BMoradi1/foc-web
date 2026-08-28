@@ -55,7 +55,12 @@ const out = await page.evaluate(async (model) => {
                            scale: 1, radius: 32, name: model, sh: meta.sh, sw: meta.sw,
                            shh: meta.shh, sx: meta.sx, sy: meta.sy, an: meta.an,
                            us: meta.us, isBuilding: !!meta.b });
-  const read = (v) => v.prims.flatMap((m) => matsOf(m).map(
+  // Drawn geosets only. A geoset the sequence hides outright now carries the
+  // geoset animation's own alpha of 0 on its material as well as visible=false,
+  // so its opacity no longer round-trips through a tint -- correctly, since
+  // nothing is drawn from it either way. Comparing it would be comparing state
+  // that never reaches the screen.
+  const read = (v) => v.prims.filter((m) => m.visible).flatMap((m) => matsOf(m).map(
     (mm) => [mm.color ? mm.color.getHex() : -1, +mm.opacity.toFixed(3)].join(':')));
 
   for (const [k] of [...view.views]) view.removeView(k);

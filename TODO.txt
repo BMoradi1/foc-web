@@ -6,10 +6,27 @@ measured, not estimated.
 
 EFFECTS (closing out the effects pass)
 --------------------------------------
-[ ] Fractional alpha on geoset visibility
-    Geoset visibility is still binary -- render.js does `mesh.visible = a > 0.05`.
-    Warcraft III fades a geoset through partial alpha, so anything that should
-    dissolve currently pops in and out instead. Last item on the effects list.
+[x] Fractional alpha on geoset visibility  (FIXED)
+    Geoset visibility was binary -- render.js did `mesh.visible = a > 0.05`.
+    Warcraft III draws the geoset at the track's own alpha, so anything meant to
+    fade popped instead. Now the alpha reaches the material, and it is
+    multiplied into the authored opacity rather than replacing it, so a geoset
+    animation and a SetUnitVertexColor compose (0.5 x 0.5 = 0.25) instead of the
+    last writer winning.
+    18 of the 1105 converted models carry an alpha strictly between clear and
+    solid: the five auras, War Stomp's and Thunder Clap's caster rings, four
+    missiles, the three feathers, green smoke, the goblin sapper and the sand
+    wave. Trueshot Aura's ring is the plainest case -- authored to run
+    0.30 -> 0.535 -> 0.30 and never solid at any point, so it had been drawn at
+    full opacity for its entire life.
+    A model that never fades still pays nothing: materials are only cloned when
+    a geoset is actually part-way through one.
+    Found while fixing it: two of the eighteen -- Devotion Aura and the Voodoo
+    Aura -- have no glTF animation at all, because nothing on them moves and the
+    geoset alpha *is* the animation. No clip meant no mixer, no mixer meant no
+    time to sample, so they were frozen on their first frame, which for both is
+    fully transparent. They now get a clock of their own from the sequence's
+    duration. tools/geoset_test.mjs, 15 checks.
 
 EFFECTS (cont.)
 ---------------
