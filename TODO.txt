@@ -146,11 +146,26 @@ INTERFACE (the Warcraft III console)
 The frame, the slots, the selection circles and the health bars are in. What
 Warcraft III's own screenshot still has and we do not:
 
-[ ] The camera does not know the console takes 29% of the screen
-    That height is the game's own number, but our view was built for a full
-    window, so the world is squashed into what is left rather than framed for
-    it. This is the one item with a gameplay cost, not just a visual one, and
-    it is the reason to do it before the rest.
+[x] The camera does not know the console takes 29% of the screen  (FIXED)
+    The world is drawn across the whole window and the console covers the bottom
+    of it, so the middle of the window is not the middle of what can be seen.
+    The camera aimed at the window centre, 0.5, when the centre of the visible
+    strip is 0.3533 -- 14.7% of the screen too low, which crowded the hero
+    against the frame and wasted the room above him.
+
+    The projection is shifted rather than shrunk, which is what the game does:
+    the world still fills the screen and the console overlays it, so nothing is
+    cropped and only the optical centre moves (camera.setViewOffset). The
+    fraction is read off the console pieces themselves -- the tallest
+    BOTTOM-anchored tile, 0.2933 for this layout, which is ConsoleUI.fdf's 0.176
+    of the game's 0.6-tall screen box -- rather than written into the client.
+
+    The part that could have broken quietly: raycasting has to read the same
+    shifted projection or every click lands 14.7% of the screen from the cursor.
+    It does -- three's setFromCamera goes through projectionMatrixInverse -- and
+    the test asserts it by projecting each visible unit to its own screen point
+    and picking it back, 15 of 15.
+    tools/camfit_test.mjs, 6 checks.
 
 [ ] The top strip is drawn and empty
     Warcraft III hangs Quests/Menu/Allies/Chat off the left of it and gold,

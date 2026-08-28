@@ -315,6 +315,13 @@ async function boot(m) {
   // moved into the openings the art leaves for them.
   fetch('/data/console.json').then((r) => r.json()).then((spec) => {
     const slots = buildConsole(spec, document.getElementById('console'));
+    // How much of the screen the frame eats, taken from the pieces themselves
+    // rather than written down here: the tallest BOTTOM-anchored tile is the
+    // console's height (0.2933 for this layout). The camera needs it to aim at
+    // the middle of what the player can see instead of the middle of the window.
+    view.setConsoleFraction(Math.max(0, ...(spec.console || [])
+      .filter((p) => String(p.a || '').startsWith('BOTTOM'))
+      .map((p) => p.h || 0)));
     placeIn(document.getElementById('minimap'), slots.minimap);
     placeIn(document.getElementById('portrait'), slots.info);
     placeIn(document.getElementById('unitPortrait'), slots.portrait);

@@ -146,6 +146,7 @@ export class Renderer {
     this.camDist = 2600;
     this.camPitch = 1.02;          // radians from horizontal
     this.camYaw = 0;
+    this.consoleFrac = 0;          // set once the console is built; see setConsoleFraction
     this.effects = new Map();      // live AddSpecialEffect instances, by id
     this.fxTextures = new Map();   // particle sprite sheets, shared across emitters
     this.groundItems = new Map();  // items lying in the world, by id
@@ -181,7 +182,34 @@ export class Renderer {
     const w = innerWidth, h = innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // The console covers the bottom of the screen and the world is drawn behind
+    // it, so the middle of the window is not the middle of what can be seen.
+    const f = this.consoleFrac || 0;
+    if (f > 0) this.camera.setViewOffset(w, h, 0, (h * f) / 2, w, h);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * How much of the screen height the console covers.
+   *
+   * Warcraft III draws the world across the whole screen and lays the console
+   * over the bottom of it -- ConsoleUI.fdf's bottom tiles are 0.176 of the
+   * game's 0.6-tall screen box, which is 29.33%. A camera framed for the whole
+   * window therefore centres on the middle of the *window*, 14.7% of the screen
+   * below the middle of the strip the console leaves visible: the hero sits low,
+   * crowded against the frame, with the room above him wasted.
+   *
+   * The projection is shifted rather than shrunk, which is what the game does --
+   * the world still fills the screen and the console overlays it -- so nothing
+   * is cropped and only the optical centre moves. Raycasting and the floating
+   * text read the same projection matrix, so picking and labels follow.
+   */
+  setConsoleFraction(f) {
+    const v = Math.max(0, Math.min(0.6, Number(f) || 0));
+    if (v === this.consoleFrac) return;
+    this.consoleFrac = v;
+    this.resize();
   }
 
   // ------------------------------------------------------------- world build
