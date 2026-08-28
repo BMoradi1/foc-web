@@ -157,15 +157,18 @@ PERFORMANCE
     unbounded, and it is the last thing standing between the ` counters and
     actually flattening.
 
-[ ] o00D has no entry in unittypes.json
-    Portgas D. Ace's A05N names it as a morph form and the compiled table has
-    no such unit, so it reaches the client with nothing to draw. ghost_test
-    catches it. Predates the performance work. It no longer produces an
-    invisible pickable unit -- spawnView falls through to the capsule stand-in
-    now -- but a capsule is a placeholder, not the model, so the entry stays.
-    This is the one test `npm test` reports as known-failing rather than as a
-    failure; the fix is to delete its row in tools/run_tests.mjs once o00D has
-    an entry, not to edit the test.
+[x] o00D has no entry in unittypes.json  (FIXED -- it never should have had one)
+    The entry assumed a compiler gap. It is not one. A05N is a summon, not a
+    morph, and it names a different unit per level: o000, o00D, o00E, o00F,
+    o00B. The raw war3map.w3u contains none of the five in any case -- the
+    map's own ids there are O000-O008 and one o007 -- so these are stale
+    references the author left behind, and Warcraft III cannot summon a unit
+    type that has no definition either.
+    What was wrong was ours: world.summon called createUnit, which builds a
+    unit even with no type record, so a nonexistent id became a real modelless
+    unit on the client. summon now refuses an undefined type, which is what the
+    game does. ghost_test reports "none" and `npm test` has no known-failing
+    row left.
 
 [x] tools/ghost_test.mjs prints raw format specifiers  (FIXED)
     Its console.log used %-6s and friends: Node's format understands %s and %d

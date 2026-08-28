@@ -39,9 +39,7 @@ const STALE = {
 // because the test is broken. These stay in the run and their output is shown,
 // but they do not decide the exit code -- a suite that is permanently red is a
 // suite nobody reads. Deleting an entry here is the fix, not editing the test.
-const KNOWN = {
-  'ghost_test.mjs': 'o00D is missing from unittypes.json -- see TODO.txt',
-};
+const KNOWN = {};
 
 const VENV = path.join(ROOT, '.venv/bin/python');
 // audit and boot_test are not named *_test.mjs but are what the pipeline

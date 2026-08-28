@@ -1042,6 +1042,12 @@ export class World {
   }
 
   summon(owner, typeKey, x, y, seconds, opts = {}) {
+    // Warcraft III cannot summon a unit type that does not exist, and this map
+    // asks it to: A05N names o000/o00D/o00E/o00F/o00B per level and none of the
+    // five is in war3map.w3u -- stale ids the author left behind. createUnit
+    // will happily build one anyway, with no type record and so no model, which
+    // is what put a modelless unit on the client and what ghost_test caught.
+    if (!this.type(typeKey)) return null;
     const p = this.playerOf(owner);
     const u = this.createUnit(p, typeKey, x, y, owner.facing / DEG);
     if (!u) return null;
