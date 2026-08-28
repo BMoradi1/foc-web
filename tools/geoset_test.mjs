@@ -86,6 +86,12 @@ const out = await page.evaluate(async ({ model, solid }) => {
     A.mixer.update(0);
     view.tickGeosetCurves(A);
     return { t, opac: opac(A), shown: shown(A),
+             // the geoset factor on its own. Opacity is the product of this,
+             // the material's own alpha track and any tint -- Trueshot Aura
+             // animates both, so reading opacity alone cannot say what the
+             // geoset track did.
+             geoA: A.prims.map((m) => m.userData.__geoA ?? 1),
+             matA: A.prims.map((m) => m.userData.__matA ?? 1),
              base: A.prims.map((m) => {
                const b = matsOf(m)[0].userData.__base;
                return b ? +b.opacity.toFixed(3) : null;
@@ -152,18 +158,21 @@ check('the model has a fading geoset at all', out.curves > 0, `${out.curves} alp
 check('the ring is drawn throughout, never culled',
       out.low.shown[G] === '1' && out.peak.shown[G] === '1' && out.back.shown[G] === '1',
       `${out.low.shown} ${out.peak.shown} ${out.back.shown}`);
-check('at its authored floor it draws at 0.30, not solid',
-      base != null && Math.abs(out.low.opac[G] - want(0.30)) < 0.02,
-      `${out.low.opac[G]} against ${want(0.30).toFixed(3)} (authored base ${base})`);
-check('at its authored peak it draws at 0.535, still not solid',
-      Math.abs(out.peak.opac[G] - want(0.534)) < 0.02,
-      `${out.peak.opac[G]} against ${want(0.534).toFixed(3)}`);
+check('at its authored floor the geoset is at 0.30, not solid',
+      Math.abs(out.low.geoA[G] - 0.30) < 0.02,
+      `${out.low.geoA[G]} (drawn at ${out.low.opac[G]}, material track ${out.low.matA[G]})`);
+check('at its authored peak it is 0.535, still not solid',
+      Math.abs(out.peak.geoA[G] - 0.534) < 0.02,
+      `${out.peak.geoA[G]} (drawn at ${out.peak.opac[G]}, material track ${out.peak.matA[G]})`);
 check('the ramp between keys is sampled, not snapped',
-      out.mid.opac[G] > out.low.opac[G] + 0.01 && out.mid.opac[G] < out.peak.opac[G] - 0.01,
-      `${out.low.opac[G]} < ${out.mid.opac[G]} < ${out.peak.opac[G]}`);
+      out.mid.geoA[G] > out.low.geoA[G] + 0.01 && out.mid.geoA[G] < out.peak.geoA[G] - 0.01,
+      `${out.low.geoA[G]} < ${out.mid.geoA[G]} < ${out.peak.geoA[G]}`);
 check('and it comes back down again',
-      Math.abs(out.back.opac[G] - want(0.30)) < 0.02,
-      `${out.peak.opac[G]} -> ${out.back.opac[G]}`);
+      Math.abs(out.back.geoA[G] - 0.30) < 0.02,
+      `${out.peak.geoA[G]} -> ${out.back.geoA[G]}`);
+check('what is drawn is the product of both tracks, as the game multiplies them',
+      base != null && Math.abs(out.peak.opac[G] - base * out.peak.geoA[G] * out.peak.matA[G]) < 0.02,
+      `${base} x ${out.peak.geoA[G]} x ${out.peak.matA[G]} = ${out.peak.opac[G]}`);
 
 check('another instance of the same model is untouched',
       JSON.stringify(out.bystander.before) === JSON.stringify(out.bystander.after),

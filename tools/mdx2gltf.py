@@ -598,6 +598,29 @@ def convert(path, out_dir=OUTDIR, name=None):
         if any(c for c in curves):
             sm['geosetAlphaCurve'] = curves
 
+        # The material's own alpha over the sequence (KMTA), which is a
+        # different track from the geoset's and the one that dissolves a corpse:
+        # 133 of 250 unit models animate it across Decay Flesh / Decay Bone and
+        # 70 of those take it to zero. Read off the layer pick_layer chose, so it
+        # is the alpha of the surface actually drawn rather than of an underlay.
+        malphas, mcurves = [], []
+        for mat in M['materials']:
+            L, _uri, _team = pick_layer(M, mat)
+            tr = (L.get('tracks') or {}).get('KMTA') if L else None
+            mkeys = [k for k in track_keys(tr) if s0 <= k[0] <= s1] if tr else []
+            if not mkeys:
+                malphas.append(round(float(L['alpha']), 4) if L else 1.0)
+                mcurves.append(None)
+                continue
+            pts = [[round((k[0] - s0) / 1000.0, 4), round(_scalar(k[1]), 4)]
+                   for k in mkeys]
+            malphas.append(pts[0][1])
+            mcurves.append(pts if len({v for _, v in pts}) > 1 else None)
+        if any(a != 1.0 for a in malphas) or any(mcurves):
+            sm['matAlpha'] = malphas
+        if any(mcurves):
+            sm['matAlphaCurve'] = mcurves
+
     # ------------------------------------------------- geoset visibility meta
     geoanim = []
     for a in M['geosetAnims']:

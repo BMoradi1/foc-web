@@ -28,6 +28,26 @@ EFFECTS (closing out the effects pass)
     fully transparent. They now get a clock of their own from the sequence's
     duration. tools/geoset_test.mjs, 15 checks.
 
+[x] Corpses vanish instead of dissolving  (FIXED)
+    Reported from play. Warcraft III fades a body out over Decay Flesh
+    and Decay Bone through the *material's* alpha track (KMTA) -- a different
+    track from the geoset alpha above. mdx.py parsed it and mdx2gltf.py threw it
+    away, so the client had nothing to fade with and a corpse held full opacity
+    until its timer ran out.
+    Now exported per sequence off the layer pick_layer chose, so it is the alpha
+    of the surface actually drawn rather than of a team-colour underlay, and
+    multiplied into the same composition as the geoset track and any tint.
+    Worth keeping the scale honest: of 90 model/sequence pairs whose material
+    fades to clear, only 25 do it while the geoset wearing it is still drawn --
+    those are the corpses this visibly dissolves. In the other 65 the geoset
+    alpha has already culled the mesh by then, and there this changes nothing on
+    screen. 133 of 250 sampled unit models animate the track at all.
+    Found while fixing it: Trueshot Aura animates *both* tracks, and geoset_test
+    was asserting a raw opacity that only accounted for one. Its ring is
+    authored at 0.534 geoset x 0.8 material = 0.427, which is what the game
+    draws; the test now asserts the geoset factor it is actually about, plus the
+    product. tools/dissolve_test.mjs, 9 checks.
+
 EFFECTS (cont.)
 ---------------
 [x] Buff art -- no buff ever shows its attached model  (FIXED)

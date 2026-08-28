@@ -118,6 +118,17 @@ function disposeOwned(holder) {
 }
 const matsOf = (mesh) => (Array.isArray(mesh.material) ? mesh.material : [mesh.material]);
 
+/** One keyframed 0..1 track, read at time `t` (seconds into the sequence). */
+function sampleCurve(c, t) {
+  if (t <= c[0][0]) return c[0][1];
+  if (t >= c[c.length - 1][0]) return c[c.length - 1][1];
+  let k = 0;
+  while (k < c.length - 2 && c[k + 1][0] < t) k++;
+  const [t0, a0] = c[k], [t1, a1] = c[k + 1];
+  const span = t1 - t0;
+  return span <= 0 ? a0 : a0 + (a1 - a0) * ((t - t0) / span);
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -796,22 +807,32 @@ export class Renderer {
     const meta = view.meta;
     if (!meta?.sequences) return;
     const seq = meta.sequences.find((s) => s.name.toLowerCase() === clipName);
-    const alpha = seq?.geosetAlpha;
-    if (!alpha) return;
-    view.prims.forEach((mesh, i) => {
+    if (!seq) return;
+    const alpha = seq.geosetAlpha;
+    if (alpha) view.prims.forEach((mesh, i) => {
       const a = alpha[i];
-      if (a === undefined) return;
-      this.setGeosetAlpha(view, mesh, a);
+      if (a !== undefined) this.setGeosetAlpha(view, mesh, a);
     });
     // some sequences fade a geoset in or out partway through (gore appearing
-    // mid-death, flesh dissolving during Decay); those get ticked per frame
+    // mid-death); those get ticked per frame
     view.alphaCurve = seq.geosetAlphaCurve || null;
+
+    // The material's own alpha, which is the track that dissolves a corpse.
+    // It is indexed by material, not by geoset, so each prim asks its geoset
+    // which material it wears.
+    const mAlpha = seq.matAlpha;
+    if (mAlpha) view.prims.forEach((mesh, i) => {
+      const mi = meta.geosets && meta.geosets[i] ? meta.geosets[i].material : null;
+      const a = mi == null ? undefined : mAlpha[mi];
+      if (a !== undefined) this.setMaterialAlpha(view, mesh, a);
+    });
+    view.matCurve = seq.matAlphaCurve || null;
   }
 
   /** Sample the in-sequence alpha curves against the clip's current time. */
   tickGeosetCurves(view, dt = 0) {
-    const curves = view.alphaCurve;
-    if (!curves) return;
+    const geo = view.alphaCurve, mats = view.matCurve;
+    if (!geo && !mats) return;
     let t;
     if (view.currentAction) t = view.currentAction.time;
     else if (view.geoClock) {                  // a model whose only animation is this
@@ -819,21 +840,37 @@ export class Renderer {
       c.t = c.dur > 0 ? (c.t + dt) % c.dur : 0;
       t = c.t;
     } else return;
-    for (let i = 0; i < curves.length; i++) {
-      const c = curves[i], mesh = view.prims[i];
-      if (!c || !mesh) continue;
-      let a;
-      if (t <= c[0][0]) a = c[0][1];
-      else if (t >= c[c.length - 1][0]) a = c[c.length - 1][1];
-      else {
-        let k = 0;
-        while (k < c.length - 2 && c[k + 1][0] < t) k++;
-        const [t0, a0] = c[k], [t1, a1] = c[k + 1];
-        const span = t1 - t0;
-        a = span <= 0 ? a0 : a0 + (a1 - a0) * ((t - t0) / span);
-      }
-      this.setGeosetAlpha(view, mesh, a);
+    if (geo) for (let i = 0; i < geo.length; i++) {
+      const mesh = view.prims[i];
+      if (geo[i] && mesh) this.setGeosetAlpha(view, mesh, sampleCurve(geo[i], t));
     }
+    // material curves are indexed by material, so they are read through the
+    // geoset that wears one rather than positionally against prims
+    if (mats) {
+      const gs = view.meta && view.meta.geosets;
+      for (let i = 0; i < view.prims.length; i++) {
+        const mi = gs && gs[i] ? gs[i].material : null;
+        const c = mi == null ? null : mats[mi];
+        if (c) this.setMaterialAlpha(view, view.prims[i], sampleCurve(c, t));
+      }
+    }
+  }
+
+  /**
+   * A material's own alpha, which is a separate track from its geoset's.
+   *
+   * Warcraft III dissolves a corpse with this one: 133 of 250 unit models
+   * animate it across Decay Flesh and Decay Bone, and 70 of those take it to
+   * zero. The converter parsed it and threw it away, so a corpse used to hold
+   * full opacity until its timer ran out and it simply stopped existing.
+   */
+  setMaterialAlpha(view, mesh, a) {
+    const prev = mesh.userData.__matA ?? 1;
+    if (Math.abs(a - prev) < 0.002) return;
+    mesh.userData.__matA = a;
+    if (!mesh.visible) return;
+    this.ownPrimMaterials(view);
+    this.applyMeshAlpha(view, mesh);
   }
 
   /**
@@ -889,6 +926,7 @@ export class Renderer {
    */
   applyMeshAlpha(view, mesh) {
     const geo = mesh.userData.__geoA ?? 1;
+    const mat = mesh.userData.__matA ?? 1;
     const tintA = view.tintA ?? 1;
     for (const mm of matsOf(mesh)) {
       const base = mm.userData.__base;
@@ -897,7 +935,7 @@ export class Renderer {
         if (view.tintColor) mm.color.copy(base.color).multiply(view.tintColor);
         else mm.color.copy(base.color);
       }
-      mm.opacity = base.opacity * geo * tintA;
+      mm.opacity = base.opacity * geo * mat * tintA;
       mm.transparent = base.transparent || mm.opacity < 1;
     }
   }
@@ -1852,7 +1890,7 @@ export class Renderer {
       for (const sp of (v.sprays || [])) sp.update(dt, ctx);
       if (v.events?.length) stepEvents(v.events, ctx, (e) => this.fireEvent(e));
       if (v.texAnims?.length) stepTexAnims(v.texAnims, ctx, now - v.bornAt);
-      if (v.alphaCurve) this.tickGeosetCurves(v, dt);
+      if (v.alphaCurve || v.matCurve) this.tickGeosetCurves(v, dt);
     }
     }
     const tViews = performance.now();
@@ -1864,7 +1902,7 @@ export class Renderer {
       stepLights(e.lights || [], ctx);
       for (const sp of (e.sprays || [])) sp.update(dt, ctx);
       if (e.texAnims?.length) stepTexAnims(e.texAnims, ctx, now - (e.bornAt || now));
-      if (e.alphaCurve) this.tickGeosetCurves(e, dt);
+      if (e.alphaCurve || e.matCurve) this.tickGeosetCurves(e, dt);
     }
     const tFx = performance.now();
     this.splatField?.update(dt);
