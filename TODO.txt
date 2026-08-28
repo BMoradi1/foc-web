@@ -167,16 +167,59 @@ Warcraft III's own screenshot still has and we do not:
     and picking it back, 15 of 15.
     tools/camfit_test.mjs, 6 checks.
 
-[ ] The top strip is drawn and empty
+[x] The top strip is drawn and empty  (FIXED)
     Warcraft III hangs Quests/Menu/Allies/Chat off the left of it and gold,
-    lumber, food and upkeep off the right. UI\FrameDef\UI\ResourceBar.fdf and
-    UpperButtonBar.fdf carry those layouts and tools/fdf.py already parses them;
-    the art is extracted. Nothing new is needed but the wiring.
+    lumber and supply off the right. Both are frames ConsoleUI.fdf never
+    mentions, because the game anchors them to the screen rather than to the
+    console -- which is why the strip art was drawn and its contents were not.
+    uiframe.py now reads ResourceBar.fdf and UpperButtonBar.fdf alongside it.
 
-[ ] The command card's fourth column is clipped
-    ConsoleUI.fdf genuinely splits it across Tile03 and Tile04. This is the same
-    seam that cuts the portrait arch in half, and seamArch() in console.js
-    already solves that case -- it wants generalising to the card.
+    Two indirections had to be followed rather than guessed. A button's
+    NormalTexture names a Texture *block* in the same file, not a skin alias:
+    the block carries the alias in File and the slice of the sheet in TexCoord,
+    and all four button states are bands of one buttonstates texture, so both
+    have to be resolved or the button draws the whole sheet. And every readout
+    is anchored to the resource frame's TOPRIGHT, not the screen's, so the
+    offsets only mean anything inside a box of the frame's own width.
+
+    Blizzard commented out the upkeep *icon* in their own ResourceBar.fdf and
+    left the text; that is reproduced rather than corrected, so upkeep is the
+    one item that resolves to no texture.
+
+    The numbers are the server's: the map spends gold (27 references in
+    war3map.j) and lumber (8) and never touches food, so supply reads what the
+    engine reports for it, which is nothing -- the same as the game would show.
+
+    Quests and Menu are drawn from the layout's own DisabledTexture and grey
+    disabled colour. The engine's QuestSetTitle and QuestSetDescription are
+    no-ops, so there is no quest text to show, and a button that silently does
+    nothing is worse than one the game itself would grey out. Allies opens the
+    scoreboard, which is the one thing already behind it.
+
+    Our own centre score strip sat where the resource bar goes; the resource bar
+    is the game's layout, so ours is what moved down.
+    tools/topbar_test.mjs, 11 checks.
+
+[x] The command card's fourth column is clipped  (FIXED)
+    ConsoleUI.fdf ends Tile03 partway through the last column and the 0.04-wide
+    Tile04 carries the rest -- the same seam that cuts the portrait arch in half,
+    one axis over. Measured tile by tile, Tile03's fourth column came out 0.080
+    of the tile against ~0.155 for the other three and ran off its right edge, so
+    the card drew three full columns and a clipped one at 37px against 71px.
+
+    seamColumn() generalises seamArch to it. Tile04's own openings supply the
+    missing half: it resolves one per row for the rows whose art is unambiguous,
+    and since the column is vertical, the horizontal extent those rows agree on
+    is the column's -- a row Tile04 did not resolve takes the same one rather
+    than a guessed width. Both tiles are BOTTOMRIGHT, so it is all measured as a
+    distance from the right edge of the screen.
+
+    The joined width comes to 0.04935 of the screen against 0.0496 for the other
+    three columns, which is the check that the geometry is right rather than
+    merely plausible. All twelve cells now measure 71-72px on an even 78.3px
+    pitch.
+    tools/card_test.mjs, 7 checks, including that the portrait arch did not
+    regress while its helper was generalised.
 
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.

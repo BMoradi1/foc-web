@@ -4,7 +4,7 @@ import { Renderer, toX, toZ } from './render.js';
 import { UI, Lang } from './ui.js';
 import { HeroPreview } from './heroview.js';
 import { Overlay } from './overlay.js';
-import { buildConsole, placeIn } from './console.js';
+import { buildConsole, buildTopBar, placeIn } from './console.js';
 import { Audio } from './audio.js';
 import { Msg, Phase, Ent } from '/shared/const.js';
 
@@ -16,6 +16,9 @@ const audio = new Audio();
 // The hero turning in the character-select pane. Built lazily on the first pick
 // so a player who never opens the lobby never pays for a second WebGL context.
 let heroPreview = null;
+// the top strip's resource readouts, built once the console layout arrives
+let topBar = null;
+let consoleSlots = null;
 ui.onHeroShown = (h) => {
   const cv = document.getElementById('heroSpin');
   if (!cv) return;
@@ -126,6 +129,14 @@ net.on('hero', (m) => {
   S.hero = m.h;
   // before the card is drawn: the labels read the keys this assigns
   KEY_SLOT = resolveHotkeys(m.h.abilities);
+  if (topBar) {
+    // Warcraft III shows all three whatever the map uses. This one spends gold
+    // and lumber and never touches food, so supply reads what the engine
+    // reports for it, which is nothing -- the same as the game would show.
+    topBar.res.get('gold')?.replaceChildren(String(m.h.gold ?? 0));
+    topBar.res.get('lumber')?.replaceChildren(String(m.h.lumber ?? 0));
+    topBar.res.get('supply')?.replaceChildren('0');
+  }
   ui.updateHero(m.h);
   // The console is built during boot, before any hero exists, so the portrait
   // has to be asked for again once there is one -- and again when the unit type
@@ -315,6 +326,7 @@ async function boot(m) {
   // moved into the openings the art leaves for them.
   fetch('/data/console.json').then((r) => r.json()).then((spec) => {
     const slots = buildConsole(spec, document.getElementById('console'));
+    consoleSlots = slots;          // the tooling measures the card from these
     // How much of the screen the frame eats, taken from the pieces themselves
     // rather than written down here: the tallest BOTTOM-anchored tile is the
     // console's height (0.2933 for this layout). The camera needs it to aim at
@@ -322,6 +334,18 @@ async function boot(m) {
     view.setConsoleFraction(Math.max(0, ...(spec.console || [])
       .filter((p) => String(p.a || '').startsWith('BOTTOM'))
       .map((p) => p.h || 0)));
+    // The top strip's contents: the resource readout and the menu buttons.
+    // Quests and Menu are drawn from the layout's own disabled art -- the
+    // engine's QuestSetTitle/QuestSetDescription are no-ops, so there is no
+    // quest text to show, and a button that silently does nothing is worse
+    // than one the game itself would grey out.
+    topBar = buildTopBar(spec, document.getElementById('uitop'), {
+      enabled: (k) => k === 'allies' || k === 'chat',
+      onButton: (k) => {
+        if (k === 'allies') { S.showScore = !S.showScore; ui.toggleScore(S.showScore); }
+        else if (k === 'chat') ui.log('Chat: type in the box below the log', 'lvl');
+      },
+    });
     placeIn(document.getElementById('minimap'), slots.minimap);
     placeIn(document.getElementById('portrait'), slots.info);
     placeIn(document.getElementById('unitPortrait'), slots.portrait);
@@ -731,6 +755,7 @@ addEventListener('resize', refitConsole);
 // preserveDrawingBuffer is set, so the only honest way for tools/shot.mjs to
 // tell "the scene built" from "the scene is empty" is to count what is in it.
 window.FOC = { view, S, ui, net, overlay, audio, refitConsole,
+               get consoleSlots() { return consoleSlots; },
                get heroPreview() { return heroPreview; },
                get unitPortrait() { return unitPortrait; } };
 

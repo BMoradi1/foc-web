@@ -69,7 +69,10 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
 /* ---------- HUD ---------- */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:20}
 #hud>*{pointer-events:auto}
-#topbar{position:absolute;top:0;left:50%;transform:translateX(-50%);display:flex;
+/* Below Warcraft III's own top strip, not under it: the resource readout is
+   the game's layout and takes the top-right corner, and this score strip is
+   ours, so ours is what moves. */
+#topbar{position:absolute;top:3.7%;left:50%;transform:translateX(-50%);display:flex;
   align-items:center;gap:18px;background:rgba(8,9,13,.85);border:1px solid var(--line);
   border-top:none;border-radius:0 0 10px 10px;padding:7px 20px}
 .score{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
@@ -220,3 +223,23 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
    running, the name says which map it was pointed at, and only both together
    identify a server when several are up. */
 #build .map{display:block;color:#4a5364;letter-spacing:.2px}
+
+/* ---- top strip: resources and menu buttons ----------------------------- */
+/* Warcraft III anchors these to the screen, not to the console, so the host is
+   a full-width band pinned to the top; the pieces position themselves inside it
+   from the offsets in ResourceBar.fdf and UpperButtonBar.fdf. */
+/* inset:0 like #console: every offset in the layout is a fraction of the
+   viewport, so the host has to be the viewport for percentages to mean it */
+#uitop{position:absolute;inset:0;z-index:5;
+  pointer-events:none;user-select:none;font-size:11px}
+/* the resource frame is pinned to the top right and the readouts sit inside
+   it, which is how ResourceBar.fdf anchors them */
+#uitop .rbframe{position:absolute;top:0;right:0}
+#uitop .rbicon{position:absolute;background-repeat:no-repeat;background-size:contain}
+#uitop .rbtext{position:absolute;color:#f2e4b8;text-shadow:0 1px 2px #000;
+  text-align:right;min-width:52px;font-variant-numeric:tabular-nums}
+#uitop .ubbtn{position:absolute;top:0;background-repeat:no-repeat;
+  border:0;padding:0;color:#fff;text-shadow:0 1px 2px #000;font:inherit;
+  font-size:10px;letter-spacing:.3px;cursor:pointer;pointer-events:auto;
+  border-radius:0}
+#uitop .ubbtn.off{color:#666;cursor:default}

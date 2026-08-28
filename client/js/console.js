@@ -82,6 +82,50 @@ function seamArch(left, mid) {
   };
 }
 
+/**
+ * The command card's fourth column, which is split across two tiles.
+ *
+ * Same seam as the portrait arch, one axis over: ConsoleUI.fdf ends the right
+ * tile partway through the last column and the 0.04-wide corner tile carries the
+ * rest. Measured on its own, Tile03's fourth column comes out 0.080 of the tile
+ * against ~0.155 for the other three, and it runs off the right edge -- so the
+ * card drew three and a half columns and clipped the buttons in the last one.
+ *
+ * The corner tile's own openings supply the missing half. It reports one per row
+ * for the rows whose art is unambiguous; the column is vertical, so the
+ * horizontal extent those rows agree on is the column's, and a row the corner
+ * tile did not resolve takes the same one rather than a guessed width.
+ *
+ * Both tiles are BOTTOMRIGHT, so everything here is measured as a distance from
+ * the right edge of the screen and converted to CSS `right` + `width`.
+ */
+function seamColumn(card, corner) {
+  if (!card || !corner) return null;
+  const clipped = (card.cells || [])
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => c.x + c.w > 0.98);
+  if (!clipped.length) return null;
+  const fromRight = (p, x, w) => -p.dx + (1 - x - w) * p.w;
+  // where the column ends, from whichever rows the corner tile did resolve
+  const ends = (corner.slots || [])
+    .filter((s) => s.h > 0.15 && s.x < 0.02)
+    .map((s) => fromRight(corner, s.x, s.w));
+  if (!ends.length) return null;
+  const right = Math.min(...ends);
+  return clipped.map(({ c, i }) => {
+    const left = fromRight(card, c.x, 0);
+    return {
+      index: i,
+      style: {
+        right: pct(right),
+        width: pct(left - right),
+        bottom: pct(card.dy + (1 - c.y - c.h) * card.h),
+        height: pct(c.h * card.h),
+      },
+    };
+  });
+}
+
 export function buildConsole(spec, host) {
   host.innerHTML = '';
   const bottom = (t) => (spec.console || []).find(
@@ -137,7 +181,90 @@ export function buildConsole(spec, host) {
     portrait: seamArch(map, info),
     // row-major, which is the order Warcraft III fills a command card in
     cells: card ? (card.cells || []).map((c) => slotStyle(card, c)) : [],
+    // …with the fourth column joined back across the tile seam below
+
     inv: card ? (card.inv || []).map((c) => slotStyle(card, c)) : [],
   };
+  // the corner tile is the 0.04-wide BOTTOMRIGHT piece beside the card
+  const corner = (spec.console || []).find(
+    (p) => p.a === 'BOTTOMRIGHT' && p.w < 0.1 && p !== card);
+  for (const j of (seamColumn(card, corner) || [])) out.cells[j.index] = j.style;
+  return out;
+}
+
+/**
+ * The strip along the top: the resource readout and the menu buttons.
+ *
+ * Warcraft III anchors these to the screen rather than to the console, which is
+ * why ConsoleUI.fdf says nothing about them and they came from ResourceBar.fdf
+ * and UpperButtonBar.fdf instead. The strip art was already being drawn; only
+ * its contents were missing.
+ *
+ * `onButton` is called with a button's key. A button with nothing behind it is
+ * drawn from the layout's own DisabledTexture and grey disabled colour -- that
+ * is how the game draws one, and it is honest about what the port does not have
+ * rather than offering a control that silently does nothing.
+ */
+export function buildTopBar(spec, host, { onButton, enabled } = {}) {
+  host.innerHTML = '';
+  const res = spec.resourceBar, bar = spec.buttonBar;
+  const out = { res: new Map() };
+  if (!res && !bar) return out;
+
+  const sheet = (el, t, uv) => {
+    if (!t) return;
+    const [l, r, tp, b] = uv || [0, 1, 0, 1];
+    const uw = Math.max(1e-6, r - l), uh = Math.max(1e-6, b - tp);
+    el.style.backgroundImage = `url(/assets/${t})`;
+    el.style.backgroundSize = `${(100 / uw).toFixed(3)}% ${(100 / uh).toFixed(3)}%`;
+    el.style.backgroundPosition = `${bgPos(l, uw)} ${bgPos(tp, uh)}`;
+  };
+
+  // ---- resources, pinned to the top right as the game pins them
+  //
+  // The frame is its own box: ResourceBar.fdf anchors every readout to the
+  // frame's TOPRIGHT, not to the screen's, so the offsets only mean anything
+  // inside a box of the frame's own width.
+  const rf = document.createElement('div');
+  rf.className = 'rbframe';
+  rf.style.width = pct(res?.w || 0);
+  rf.style.height = pct(res?.h || 0);
+  if (res) host.appendChild(rf);
+  for (const it of (res?.items || [])) {
+    if (it.t) {
+      const ic = document.createElement('div');
+      ic.className = 'rbicon';
+      ic.style.width = pct(it.iw / res.w); ic.style.height = pct(it.ih / res.h);
+      ic.style.left = pct(it.ix / res.w); ic.style.top = pct(-it.iy / res.h);
+      sheet(ic, it.t, [0, 1, 0, 1]);
+      rf.appendChild(ic);
+    }
+    const tx = document.createElement('div');
+    tx.className = 'rbtext';
+    tx.style.right = pct(-it.tx / res.w); tx.style.top = pct(-it.ty / res.h);
+    tx.textContent = '';
+    rf.appendChild(tx);
+    out.res.set(it.key, tx);
+  }
+
+  // ---- buttons, laid left to right from the layout's own offsets
+  for (const b of (bar?.buttons || [])) {
+    const on = !enabled || enabled(b.key);
+    const el = document.createElement('button');
+    el.className = 'ubbtn' + (on ? '' : ' off');
+    el.style.width = pct(bar.w); el.style.height = pct(bar.h);
+    el.style.left = pct(b.x);
+    const art = on ? bar.normal : bar.disabled;
+    sheet(el, art?.t, art?.uv);
+    el.textContent = b.label;
+    el.disabled = !on;
+    if (on && onButton) {
+      el.onmousedown = () => sheet(el, bar.pushed?.t, bar.pushed?.uv);
+      const up = () => sheet(el, bar.normal?.t, bar.normal?.uv);
+      el.onmouseup = up; el.onmouseleave = up;
+      el.onclick = () => onButton(b.key);
+    }
+    host.appendChild(el);
+  }
   return out;
 }

@@ -449,6 +449,10 @@ export class Room {
       int: Math.round(u.intTotal ?? u.intel),
       dmg: Math.round(u.dmg ?? u.dmgBase), armor: +(u.armorTotal ?? u.armor).toFixed(1),
       moveSpeed: Math.round(u.moveSpeed), gold: Math.round(ph.gold),
+      // the top strip reads these; the map spends both (27 gold references in
+      // war3map.j, 8 lumber) and never touches food, so supply stays at what
+      // the engine reports, which is nothing
+      lumber: Math.round(ph.lumber || 0),
       kills: p.kills, deaths: p.deaths, alive: u.alive,
       respawnIn: 0,
       // the inventory the client draws: six slots, as Warcraft III gives a hero

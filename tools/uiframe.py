@@ -314,7 +314,105 @@ def frame(fdf_name, frame_name):
     return [x for x in (piece(t) for t in top['children'] if t['type'] == 'Texture') if x]
 
 
+def top_bars():
+    """The strip along the top: Warcraft III's resource readout and menu buttons.
+
+    Two frames the console layout does not mention, because the game anchors
+    them to the screen itself rather than to the console: ResourceBar.fdf pins
+    gold, lumber and supply to the top right, UpperButtonBar.fdf puts Quests,
+    Menu, Allies and Chat along the top left.
+
+    Both are read here rather than measured off the art, because neither is a
+    picture -- the resource bar is icons and right-justified numbers at named
+    offsets, and the button bar is four copies of one template laid end to end.
+    The button template carries its own normal/pushed/disabled art, which is how
+    a button with nothing behind it can be drawn the way the game draws it
+    instead of being left out.
+
+    Blizzard commented out the upkeep *icon* in their own ResourceBar.fdf and
+    left the text; that is reproduced rather than corrected.
+    """
+    def blocks_of(fdf):
+        return parse(open(os.path.join(FRAMES, fdf), encoding='latin-1').read())
+
+    def named(blocks, name):
+        return next((b for b in walk(blocks) if b.get('name') == name), None)
+
+    # ---- resources: icon textures and the text anchors beside them
+    rb = blocks_of('ResourceBar.fdf')
+    frm = named(rb, 'ResourceBarFrame')
+    icon_h = 0.01640625
+    for b in walk(rb):
+        if b.get('name') == 'ResourceBarIconTemplate':
+            icon_h = float(b['props'].get('Height', icon_h))
+    res = {'w': float((frm or {}).get('props', {}).get('Width', 0.338)) / SCREEN_W,
+           'h': float((frm or {}).get('props', {}).get('Height', 0.0218)) / SCREEN_H,
+           'items': []}
+    if frm:
+        pending = None
+        for ch in frm['children']:
+            p = ch['props']
+            if ch['type'] == 'Texture':
+                a = p.get('Anchor')
+                if not isinstance(a, list) or len(a) < 3:
+                    continue
+                pending = {'t': resolve(p.get('File', '')),
+                           'ix': float(a[1]) / SCREEN_W,
+                           'iy': float(a[2]) / SCREEN_H,
+                           'iw': icon_h / SCREEN_W, 'ih': icon_h / SCREEN_H}
+            elif ch['type'] == 'String':
+                a = p.get('Anchor')
+                if not isinstance(a, list) or len(a) < 3:
+                    continue
+                key = (ch.get('name') or '').replace('ResourceBar', '').replace('Text', '').lower()
+                item = dict(pending or {'t': None, 'ix': 0, 'iy': 0, 'iw': 0, 'ih': 0})
+                item.update(key=key, tx=float(a[1]) / SCREEN_W, ty=float(a[2]) / SCREEN_H,
+                            just=str(p.get('FontJustificationH', 'JUSTIFYRIGHT')))
+                res['items'].append(item)
+                pending = None
+
+    # ---- buttons: one template, four instances, laid left to right
+    ub = blocks_of('UpperButtonBar.fdf')
+    tpl = named(ub, 'UpperButtonBarButtonTemplate')
+    tp = (tpl or {}).get('props', {})
+    bar = named(ub, 'UpperButtonBarFrame')
+    btn = {'w': float(tp.get('Width', 0.085)) / SCREEN_W,
+           'h': float(tp.get('Height', 0.022)) / SCREEN_H,
+           'normal': resolve(str(tp.get('NormalTexture', '')).strip('"')),
+           'pushed': resolve(str(tp.get('PushedTexture', '')).strip('"')),
+           'disabled': resolve(str(tp.get('DisabledTexture', '')).strip('"')),
+           'buttons': []}
+    # NormalTexture names a Texture *block* in this same file, not a skin alias:
+    # the block carries the alias in File and the slice of the sheet in TexCoord.
+    # All four states are bands of one buttonstates texture, so both have to be
+    # followed or the button draws the whole sheet.
+    decl = {}
+    for b in walk(ub):
+        if b['type'] == 'Texture' and b.get('name'):
+            c = b['props'].get('TexCoord')
+            decl[b['name']] = {
+                't': resolve(str(b['props'].get('File', '')).strip('"')),
+                'uv': [float(x) for x in c] if isinstance(c, list) and len(c) == 4 else [0, 1, 0, 1],
+            }
+    for slot in ('normal', 'pushed', 'disabled'):
+        ref = str(tp.get({'normal': 'NormalTexture', 'pushed': 'PushedTexture',
+                          'disabled': 'DisabledTexture'}[slot], '')).strip('"')
+        btn[slot] = decl.get(ref, {'t': None, 'uv': [0, 1, 0, 1]})
+    if bar:
+        x = 0.002 / SCREEN_W                       # the first button's TOPLEFT offset
+        for ch in bar['children']:
+            if ch['type'] != 'Frame':
+                continue
+            name = (ch.get('name') or '').replace('UpperButtonBar', '').replace('Button', '')
+            btn['buttons'].append({'key': name.lower(), 'label': name, 'x': x})
+            x += btn['w']
+    return res, btn
+
+
+RES_BAR, BTN_BAR = top_bars()
+
 out = {'race': RACE, 'console': frame('ConsoleUI.fdf', 'ConsoleUI'),
+       'resourceBar': RES_BAR, 'buttonBar': BTN_BAR,
        # the dark backing behind the console's open arches; without it the world
        # shows through the middle of the bar
        'background': resolve('ConsoleBackground')}

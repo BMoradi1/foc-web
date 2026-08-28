@@ -56,6 +56,11 @@
   <!-- Warcraft III's own console, built from ConsoleUI.fdf. First child so it
        sits behind every panel that lives in its slots. -->
   <div id="console"></div>
+  <!-- Warcraft III's own top strip: the resource readout on the right and the
+       Quests/Menu/Allies/Chat buttons on the left, from ResourceBar.fdf and
+       UpperButtonBar.fdf. The game anchors these to the screen rather than to
+       the console, which is why ConsoleUI.fdf says nothing about them. -->
+  <div id="uitop"></div>
   <div id="topbar">
     <div class="score"><b id="k0">0</b><span>Team 1</span></div>
     <div class="score-mid" id="scoreMid">first to 100 kills</div>
