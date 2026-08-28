@@ -39,15 +39,7 @@ const STALE = {
 // because the test is broken. These stay in the run and their output is shown,
 // but they do not decide the exit code -- a suite that is permanently red is a
 // suite nobody reads. Deleting an entry here is the fix, not editing the test.
-const KNOWN = {
-  // 27 tree destructables draw untextured. Same root cause as the city gates
-  // (a replaceable texture slot with no path), but the fix is a different
-  // shape: DestructableData.slk gives texID/texFile per *destructable type*,
-  // and one model is shared by many types with different textures --
-  // lordaerontree alone is used by five. So it cannot be resolved per model
-  // the way slot 11 was for the gates. See TODO.txt INTERFACE.
-  'doodadtex_test.mjs': '27 tree destructables still untextured -- see TODO.txt',
-};
+const KNOWN = {};
 
 const VENV = path.join(ROOT, '.venv/bin/python');
 // audit and boot_test are not named *_test.mjs but are what the pipeline

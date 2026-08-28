@@ -42,14 +42,30 @@ for (const [id, n] of placed) {
   if (!m) continue;
   const p = `assets/models/${m.replace(/\\/g, '~')}.json`;
   if (!fs.existsSync(path.join(ROOT, p))) continue;
-  models.push({ id, n, m, mat: read(p).materials || [] });
+  models.push({ id, n, m, mat: read(p).materials || [], tex: meta[id]?.tex || null });
 }
 check('placed doodad models were found', models.length > 0, `${models.length} types`);
 
-// nothing a placed doodad draws may be untextured
-const untextured = models.filter((x) => x.mat.some((mm) => !mm.texture));
-check('no placed doodad has an untextured material', untextured.length === 0,
+// Nothing a placed doodad draws may end up untextured -- but the texture can
+// come from either side. A model carries its own where the MDX names a path;
+// where the MDX uses a replaceable slot it carries none, and the *type* supplies
+// it from DestructableData's texFile. One model is shared by many types with
+// different textures, which is why it cannot all live in the model.
+const untextured = models.filter((x) => x.mat.some((mm) => !mm.texture) && !x.tex);
+check('every placed doodad ends up textured', untextured.length === 0,
       untextured.map((x) => `${x.id} ${x.m}`).join(' ') || 'all textured');
+
+// and where the type supplies it, it has to be a real staged file
+const byType = models.filter((x) => x.tex);
+check('types using a replaceable slot name a staged texture',
+      byType.length > 0 && byType.every(
+        (x) => fs.existsSync(path.join(ROOT, 'public/assets', x.tex))),
+      byType.map((x) => `${x.id}:${x.tex.split('/').pop()}`).join(' ') || 'none');
+
+// the trees specifically: 17 Lordaeron and 10 Barrens drew nothing at all
+const trees = models.filter((x) => /lordaerontree|barrenstree/i.test(x.m));
+check('the trees get a texture from their type', trees.length > 0 && trees.every((x) => !!x.tex),
+      trees.map((x) => `${x.id} x${x.n} -> ${x.tex ? x.tex.split('/').pop() : 'NONE'}`).join(' '));
 
 // the gates specifically: they are what slot 11 broke
 const gate = models.find((x) => /cityenterancegate/i.test(x.m));

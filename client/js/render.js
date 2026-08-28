@@ -147,6 +147,7 @@ export class Renderer {
     this.camPitch = 1.02;          // radians from horizontal
     this.camYaw = 0;
     this.consoleFrac = 0;          // set once the console is built; see setConsoleFraction
+    this.replTex = new Map();      // doodad replaceable textures, shared by type
     this.effects = new Map();      // live AddSpecialEffect instances, by id
     this.fxTextures = new Map();   // particle sprite sheets, shared across emitters
     this.groundItems = new Map();  // items lying in the world, by id
@@ -445,6 +446,56 @@ export class Renderer {
     const group = new THREE.Group();
     for (const [id, items] of byType) {
       const info = meta[id] || {};
+      // The texture a replaceable slot stands for, from DestructableData's
+      // texFile, compiled per destructable *type* by stage.py.
+      //
+      // Warcraft III shares one model across many types and swaps only this --
+      // lordaerontree is used by five destructables with five different tree
+      // textures -- so the converted model cannot carry it, and the geoset that
+      // asks for it arrives with no texture at all. The 17 Lordaeron trees and
+      // 10 Barrens trees on this map drew nothing until it was put back.
+      //
+      // Only a material with no texture is touched: the city gate's cliff slot
+      // is already resolved to the tileset's own recolour by mdx2gltf, which is
+      // the sharper answer than the bare name this table gives, and overwriting
+      // it would undo that.
+      //
+      // Materials are cloned rather than mutated, and the clone is shared by
+      // every instance of the type: skeletonClone hands out the model cache's
+      // own materials, so writing to one would repaint every doodad drawn from
+      // that model and every one spawned afterwards.
+      let replTex = null;
+      if (info.tex) {
+        replTex = this.replTex.get(info.tex);
+        if (!replTex) {
+          replTex = new THREE.TextureLoader().load('/assets/' + info.tex);
+          replTex.colorSpace = THREE.SRGBColorSpace;
+          replTex.wrapS = replTex.wrapT = THREE.RepeatWrapping;
+          this.replTex.set(info.tex, replTex);
+        }
+      }
+      const patched = new Map();
+      const applyRepl = (root) => {
+        if (!replTex) return;
+        root.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          const arr = Array.isArray(o.material) ? o.material : [o.material];
+          const out = arr.map((mm) => {
+            if (!mm || mm.map) return mm;
+            let c = patched.get(mm);
+            if (!c) {
+              c = mm.clone();
+              c.map = replTex;
+              c.transparent = true;
+              c.alphaTest = mm.alphaTest || 0.5;
+              c.needsUpdate = true;
+              patched.set(mm, c);
+            }
+            return c;
+          });
+          o.material = Array.isArray(o.material) ? out : out[0];
+        });
+      };
       // a doodad type can ship several numbered variations; `variation` picks one
       const protos = new Map();
       const protoFor = async (variation) => {
@@ -462,6 +513,7 @@ export class Renderer {
         let obj;
         if (proto) {
           obj = skeletonClone(proto);
+          applyRepl(obj);
         } else {
           obj = new THREE.Mesh(new THREE.CylinderGeometry(30, 40, 200, 6),
             new THREE.MeshLambertMaterial({ color: 0x33384a }));

@@ -430,7 +430,9 @@ for _f, _idk in (('war3_extracted/Doodads/Doodads.slk', 'doodID'),
             if _id:
                 _dood[_id] = dict(file=str(_r.get('file') or ''),
                                   scale=float(_r.get('defScale') or 1) or 1.0,
-                                  name=str(_r.get('Name') or _id))
+                                  name=str(_r.get('Name') or _id),
+                                  # what this type's replaceable slot stands for
+                                  tex=str(_r.get('texFile') or '').strip())
 _meta = {}
 for _d in d['doodads']:
     _e = _dood.get(_d['id'], {})
@@ -443,7 +445,22 @@ for _d in d['doodads']:
             _variants.append(_rm)
         while _variants and _variants[-1] is None:
             _variants.pop()
-    _meta[_d['id']] = dict(file=_fileo, visible=not _invisible,
+    # The texture a replaceable slot stands for, per destructable *type*.
+    #
+    # Warcraft III shares one model across many types and swaps only the
+    # texture -- lordaerontree is used by five destructables with five
+    # different tree textures -- so this cannot live in the converted model,
+    # and the geoset that asks for it arrives with no texture at all. The
+    # trees drew nothing until the client was given this to put back.
+    _tf = (_e.get('tex') or '').replace('/', '\\')
+    _texpng = None
+    if _tf and _tf not in ('_', '-'):
+        _stem = os.path.splitext(_tf)[0].lower()
+        for _cand in (_stem + '.blp', _stem + '.tga', _tf.lower()):
+            if _cand in _have:
+                _texpng = _have[_cand]
+                break
+    _meta[_d['id']] = dict(file=_fileo, visible=not _invisible, tex=_texpng,
                            m=(resolve_model(_fileo) if not _invisible else None)
                              or next((v for v in _variants if v), None),
                            v=_variants,

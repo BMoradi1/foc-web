@@ -346,7 +346,7 @@ def placed_doodad_models():
         placed = {d['id'] for d in json.load(open('data/doodads.json'))['doodads']}
     except Exception:
         return []
-    table = {}
+    table, tex = {}, {}
     for f, idk in ((os.path.join(OUT, 'Doodads/Doodads.slk'), 'doodID'),
                    (os.path.join(OUT, 'Units/DestructableData.slk'), 'DestructableID')):
         if os.path.exists(f):
@@ -354,10 +354,25 @@ def placed_doodad_models():
                 i = str(r.get(idk) or '')
                 if i:
                     table[i] = str(r.get('file') or '')
-    return [table[i] for i in placed if table.get(i)]
+                    # DestructableData's texFile: the texture a *replaceable*
+                    # slot stands for. grab_model only follows textures a
+                    # model's TEXS chunk names, and a replaceable slot names
+                    # nothing -- so without this the tree textures are never
+                    # pulled and the trees draw with no texture at all.
+                    tf = str(r.get('texFile') or '').strip()
+                    if tf and tf not in ('_', '-'):
+                        tex[i] = tf
+    return ([table[i] for i in placed if table.get(i)],
+            [tex[i] for i in placed if tex.get(i)])
 
 dood_models = 0
-for fp in placed_doodad_models():
+_dood_files, _dood_tex = placed_doodad_models()
+dood_tex = 0
+for tp in _dood_tex:
+    ap = resolve(tp)
+    if ap and grab(ap):
+        dood_tex += 1
+for fp in _dood_files:
     # doodads come in numbered variations (Cactus0.mdx, Cactus1.mdx ...); the
     # SLK gives the stem and war3map.doo's `variation` picks one
     got = False
@@ -367,6 +382,7 @@ for fp in placed_doodad_models():
             got = True
     if got:
         dood_models += 1
+print('doodad replaceable textures: %d grabbed from DestructableData texFile' % dood_tex)
 
 # ---- 4. this map's tileset, plus UI and team-colour sets
 def tileset_dirs():

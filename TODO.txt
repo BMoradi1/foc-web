@@ -243,28 +243,44 @@ Warcraft III's own screenshot still has and we do not:
     Y_Cliff1.png, the same texture the cliff mesh draws.
     Exactly 2 placements, which is the two gates. tools/doodadtex_test.mjs.
 
-[ ] 27 tree destructables draw untextured
-    Found by doodadtex_test while fixing the gates, and registered in
-    run_tests.mjs KNOWN rather than hidden: 17 LTlt (LordaeronTree) and 10 BTtw
-    (BarrensTree) have one material with no texture at all.
+[x] 27 tree destructables drew nothing at all  (FIXED)
+    Reported from play as the trees in the top left not rendering; found first
+    by doodadtex_test while fixing the gates. 17 LTlt (LordaeronTree) in the
+    top-left quadrant and 10 BTtw (BarrensTree) in the top-right. Not white but
+    invisible: their one material is filterMode transparent, so with no texture
+    it sampled nothing and every fragment went.
 
-    Same root cause -- a replaceable slot with no path -- but a different fix,
-    and the gates' one will not extend to it. Units\\DestructableData.slk
-    carries texID and texFile per *destructable type*:
-      LTlt  texID 31  ReplaceableTextures\\LordaeronTree\\LordaeronSummerTree
-      BTtw  texID 33  ReplaceableTextures\\BarrensTree\\BarrensTree
-      YTcx  texID 11  ReplaceableTextures\\Cliff\\Cliff1.tga
-    146 destructables name a texID. The texture belongs to the destructable
-    type and not to the model: 52 models carry one and 32 of them are shared by
-    types that disagree -- lordaerontree alone is used by five destructables
-    with five different tree textures. So it cannot be resolved per model the
-    way slot 11 was; it has to be compiled per type and applied when the doodad
-    is built, which also means being careful not to mutate a cached material
-    shared with every other instance.
+    Same root cause as the gates -- a replaceable slot with no path -- but the
+    texture belongs to the destructable *type*, not the model, so the gates' fix
+    could not extend to it. Units\\DestructableData.slk carries texID and
+    texFile per type:
+      LTlt  31  ReplaceableTextures\\LordaeronTree\\LordaeronSummerTree
+      BTtw  33  ReplaceableTextures\\BarrensTree\\BarrensTree
+      YTcx  11  ReplaceableTextures\\Cliff\\Cliff1.tga
+    146 destructables name a texID, and 32 of the 52 models carrying one are
+    shared by types that disagree -- lordaerontree alone is used by five
+    destructables with five different tree textures.
 
-    The art is in the archives and simply never extracted, because nothing
-    references it by path -- the listfile has all eight LordaeronTree variants
-    and both BarrensTree ones. Extraction has to be driven from texFile.
+    Three things were missing, one per stage:
+      - extraction never pulled the art. grab_model follows the textures a
+        model's TEXS chunk names and a replaceable slot names none, so the BLPs
+        sat in war3.mpq untouched. extract_blizzard now follows texFile for
+        every placed type; 3 textures on this map.
+      - stage.py read DestructableData for file, defScale and Name and dropped
+        texFile. It now resolves it to the converted PNG and puts it on the
+        doodad type.
+      - the client had nothing to apply. addDoodads now does, and only to a
+        material with no texture -- the gate's cliff slot is already resolved by
+        mdx2gltf to the tileset's own recolour (Y_Cliff1), which is sharper than
+        the bare Cliff1 this table names, and overwriting it would undo that.
+
+    The materials are cloned and the clone shared by every instance of the type:
+    skeletonClone hands out the model cache's own materials, so writing to one
+    would repaint every doodad drawn from that model and every one after it --
+    the same trap the unit tinting fell into.
+    407 doodad meshes now, every one textured, none without.
+    tools/doodadtex_test.mjs, 8 checks. The KNOWN entry that carried this is
+    gone, which is how run_tests says an entry there should be retired.
 
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.
