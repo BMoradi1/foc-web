@@ -216,3 +216,7 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
 #hud:not(.hidden) ~ #build{bottom:320px}
 #build b{color:#8792a8;font-weight:600}
 #build .dbg{color:#e0a13a;font-weight:700}
+/* The map on its own line under the number: the number says which code is
+   running, the name says which map it was pointed at, and only both together
+   identify a server when several are up. */
+#build .map{display:block;color:#4a5364;letter-spacing:.2px}

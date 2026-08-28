@@ -42,7 +42,7 @@ net.on(Msg.WELCOME, (m) => {
   // The server decides whether the debugging keys exist at all; the client only
   // binds what it was told about, so nothing here can reach a deployed build.
   S.debug = !!m.debug;
-  ui.setBuild(m.build, S.debug);
+  ui.setBuild(m.build, S.debug, m.game?.meta?.name);
   if (S.debug) {
     const hint = document.getElementById('hint');
     if (hint) hint.textContent += ' \u00b7 L max level';

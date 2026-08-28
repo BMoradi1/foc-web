@@ -304,13 +304,24 @@ export class UI {
    * build to anyone else, and the date is only ever wanted once, so both go in
    * the tooltip rather than on screen.
    */
-  setBuild(b, debug) {
+  /**
+   * @param map  which map this server is serving, from game.json's meta.name
+   *
+   * The build number hashes client/, server/ and shared/ and deliberately not
+   * data/, so two servers built from the same code but a different map report
+   * the same number. That is the right answer for "which build" and the wrong
+   * one for "which server am I looking at", which is the question you actually
+   * have when more than one is running. The map name settles it.
+   */
+  setBuild(b, debug, map) {
     const box = $('build');
     if (!box || !b) return;
     box.innerHTML = `v${b.v} \u00b7 <b>build ${b.n}</b>`
-      + (debug ? ' \u00b7 <span class="dbg">DEBUG</span>' : '');
+      + (debug ? ' \u00b7 <span class="dbg">DEBUG</span>' : '')
+      + (map ? `<span class="map">${esc(map)}</span>` : '');
     const when = b.t ? new Date(b.t) : null;
     box.title = `${b.hash}${when ? ` \u00b7 ${when.toLocaleString()}` : ''}`
+      + (map ? `\n${map}` : '')
       + (debug ? '\nFOC_DEBUG is on: L levels the hero to the cap' : '');
   }
 
