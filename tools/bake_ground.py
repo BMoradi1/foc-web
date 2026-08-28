@@ -9,7 +9,13 @@ import numpy as np
 from PIL import Image
 
 SUB = 64          # source variation size inside the atlas
-PX = 32           # texels per terrain cell in the baked map
+# Texels per terrain cell in the baked map. This was 32, which resampled
+# Blizzard's own 64x64 variations down to half size and threw the other half
+# away -- and it showed against the cliffs, which carry a 256px texture over a
+# single 128-unit cell and so stayed eight times sharper than the ground they
+# meet. 64 is the source art's own resolution: no loss, and nothing invented.
+# Going higher would only upscale, which adds file size and no detail.
+PX = int(os.environ.get('FOC_GROUND_PX', '64'))
 
 # tileID -> (directory, file) for every tileset, straight from TerrainArt\Terrain.slk
 def _terrain_table():

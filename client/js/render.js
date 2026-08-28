@@ -226,6 +226,11 @@ export class Renderer {
     const tex = await new THREE.TextureLoader().loadAsync('/assets/textures/_ground.png');
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    // The cliffs ask for this and the ground did not, which is most of why the
+    // two looked like different materials where they meet: at an RTS camera
+    // angle every ground texel is seen edge-on, and without anisotropy that
+    // smears while the cliff beside it stays sharp.
+    tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     const mat = new THREE.MeshLambertMaterial({ map: tex });
     const mesh = new THREE.Mesh(geo, mat);
     this.scene.add(mesh);

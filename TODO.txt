@@ -99,6 +99,24 @@ EFFECTS (cont.)
     through applyBuff -- the lesson from the hero-death warning, which passed
     every check while the game stayed silent.
 
+[~] The ground meets the cliffs badly  (HALF FIXED)
+    Reported from play: at the seam between a cliff's floor and the
+    baked ground the two are visibly different resolutions and read as unblended.
+    Two causes found, both fixed:
+      - bake_ground.py baked at PX=32 while Blizzard's own tile variations are
+        64x64, so every ground tile was resampled to half size before it was
+        ever drawn. Now PX=64, the source art's own resolution: _ground.png goes
+        3072x2048 -> 6144x4096 (2.1 MB -> 8.3 MB), 0.25 -> 0.50 texels per world
+        unit. Going higher would only upscale -- more bytes, no more detail.
+      - the cliff textures ask for max anisotropy and the ground never did. At
+        an RTS camera angle the ground is seen edge-on, so it smeared while the
+        cliff beside it stayed sharp. It asks for the same now.
+    STILL OPEN: the cliff surface carries 256 texels over a single 128-unit
+    cell -- 2.0 per unit against the ground's 0.50 -- so a 4x mismatch remains,
+    and matching it would mean baking at 4x the pixels from 64px source art,
+    which is upscaling, not detail. Whether that is worth it is a judgement
+    call and wants a look at the real thing first.
+
 INTERFACE (the Warcraft III console)
 ------------------------------------
 The frame, the slots, the selection circles and the health bars are in. What
