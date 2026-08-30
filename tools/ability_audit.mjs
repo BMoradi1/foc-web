@@ -114,14 +114,16 @@ for (const [id, via] of [...pool].sort()) {
 }
 
 // --------------------------------------------------------------- 2. buff seams
-// The first B-literal within the call is the code being read; the argument
-// before it can nest calls (GetTriggerUnit()), so a window beats a regex.
+// The buff literal has to sit in the call's own argument slot -- a loose
+// window around the name also catches the 'BTLF' of a neighbouring
+// UnitApplyTimedLifeBJ, which is the script APPLYING a buff, not reading one.
+// The unit argument nests one call deep at most (GetTriggerUnit()).
+const ARG = String.raw`(?:[^()]|\([^()]*\))*?`;
 const readsBuff = new Set();
-for (const fn of ['UnitHasBuffBJ', 'GetUnitAbilityLevelSwapped', 'GetUnitAbilityLevel'])
-  for (let i = MAPJ.indexOf(fn + '('); i >= 0; i = MAPJ.indexOf(fn + '(', i + 1)) {
-    const m = MAPJ.slice(i, i + 120).match(/'(B\w{3})'/);
-    if (m) readsBuff.add(m[1]);
-  }
+for (const re of [new RegExp(String.raw`UnitHasBuffBJ\(${ARG},\s*'(B\w{3})'\)`, 'g'),
+                  /GetUnitAbilityLevelSwapped\(\s*'(B\w{3})'/g,
+                  new RegExp(String.raw`GetUnitAbilityLevel\(${ARG},\s*'(B\w{3})'\)`, 'g')])
+  for (const m of MAPJ.matchAll(re)) readsBuff.add(m[1]);
 const applies = new Map();            // buff code -> ability that stamps it
 for (const [id, ab] of Object.entries(ABILS))
   if (APPLY_BASES.has(ab.base))
