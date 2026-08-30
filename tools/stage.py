@@ -50,6 +50,14 @@ def stamp_destructable_pathing(walk, pw, ph):
 
     Warcraft III keeps a stamped footprint square to the grid, so the rotation
     is taken to the nearest quarter turn rather than interpolated.
+
+    The turn is measured from 270 degrees, not from zero: 270 is the World
+    Editor's default facing, and every wall and gate on this map is placed at
+    it, so the footprints are authored in that orientation. Measured from zero
+    each one came out a quarter turn off -- a wall running north-south stamped
+    an east-west bar through its own middle, which blocks its centre and leaves
+    an eight-cell hole to either side of it. The line of walls read as a row of
+    detached stubs and was walked straight between.
     """
     from PIL import Image as _Image
     sys.path.insert(0, 'tools')
@@ -81,7 +89,13 @@ def stamp_destructable_pathing(walk, pw, ph):
         return m
 
     ox, oy, PC = t['offsetX'], t['offsetY'], 32.0
+    DEFAULT_FACING = math.radians(270.0)
     blocked, placed_n, missing = 0, 0, set()
+    # Every cell each placement claims, kept per placement rather than merged.
+    # Warcraft III lifts a destructable's footprint when it dies, and two
+    # neighbouring walls share cells where their bars overlap, so a cell may only
+    # open once nothing left standing still claims it.
+    stamps = []
     for d in doo:
         rel = tex_of.get(d['id'])
         if not rel:
@@ -90,8 +104,9 @@ def stamp_destructable_pathing(walk, pw, ph):
         if m is None:
             missing.add(rel)
             continue
-        # nearest quarter turn, counter-clockwise like the game's own rotation
-        k = int(round(float(d.get('rot') or 0) / (math.pi / 2))) % 4
+        # nearest quarter turn from the editor's default facing (270 degrees),
+        # counter-clockwise like the game's own rotation
+        k = int(round((float(d.get('rot') or 0) - DEFAULT_FACING) / (math.pi / 2))) % 4
         mm = np.rot90(m, k)
         mh, mw = mm.shape
         # the footprint is centred on the doodad, and image row 0 is its north edge
@@ -100,6 +115,7 @@ def stamp_destructable_pathing(walk, pw, ph):
         x0 = int(round(cx - mw / 2.0))
         y0 = int(round(cy - mh / 2.0))
         placed_n += 1
+        claimed = []
         for r in range(mh):
             wy = y0 + (mh - 1 - r)              # flip: image y grows downward
             if wy < 0 or wy >= ph:
@@ -109,11 +125,14 @@ def stamp_destructable_pathing(walk, pw, ph):
                 wx = x0 + c
                 if wx < 0 or wx >= pw or not row[c]:
                     continue
+                claimed.append(wy * pw + wx)
                 if walk[wy * pw + wx]:
                     walk[wy * pw + wx] = 0
                     blocked += 1
+        stamps.append({'id': d['id'], 'x': d['x'], 'y': d['y'], 'c': claimed})
     if missing:
         print('WARNING no pathing footprint for:', sorted(missing)[:4])
+    json.dump(stamps, open(PUB + '/data/pathstamp.json', 'w'), separators=(',', ':'))
     print('destructable pathing: %d placements stamped, %d cells newly blocked'
           % (placed_n, blocked))
     return walk

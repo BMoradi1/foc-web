@@ -330,11 +330,8 @@ Warcraft III's own screenshot still has and we do not:
     placement, taking the rotation to the nearest quarter turn because Warcraft
     III keeps a stamped footprint square to the grid.
 
-    361 placements stamped, 2456 cells newly blocked. The check that matters as
-    much as the blocking: reachable area fell by 2116 cells against 2456
-    blocked, so nothing was orphaned -- no base, lane or shop was sealed off,
-    which is the way this breaks a game rather than fixing one.
-    tools/pathblock_test.mjs, 8 checks.
+    361 placements stamped. The footprints went in a quarter turn off and this
+    only half worked -- see the next item.
 
     Found while testing: camfit_test asserted a click always picks the unit it
     was aimed at, and the creeps now path differently around the walls, so two
@@ -344,6 +341,44 @@ Warcraft III's own screenshot still has and we do not:
     STILL OPEN: the gates block permanently. Warcraft III lifts the footprint
     when a destructable dies, and nothing here can die yet -- see the
     destructables item below.
+
+[x] The stamped footprints were a quarter turn off  (FIXED)
+    Reported from play: heroes still walked through. Every wall and gate on this
+    map is placed at facing 270 -- 30 LTw0, 23 LTw2, all six gates -- and 270 is
+    the World Editor's default facing, so the path textures are authored in that
+    orientation. The quarter turn was measured from zero instead, which turned
+    every footprint 90 degrees: StoneWall3Path is a 2x10 bar for a wall running
+    north-south and it went in as a 10x2 bar running east-west, through the
+    wall's own middle. That blocks the centre and leaves an eight-cell hole to
+    either side, and the walls sit 10 cells apart, so a line of wall stamped as
+    a row of detached stubs.
+
+    The test passed the whole time because it asserted that each placement's
+    centre cell was blocked, which was true throughout. The check that fails is
+    measured: take the first open cell either side of each placement, skip the
+    pairs that are not separated at all, and path between the rest. 17 of 112
+    crossings had a detour under 1.2x -- straight through. Measuring the turn
+    from 270 gives 0 of 63 under 3x.
+
+    The blocked-cell count *falls*, 2456 to 2348, and that is the confirmation
+    rather than a worry: a bar aligned with its wall overlaps its neighbours, so
+    it claims fewer unique cells while actually forming a barrier.
+
+    With the walls continuous the six closed gates now seal what is behind them:
+    49724 cells reachable with their footprints lifted against 30204 with them
+    shut. The walls themselves seal nothing -- 96.9% of what the bare terrain
+    reaches -- and the fountain and all 28 shops stay reachable with every gate
+    closed. What is cut off is the creep ground, 51 map-placed creeps. That is
+    what a closed gate is for: war3map.j never touches a destructable, no
+    KillDestructable and no DestructableRestoreLife anywhere in it, so the only
+    thing that opens one is destroying it.
+
+    stage.py now also writes public/data/pathstamp.json, the cells each of the
+    361 placements claims, kept per placement rather than merged because
+    neighbouring walls share cells where their bars overlap -- a cell may only
+    reopen once nothing left standing still claims it. That is what lifting a
+    footprint on death needs, and the test uses it to flood the map with the
+    gates open. tools/pathblock_test.mjs, 11 checks.
 
 [ ] Destructables are not entities
     The gates and walls are drawn and they block, but nothing can target or
