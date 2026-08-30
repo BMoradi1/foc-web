@@ -223,10 +223,16 @@ await wait(600);
 await page.$eval('#btnReady', (b) => b.click());
 await page.waitForFunction(() => !document.getElementById('hud').classList.contains('hidden'),
                            { timeout: 60000 });
-// the doodads are built after the hud shows, so wait on the thing being tested
-// rather than on a sleep that happened to be long enough once
-await page.waitForFunction(() => window.FOC?.S?.destPick?.size > 0, { timeout: 60000 });
-await wait(1500);
+// Wait for the doodads themselves, not for the table that names them: the
+// client fills S.destPick before addDoodads runs, because addDoodads needs it
+// to know which placements to give a mixer. Waiting on the table let this run
+// while the models were still loading.
+await page.waitForFunction(() => {
+  const { view, S } = window.FOC || {};
+  if (!view?.doodadAt || !S?.destPick?.size || !view.doodads?.parent) return false;
+  return [...S.destPick].every((i) => view.doodadAt.has(i));
+}, { timeout: 90000 });
+await wait(500);
 
 const out = await page.evaluate((ids) => {
   const { view, S } = window.FOC;
@@ -302,6 +308,7 @@ const out = await page.evaluate((ids) => {
   for (let f = 0; f < 40; f++)
     for (const i of picks) {
       const e = view.doodadAt.get(i);
+      if (!e) continue;
       e.mixer?.update(1 / 30);
       if (e.deathCurve) view.tickDoodadCurves(e, 1 / 30);
     }

@@ -462,6 +462,35 @@ Warcraft III's own screenshot still has and we do not:
         geometry back" was comparing against an empty renderer. Warming it first
         gives 29 -> 55 -> 29, the same across three runs.
 
+[x] Orochimaru's revive did nothing  (FIXED)
+    Reported from play. A01K, his level-10 skill -- one level, no hotkey,
+    origin AOre -- is Reincarnation, and its entire trigger in war3map.j is one
+    line: PlaySoundBJ on EVENT_PLAYER_UNIT_SPELL_EFFECT. In Warcraft III the
+    revive is the engine's, not the map's, and nothing in server/ implemented
+    AOre, so the death path never looked for it and he died like anyone else.
+
+    The numbers are the ability's own. AbilityData gives A01K DataA 3 and Cool
+    120 against Blizzard's AOre at 7 and 240, and AbilityMetaData gives the Ore1
+    field to exactly AOre, ACrn and ANrn -- "Reincarnation Delay" in
+    WorldEditStrings. So: he dies, the death events fire and the kill is still
+    paid, and three seconds later the body stands up where it fell with
+    everything back. The cooldown starts when the ability fires and not when he
+    rises, so a second death inside two minutes is the end of him.
+
+    Found while writing it: reviveUnit had no already-alive guard, and the map
+    revives its heroes at their altar on a timer (ReviveHero/ReviveHeroLoc, 10
+    calls each). ReviveHero on a living hero does nothing in Warcraft III; here
+    it would have dragged the reincarnated hero to the altar and healed him a
+    second time. It now returns false and leaves him alone.
+    tools/reincarnate_test.mjs, 17 checks.
+
+[x] pickDoodad missed anything that had not been rendered yet  (FIXED)
+    Raycasting reads matrixWorld and does not compute it, and addDoodads adds
+    its group to the scene only once every type has loaded, so a gate clicked
+    before that first render was still carrying an identity matrix and sat at
+    the origin as far as the ray was concerned. It showed up as a flaky test and
+    was a real defect: the fix is one updateWorldMatrix before the cast.
+
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.
 

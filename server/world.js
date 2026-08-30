@@ -151,6 +151,11 @@ function binKey(x, y) {
   return cy * BIN_COLS + cx;
 }
 
+// AbilityMetaData gives the Ore1 field -- "Reincarnation Delay" in
+// WorldEditStrings -- to exactly these three, which is the family that gets
+// back up: AOre is the hero form, ACrn and ANrn the unit ones.
+const REINCARNATE = new Set(['AOre', 'ACrn', 'ANrn']);
+
 const MORPH_FIELDS = ['typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
   'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'missile',
   'missileSpeed', 'missileArc', 'missileHoming', 'baseMoveSpeed', 'radius',
@@ -440,6 +445,58 @@ export class World {
              vol: s.vol ?? 1, pitch: s.pitch ?? 1 };
   }
 
+  /**
+   * The Reincarnation the unit holds, if it is off cooldown.
+   *
+   * Warcraft III's Reincarnation is not cast: it fires by itself when the unit
+   * dies, stands the body back up where it fell, and goes on cooldown. Nothing
+   * here implemented it, so Orochimaru's A01K -- his level-10 skill, one level,
+   * no hotkey -- simply did nothing and he died like anyone else. The map's own
+   * trigger for it plays a sound on SPELL_EFFECT and nothing more; the revive
+   * itself has always been the engine's job.
+   *
+   * AOre, ACrn and ANrn are the family: AbilityMetaData gives the Ore1 field
+   * (WorldEditStrings: "Reincarnation Delay") to exactly those three.
+   */
+  reincarnation(u) {
+    if (!u || !u.abilities) return null;
+    for (const [key, lvl] of u.abilities) {
+      if (!(lvl >= 1)) continue;
+      const a = abilEntry(this.abilKey(key));
+      if (!a || !REINCARNATE.has(a.base)) continue;
+      if ((u.cooldowns && u.cooldowns.get(key) || 0) > this.now) continue;
+      return { key, lvl, a };
+    }
+    return null;
+  }
+
+  /**
+   * Start a death the unit is going to get up from.
+   *
+   * The delay is the ability's own DataA -- 3 seconds for A01K against
+   * Blizzard's 7 -- and the cooldown starts now, not when the body rises, so
+   * dying twice inside two minutes is still fatal the second time. The spell
+   * events fire here because this is when the ability is used; that is what
+   * reaches the map's trigger and plays its line.
+   */
+  startReincarnation(u, re) {
+    const L = levelInfo(re.a, re.lvl);
+    u.cooldowns = u.cooldowns || new Map();
+    u.cooldowns.set(re.key, this.now + (L.cooldown || 0) * 1000);
+    u.reincarnateAt = this.now + Math.max(0, L.data1 || 0) * 1000;
+    u.corpseUntil = 0;                     // it is not a corpse, it is waiting
+    this.emitAbilityArt(re.a, u, null, u.x, u.y);
+    if (!this.jass) return;
+    const ctx = { unit: u, spellId: re.key, targetUnit: null,
+                  targetX: u.x, targetY: u.y, player: this.playerOf(u) };
+    for (const name of ['EVENT_PLAYER_UNIT_SPELL_CHANNEL', 'EVENT_PLAYER_UNIT_SPELL_CAST',
+                        'EVENT_PLAYER_UNIT_SPELL_EFFECT', 'EVENT_PLAYER_UNIT_SPELL_FINISH',
+                        'EVENT_PLAYER_UNIT_SPELL_ENDCAST']) {
+      const k = this.jass.eventId(name);
+      if (k != null) this.jass.fire(k, ctx);
+    }
+  }
+
   killUnit(u, killer) {
     if (!u || !u.alive) return;
     u.alive = false; u.hp = 0; u.path = null; u.order = { type: 'idle' };
@@ -479,15 +536,28 @@ export class World {
     const dctx = { unit: u, killer, player: this.playerOf(u) };
     this.fireUnitEvent('EVENT_PLAYER_UNIT_DEATH', dctx);
     this.fireUnitEvent('EVENT_UNIT_DEATH', dctx);       // per-unit death registrations
+    // After the death events, not instead of them: Warcraft III pays the kill
+    // and tells the map somebody died either way. The body just does not stay
+    // down.
+    const re = this.reincarnation(u);
+    if (re) this.startReincarnation(u, re);
   }
 
+  /**
+   * ReviveHero on a hero who is not dead does nothing in Warcraft III, and this
+   * had no such guard: the map revives its heroes at their altar on a timer, so
+   * a hero who had already got back up on his own was dragged there and given
+   * full health a second time.
+   */
   reviveUnit(u, x, y) {
-    if (!u) return;
+    if (!u || u.alive) return false;
+    u.reincarnateAt = 0;
     const c = this.grid.nearestWalkable(x, y);
     if (c) [u.x, u.y] = this.grid.toWorld(c[0], c[1]);
     u.alive = true; this.recalc(u); u.hp = u.maxHp; u.mana = u.maxMana;
     u.buffs = []; u.path = null; u.order = { type: 'idle' };
     this.emit({ t: 'revive', id: u.id });
+    return true;
   }
 
   moveUnit(u, x, y) {
@@ -1436,6 +1506,11 @@ export class World {
     const alive = [];
     for (const u of this.units.values()) {
       if (!u.alive) {
+        // the body gets up where it fell, with everything back
+        if (u.reincarnateAt && this.now >= u.reincarnateAt) {
+          this.reviveUnit(u, u.x, u.y);
+          continue;
+        }
         // the corpse's time is up: flesh decayed, bones gone
         if (u.corpseUntil && this.now > u.corpseUntil) this.removeUnit(u);
         continue;

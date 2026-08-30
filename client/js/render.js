@@ -684,6 +684,11 @@ export class Renderer {
     let best = null, bd = Infinity;
     for (const [i, e] of this.doodadAt) {
       if (allowed && !allowed.has(i)) continue;
+      // Raycasting reads matrixWorld and does not compute it. A doodad that has
+      // not been through a render yet -- the group is added to the scene only
+      // once every type has loaded -- still carries an identity matrix, so it
+      // sits at the origin as far as the ray is concerned and is never hit.
+      e.holder.updateWorldMatrix(true, true);
       const hit = ray.intersectObject(e.holder, true);
       if (hit.length && hit[0].distance < bd) { bd = hit[0].distance; best = i; }
     }
