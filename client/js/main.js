@@ -268,14 +268,17 @@ function handleEvent(ev) {
     case 'destDmg': {
       const g = S.dests?.get(ev.d);
       if (g) { g.hp = ev.hp; g.max = ev.max; }
+      // the doors shudder: the gate models carry their own Stand Hit clip
+      if (g && !g.dead) view.playDoodadClip(ev.d, 'stand hit');
       break;
     }
     case 'destDead': {
       const g = S.dests?.get(ev.d);
       if (g) { g.dead = true; g.hp = 0; }
       // the wreckage is already in the model, hidden until now by the stand
-      // sequence's geoset-alpha track
+      // sequence's geoset-alpha track; the death clip is what drops it
       view.setDoodadDead(ev.d);
+      view.playDoodadClip(ev.d, 'death', { hold: true });
       if (g && S.destPick?.has(ev.d)) ui.log('a gate has been broken open', 'kill');
       break;
     }
@@ -428,7 +431,6 @@ async function boot(m) {
   };
   ui.setLoading('building arena…', 0.6);
   await view.buildTerrain(terr, new Float32Array(heightsBuf), cliffs);
-  await view.addDoodads(doodads, doodadMeta);
   // only DestructableData's selectable flag may be clicked: that is the six
   // gates, and not the walls, the trees or the pathing blockers
   S.dests = new Map();
@@ -437,6 +439,8 @@ async function boot(m) {
     S.dests.set(d.d, { type: d.id, x: d.x, y: d.y, hp: d.hp, max: d.hp, dead: false });
     if (d.sel) S.destPick.add(d.d);
   }
+  // the same six get an animation mixer, so a struck gate can shudder
+  await view.addDoodads(doodads, doodadMeta, S.destPick);
   const img = new Image();
   img.src = '/assets/textures/war3mapMap.png';
   img.onload = () => { S.minimapImg = img; };

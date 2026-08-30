@@ -433,7 +433,7 @@ export class Renderer {
                       : d + (c - d) * (1 - u) + (b - d) * (1 - v);
   }
 
-  async addDoodads(list, meta = {}) {
+  async addDoodads(list, meta = {}, animated = null) {
     // Doodads with no visible model (pathing/LOS blockers) are invisible in the
     // real game; their effect is in the pathing map, which the server already uses.
     const visible = (list || []).filter((d) => (meta[d.id] || {}).visible !== false);
@@ -511,7 +511,7 @@ export class Renderer {
         let rec = null;
         try {
           const r = await this.loadModel(name);
-          rec = { scene: r.gltf.scene, meta: r.meta };
+          rec = { scene: r.gltf.scene, meta: r.meta, anims: r.gltf.animations || [] };
         } catch { rec = null; }
         protos.set(name, rec);
         return rec;
@@ -573,11 +573,47 @@ export class Renderer {
         holder.scale.set((d.sx || 1) * s, (d.sz || 1) * s, (d.sy || 1) * s);
         group.add(holder);
         const di = idxOf.get(d);
-        if (di != null) this.doodadAt.set(di, { holder, obj, rec, dead: false });
+        if (di == null) continue;
+        const entry = { holder, obj, rec, dead: false, mixer: null, actions: null };
+        // Only what can actually be struck gets a mixer. Every gate model
+        // carries a Stand Hit clip -- the doors shudder when they are hit --
+        // and Warcraft III plays it on every blow. The other 350-odd doodads
+        // are scenery and never move, so they stay as static clones.
+        if (animated && animated.has(di) && rec?.anims?.length) {
+          entry.mixer = new THREE.AnimationMixer(obj);
+          entry.actions = new Map();
+          for (const clip of rec.anims) entry.actions.set(clip.name.toLowerCase(), clip);
+        }
+        this.doodadAt.set(di, entry);
       }
     }
     this.scene.add(group);
     this.doodads = group;
+  }
+
+  /**
+   * Play one of a destructable's own clips, once.
+   *
+   * A gate is hit and shudders: every gate model carries a Stand Hit sequence,
+   * and its geoset alphas are the same as the stand pose's, so this is bone
+   * motion and not a swap of what is drawn. clampWhenFinished holds the last
+   * frame rather than snapping back, which is what death needs; a hit is short
+   * enough that holding it is what the game does too, until the next blow
+   * restarts it.
+   */
+  playDoodadClip(index, name, { hold = false } = {}) {
+    const e = this.doodadAt && this.doodadAt.get(index);
+    if (!e || !e.mixer) return false;
+    const clip = e.actions.get(name.toLowerCase());
+    if (!clip) return false;
+    if (e.action) e.action.stop();
+    const a = e.mixer.clipAction(clip);
+    a.reset();
+    a.setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = hold;
+    a.play();
+    e.action = a;
+    return true;
   }
 
   /**
@@ -598,9 +634,40 @@ export class Renderer {
     const s = seqs.find((q) => /^death$/i.test(q.name)) || seqs.find((q) => /^death/i.test(q.name));
     const a = s && s.geosetAlpha;
     if (!a) return false;
-    let i = 0;
-    e.obj.traverse((o) => { if (o.isMesh) { const v = a[i++]; o.visible = !(v !== undefined && v <= 0.01); } });
+    if (!e.prims) { e.prims = []; e.obj.traverse((o) => { if (o.isMesh) e.prims.push(o); }); }
+    e.prims.forEach((o, i) => { const v = a[i]; o.visible = !(v !== undefined && v <= 0.01); });
+    // Some geosets are not held at a value across the sequence but fade over
+    // it: the elven gate's death curves geoset 3 from 0 up to 1 across the
+    // first two thirds, and reading only the held alphas left that one hidden
+    // for good. Ticked against the clip while it plays.
+    e.deathCurve = (s.geosetAlphaCurve && s.geosetAlphaCurve.some(Boolean))
+      ? s.geosetAlphaCurve : null;
+    e.deathClock = 0;
     return true;
+  }
+
+  /**
+   * Walk a dying destructable's geoset-alpha curves forward.
+   *
+   * Visibility rather than opacity: a doodad's materials are shared by every
+   * placement of its type -- that sharing is deliberate, and what keeps a
+   * replaceable texture from being cloned 27 times for the trees -- so fading
+   * one instance would fade them all. The timing is the part that carries.
+   */
+  tickDoodadCurves(e, dt) {
+    if (!e.deathCurve) return;
+    e.deathClock += dt;
+    const t = e.deathClock;
+    const c = e.deathCurve;
+    let live = false;
+    for (let i = 0; i < c.length; i++) {
+      const mesh = e.prims && e.prims[i];
+      if (!c[i] || !mesh) continue;
+      mesh.visible = sampleCurve(c[i], t) > 0.02;
+      const last = c[i][c[i].length - 1];
+      if (t < last[0]) live = true;
+    }
+    if (!live) e.deathCurve = null;             // settled: stop reading it
   }
 
   /**
@@ -2068,6 +2135,12 @@ export class Renderer {
       if (v.texAnims?.length) stepTexAnims(v.texAnims, ctx, now - v.bornAt);
       if (v.alphaCurve || v.matCurve) this.tickGeosetCurves(v, dt);
     }
+    }
+    // the handful of destructables that can be struck; everything else in the
+    // doodad group has no mixer at all
+    if (this.doodadAt) for (const e of this.doodadAt.values()) {
+      e.mixer?.update(dt);
+      if (e.deathCurve) this.tickDoodadCurves(e, dt);
     }
     const tViews = performance.now();
     for (const e of this.effects.values()) {

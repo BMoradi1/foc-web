@@ -415,9 +415,27 @@ Warcraft III's own screenshot still has and we do not:
 
     World keeps its own copy of walk.bin rather than the module's array: a gate
     broken in one match must not start the next one broken.
-    tools/destructable_test.mjs, 22 checks, including a hero ordered at a gate
+    tools/destructable_test.mjs, 27 checks, including a hero ordered at a gate
     from 460 units away walking to it and breaking it, and the crossing it seals
     going from no route at all to 352 units.
+
+    The gates animate as they are hit and as they fall. Every gate model carries
+    a Stand Hit sequence -- three of the elven gate's fourteen bones take ten
+    rotation keyframes in it, and the geoset alphas match the stand pose, so it
+    is the doors shuddering and not a swap of what is drawn. Doodads never
+    animated at all here; the six that can be struck now get a mixer and the
+    other 357 stay static clones.
+
+    Death is not an instant swap either. The death sequences carry a geoset
+    alpha *curve* as well as held values -- the elven gate curves geoset 3 from
+    0 up to 1 across the first two thirds of the clip -- and reading only the
+    held alphas left that geoset hidden for good. It is ticked against the clip
+    now. Visibility rather than opacity: a doodad's materials are shared by
+    every placement of its type, which is what keeps a replaceable texture from
+    being cloned 27 times for the trees, so fading one instance would fade them
+    all. Four of the six gates gain a geoset as the clip runs; the two city
+    entrance gates have no geoset animation at all and are left standing rather
+    than hidden, which would leave a hole in the wall.
 
     NOT DONE: deathSnd names a label (TreeWallDeath) and animsounds.json is keyed
     by MDX event id, so there is nothing to resolve it against. Only the trees

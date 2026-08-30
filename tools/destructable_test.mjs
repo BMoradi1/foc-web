@@ -259,11 +259,58 @@ const out = await page.evaluate((ids) => {
   };
   const target = picks[0];
   const aimed = aim(target);
+  // Does a hit actually move the doors? Run the Stand Hit clip forward and see
+  // whether any bone ends up somewhere else. Every bone, not the first one
+  // found: the clip keyframes three of the fourteen, and the rest hold still --
+  // a probe on the wrong bone reports no movement from a clip that works.
+  // Rotation as well as position, because a leaf bone that only turns stays
+  // exactly where it was.
+  const hit = (() => {
+    const out = { clips: [], moved: 0, probed: 0, keyed: [] };
+    for (const i of picks) {
+      const e = view.doodadAt.get(i);
+      if (!e?.mixer) continue;
+      out.clips.push([...e.actions.keys()].filter((k) => /hit/.test(k)).join(','));
+      const clip = e.actions.get('stand hit');
+      // how many of its tracks actually vary: a clip of held keyframes would
+      // play and change nothing
+      out.keyed.push((clip?.tracks || []).filter((t) => t.times.length > 2).length);
+      const bones = [];
+      e.obj.traverse((o) => { if (o.isBone) bones.push(o); });
+      if (!bones.length) continue;
+      out.probed++;
+      e.obj.updateMatrixWorld(true);
+      const pose = () => bones.map((b) => [b.position.x, b.position.y, b.position.z,
+                                           b.quaternion.x, b.quaternion.y,
+                                           b.quaternion.z, b.quaternion.w]);
+      const a = pose();
+      view.playDoodadClip(i, 'stand hit');
+      for (let f = 0; f < 8; f++) e.mixer.update(1 / 30);
+      const b = pose();
+      if (a.some((row, r) => row.some((v, k) => Math.abs(v - b[r][k]) > 1e-4))) out.moved++;
+      e.mixer.stopAllAction();
+    }
+    return out;
+  })();
+
   const before = picks.map(visible);
   const changed = picks.map((i) => view.setDoodadDead(i));
+  const atDeath = picks.map(visible);
+  // and run the death curves out: the gates fade a geoset in across the first
+  // two thirds of the clip, so what is drawn a second later is not what is
+  // drawn the instant it dies
+  for (let f = 0; f < 40; f++)
+    for (const i of picks) {
+      const e = view.doodadAt.get(i);
+      e.mixer?.update(1 / 30);
+      if (e.deathCurve) view.tickDoodadCurves(e, 1 / 30);
+    }
   const after = picks.map(visible);
-  return { registered: view.doodadAt ? view.doodadAt.size : 0, picks, aimed,
-           before, after, changed, dests: S.dests ? S.dests.size : 0 };
+  const curved = picks.filter((i, k) => atDeath[k] !== after[k]).length;
+  return { registered: view.doodadAt ? view.doodadAt.size : 0, picks, aimed, hit,
+           mixers: [...view.doodadAt.values()].filter((e) => e.mixer).length,
+           before, atDeath, after, curved, changed,
+           dests: S.dests ? S.dests.size : 0 };
 }, null);
 
 check('the client knows every destructable', out.dests === table.length,
@@ -273,10 +320,19 @@ check('every placed doodad is registered to be found again', out.registered > 30
       `${out.registered}`);
 check('a click aimed at a gate lands on it', out.aimed && out.aimed.gate === out.picks[0],
       JSON.stringify(out.aimed));
+check('only what can be struck carries a mixer', out.mixers === 6, `${out.mixers}`);
+check('every gate has a hit clip', out.hit.clips.length === 6 && out.hit.clips.every((c) => c),
+      out.hit.clips.join(' '));
+check('the hit clip has keyframes to play', out.hit.keyed.every((n) => n > 0),
+      out.hit.keyed.join(' ') + ' tracks that vary');
+check('and being hit moves the doors', out.hit.probed > 0 && out.hit.moved === out.hit.probed,
+      `${out.hit.moved} of ${out.hit.probed}`);
 check('breaking a gate changes what is drawn',
       out.changed.filter(Boolean).length >= 4 &&
       out.picks.filter((_, i) => out.after[i] !== out.before[i]).length >= 4,
       out.picks.map((_, i) => (out.before[i] === out.after[i] ? 'unchanged' : 'swapped')).join(' '));
+check('a geoset that fades in during the death clip actually arrives',
+      out.curved >= 4, `${out.curved} of ${out.picks.length} changed again as the clip ran`);
 // The city entrance gate has no geoset animation at all, so it has no wreckage
 // to swap to. Hiding it instead would leave a hole in the wall, so it is left
 // standing -- which is what the counts above have to show, not a zero.
