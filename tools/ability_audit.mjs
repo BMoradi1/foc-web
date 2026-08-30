@@ -135,10 +135,9 @@ const declared = new Set();
 for (const src of [COMMON, SUPP])
   for (const m of src.matchAll(/native\s+(\w+)\s+takes/g)) declared.add(m[1]);
 // The installed table itself, not a regex over the source: construct the
-// engine and read vm.natives. A stub is a function whose whole body is empty
-// or a bare constant. Read BEFORE load() -- load auto-registers every
-// declared-but-unwritten native as a counting no-op, and this tool exists to
-// tell the two apart.
+// engine and load(). The table then also holds load()'s counting no-ops for
+// declared-but-unwritten natives, but those bodies call this.unimplemented,
+// so the bare-constant test below never mistakes one for a hand-written stub.
 const eng = new JassEngine(new World());
 if (!eng.vm.natives.size) eng.load();
 const entries = new Set(eng.vm.natives.keys());
@@ -181,5 +180,6 @@ for (const n of stubHit) {
 }
 
 console.log(`\nNATIVES REACHED WITH NO HAND-WRITTEN ENTRY: ${missing.length}`
-          + `   (auto-no-oped and counted at runtime, same silence as a stub)`);
+          + `   (a BJ name here runs its Blizzard.j body; a true native falls to`
+          + ` the declared default -- silent either way)`);
 for (const n of missing) console.log(`  ${n.padEnd(28)} ${nDirect(n) ? nDirect(n) + 'x direct' : 'via Blizzard.j'}`);

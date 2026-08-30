@@ -99,7 +99,7 @@ test suite is `npm test`, which starts its own server and runs everything.
 |---|---|
 | Left click | Move |
 | Right click | Attack unit / attack-move to point |
-| `Q W E R D F` | Cast ability 1–6 |
+| Ability hotkeys | **the map's own** (`ahky`), printed on each button — most heroes do not use plain `QWERDF` |
 | Click the green `+` | Spend a skill point (right-click an icon also works) |
 | `S` | Stop · `B` Shop · `Space` centre on hero · `Tab` scoreboard |
 | Middle-drag | Pan camera · wheel zooms · double-click re-follows hero |
@@ -312,7 +312,9 @@ never served, and what can actually spawn comes from the map-derived tables rath
 whatever happens to be on disk.
 
 What still needs a look after a swap: heroes whose model path is empty in the map data, and any
-ability the map drives through a mechanism the probe in `spell_targets.mjs` cannot see.
+ability the map drives through a mechanism the probe in `spell_targets.mjs` cannot see. Then run
+`FOC_MAP_J=extracted/war3map.j node tools/ability_audit.mjs` — its dead-ability, buff-seam and
+stub-native lists are the honest size of the new map's gap before anyone plays it.
 
 ## Status
 
@@ -325,29 +327,28 @@ ability the map drives through a mechanism the probe in `spell_targets.mjs` cann
 | Combat | engine ability behaviour plus the map's own triggers; ranged attacks and spells with real missile travel time; damage, armour and auto-attack |
 | Progression | hero picking, XP, levelling, skill unlocks, a six-slot inventory, shops, items that lie in the world and are walked to, powerups on contact, selling back at the map's own rate |
 | Form changes | heroes that morph keep their level, skills and inventory across it |
+| Destructables | the map's 115 walls, gates and trees stamp their real pathing footprints; a gate can be attacked, shudders when struck, plays its collapse, and opens the route it sealed |
+| Buff art | a buff's target model hangs at its named attachment point for as long as the buff lasts — Ichigo's Hollow orb lands on his head, eight bones deep |
 | Effects | particle emitters (without which ~80 of Warcraft III's effect models are empty), ribbon trails behind the blades of the seven heroes that carry them, omni lights, camera shake, ground shadows, ubersplats and splats, corpses that decay and leave bones |
 | Model events | blood, footprints and thrown body parts fired from the model's own keyframes, and the footsteps, impacts and death cries on the same keys |
 | Texture animation | beams flow, portals turn, flipbooks step — including the 52 materials that run on a clock of their own rather than on the playing sequence |
 | Lightning | chain lightning, mana burn, drain and forked bolts, built from `LightningData.slk` rather than played as a model |
 | Animation | chosen the way the game chooses it — the map's token sets weighted by rarity, honouring the Required Animation Names that decide, for one, that a tower is an arcane tower |
 | Attachments | effects hung on the model's own attachment points instead of at the unit's feet |
-| Presentation | Warcraft III's own console frame, minimap, blended terrain, animated water, stepped cliffs |
+| Presentation | Warcraft III's own console frame, minimap, blended terrain, animated water, stepped cliffs; the top strip carries the real resource bar and buttons, and the camera aims at the strip of screen the console leaves visible |
 | Multiplayer | two players in one room, opposing teams, own colours, seeing each other's moves, chat and dropped items |
 
 **Approximated or missing**
 
 | | |
 |---|---|
-| Buff art | no buff draws its attached model. Warcraft III hangs one at a named attachment point; nothing reads `w3h`. Ichigo's Hollow form works, the orb on his head does not appear |
-| Mana Shield | the one ability with no absorption behaviour anywhere — the map's only trigger for it plays a sound |
-| Geoset alpha | binary rather than fractional, so anything that should dissolve pops instead |
+| Dead spells | `tools/ability_audit.mjs` prints the live list — currently 14 abilities with no engine case, no map trigger and no data fallback (Mana Shield's absorption is the classic), plus the buff seams and stub natives it checks alongside |
 | Ramp wedges | `CliffTrans` pieces are drawn as ordinary cliff walls, affecting the 20 cells flanking the two base ramps |
-| Hotkeys | the map defines a real hotkey for all 130 hero abilities; the client still uses a hardcoded `Q W E R D F` |
 | `ParticleEmitter1` | parsed, exported, and spawns its pieces, but has never been confirmed to put a pixel on screen |
 | Ribbon colour | a ribbon's colour and alpha over its life are not applied; its visibility track, and an emitter's visibility and emission rate, are |
 | Attack backswing | a swing resolves the moment it starts, though the missile it throws now takes time to arrive |
 | Pathing | A* over the map's real walkability grid, not Warcraft III's flow-field movement |
-| Not implemented | fog of war; the day/night cycle; `SetUnitTimeScale`; the text-tag motion natives; terrain deformation and cinematic filters (all no-ops) |
+| Not implemented | fog of war; the day/night cycle; `SetUnitTimeScale`; text tags — nothing floats yet, neither the bounty gold on kills nor the map's spell shouts and duel countdown; terrain deformation (Kisame's and Gaara's craters) and cinematic filters (all no-ops) |
 
 **Translation** — this map's text is Korean, and is now also carried in English by an
 LLM-written overlay, `data/translations.ko-en.json`, kept deliberately outside the extraction: every hero title, ability
