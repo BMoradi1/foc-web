@@ -282,6 +282,32 @@ Warcraft III's own screenshot still has and we do not:
     tools/doodadtex_test.mjs, 8 checks. The KNOWN entry that carried this is
     gone, which is how run_tests says an entry there should be retired.
 
+[x] Gates drew their closed doors and their own rubble at once  (FIXED)
+    Reported from play. A destructable model carries its wreckage as extra
+    geosets and hides them with a geoset-alpha (KGAO) track, so one model serves
+    both states: the elven gate stands as [1,0,1,0] and dies as [1,1,0,0], which
+    makes geoset 1 the debris and 2 the gate. Four of the five gate models do
+    this -- 3 to 5 tracks each -- and the city entrance gate has none at all,
+    which is why that one alone looked right.
+
+    Units sample those tracks through play(). A doodad is never animated, so
+    nothing sampled them and every geoset drew at full alpha.
+
+    addDoodads now applies the model's own "stand" geosetAlpha when it builds
+    one, hiding what that sequence hides. Visibility is per-object, so it is set
+    on the clone and never touches the material the model cache holds -- the trap
+    the unit tinting fell into. 35 of the 407 doodad meshes are wreckage.
+
+    Two things measured on the way, both of which killed a wrong first guess:
+      - three's Box3 reads the bind-pose vertex buffer and ignores skinning, so
+        comparing bounding boxes said posing changed nothing. Rendering the two
+        and diffing the pixels said the same, correctly: the bind pose *is* the
+        stand pose and no bone moves. It is the alpha track, not the skeleton.
+      - the glTF mesh order matches meta.geosets exactly -- checked by comparing
+        triangle counts element for element across all four models -- so a plain
+        traverse indexes the alpha array correctly.
+    tools/doodadtex_test.mjs, 11 checks.
+
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.
 

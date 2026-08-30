@@ -502,18 +502,55 @@ export class Renderer {
         const name = (info.v && info.v[variation]) || info.m;
         if (!name) return null;
         if (protos.has(name)) return protos.get(name);
-        let scene = null;
-        try { scene = (await this.loadModel(name)).gltf.scene; } catch { scene = null; }
-        protos.set(name, scene);
-        return scene;
+        let rec = null;
+        try {
+          const r = await this.loadModel(name);
+          rec = { scene: r.gltf.scene, meta: r.meta };
+        } catch { rec = null; }
+        protos.set(name, rec);
+        return rec;
+      };
+
+      /**
+       * Hide the geosets the model's own "stand" sequence hides.
+       *
+       * A destructable model carries its wreckage as extra geosets and hides
+       * them with a geoset-alpha (KGAO) track: the elven gate stands as
+       * [1,0,1,0] and dies as [1,1,0,0], so geoset 1 is the debris and 2 is the
+       * gate itself. Units sample those tracks through play(); a doodad never
+       * animates, so nothing sampled them and every geoset drew at full alpha --
+       * which is why the gates showed the closed doors and their own rubble at
+       * the same time. Four of the five gate models do this; the city entrance
+       * gate has no geoset animation at all, which is why it looked right.
+       *
+       * Visibility is per-object, so this is set on the clone and never touches
+       * the material the model cache holds.
+       */
+      const standAlpha = (rec) => {
+        const seqs = rec?.meta?.sequences || [];
+        const s = seqs.find((q) => /^stand$/i.test(q.name))
+               || seqs.find((q) => /^stand/i.test(q.name));
+        return s?.geosetAlpha || null;
+      };
+      const applyStand = (root, rec) => {
+        const a = standAlpha(rec);
+        if (!a) return;
+        let i = 0;
+        root.traverse((o) => {
+          if (!o.isMesh) return;
+          const v = a[i++];
+          if (v !== undefined && v <= 0.01) o.visible = false;
+        });
       };
       for (const d of items) {
-        const proto = await protoFor(d.variation || 0);
+        const rec = await protoFor(d.variation || 0);
+        const proto = rec && rec.scene;
         const h = this.heightAt(d.x, d.y);
         let obj;
         if (proto) {
           obj = skeletonClone(proto);
           applyRepl(obj);
+          applyStand(obj, rec);
         } else {
           obj = new THREE.Mesh(new THREE.CylinderGeometry(30, 40, 200, 6),
             new THREE.MeshLambertMaterial({ color: 0x33384a }));

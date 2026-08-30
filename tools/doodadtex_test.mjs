@@ -90,6 +90,28 @@ for (const x of models) {
 check('every texture they name is staged', missing.size === 0,
       [...missing].slice(0, 3).join(' ') || 'all present');
 
+// ---- the wreckage a destructable carries must not be drawn while it stands
+//
+// A destructable model keeps its debris as extra geosets and hides them with a
+// geoset-alpha track: the elven gate stands as [1,0,1,0] and dies as [1,1,0,0].
+// Doodads never animate, so nothing sampled those tracks and every geoset drew
+// at full alpha -- the gates showed their closed doors and their own rubble at
+// once. Read from the compiled models, which is where the answer lives.
+const gates = models.filter((x) => /gate/i.test(x.m));
+check('the gate models were found', gates.length >= 4, `${gates.length}`);
+const withAnim = [];
+for (const x of gates) {
+  const p = `assets/models/${x.m.replace(/\\/g, '~')}.json`;
+  const seqs = read(p).sequences || [];
+  const stand = seqs.find((q) => /^stand$/i.test(q.name));
+  if (stand?.geosetAlpha?.some((a) => a <= 0.01)) withAnim.push({ id: x.id, a: stand.geosetAlpha });
+}
+check('some gates hide geosets while standing', withAnim.length > 0,
+      withAnim.map((w) => `${w.id}[${w.a.join(',')}]`).join(' ') || 'none -- nothing to hide');
+check('and each still keeps something visible',
+      withAnim.every((w) => w.a.some((a) => a > 0.01)),
+      withAnim.map((w) => `${w.id}:${w.a.filter((a) => a > 0.01).length} shown`).join(' '));
+
 const bad = results.filter((r) => !r.pass).length;
 console.log(`\n${results.length - bad}/${results.length} checks passed`);
 process.exit(bad ? 1 : 0);
