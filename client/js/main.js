@@ -33,7 +33,7 @@ const S = {
   prev: new Map(),           // id -> previous state (for interpolation)
   lastSnap: 0, snapDt: 1 / 15,
   selected: null, bounds: null, ready: false, showScore: false,
-  castPending: null, minimapImg: null, debug: false,
+  castPending: null, itemPending: null, minimapImg: null, debug: false,
   hoverId: null, altHeld: false,
   unitModels: null,          // also feeds the lobby's rotating hero preview
 };
@@ -89,7 +89,7 @@ net.on(Msg.STATE, (m) => {
   // the server drops everyone's ready flag in reset() and the client has to
   // agree, and a half-aimed spell must not survive into the lobby.
   if (m.phase !== was) {
-    S.castPending = null;
+    S.castPending = null; S.itemPending = null;
     canvas.style.cursor = 'default';
     // The console's two canvases can only be measured once the HUD is on
     // screen: the fit at load time runs while #hud is still hidden, where
@@ -493,6 +493,16 @@ canvas.addEventListener('mousedown', (e) => {
   const nx = (e.clientX / innerWidth) * 2 - 1;
   const ny = -(e.clientY / innerHeight) * 2 + 1;
   if (e.button === 0) {
+    // an item aimed at a unit: the Monster Ball is thrown at a creep
+    if (S.itemPending != null) {
+      const t = view.pickEntity(nx, ny);
+      if (t && t.id !== S.hero?.id) {
+        net.send({ t: 'useItem', slot: S.itemPending, targetId: t.id });
+        S.itemPending = null;
+        canvas.style.cursor = 'default';
+      }
+      return;                                    // stay armed until something is hit
+    }
     if (S.castPending != null) {
       const g = view.pickGround(nx, ny);
       const t = view.pickEntity(nx, ny);
@@ -575,7 +585,9 @@ addEventListener('keydown', (e) => {
   else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
   else if (k === 's') net.send({ t: Msg.STOP });
   else if (k === 'b') ui.showShop(S.game.shops, S.hero);
-  else if (k === 'escape') { S.castPending = null; canvas.style.cursor = 'default'; }
+  else if (k === 'escape') {
+    S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default';
+  }
   else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }
   else if (e.key === 'Tab') { e.preventDefault(); S.showScore = true; ui.toggleScore(true); }
 });
@@ -807,6 +819,14 @@ addEventListener('resize', refitConsole);
 // A handle for the tooling. A WebGL canvas screenshots blank unless
 // preserveDrawingBuffer is set, so the only honest way for tools/shot.mjs to
 // tell "the scene built" from "the scene is empty" is to count what is in it.
+/** An item that is aimed rather than simply used arms the cursor. */
+ui.onAimItem = (slot, it) => {
+  S.castPending = null;
+  S.itemPending = slot;
+  canvas.style.cursor = 'crosshair';
+  ui.log(`${escapeHtml(it.name || 'item')}: pick a target`, 'lvl');
+};
+
 window.FOC = { view, S, ui, net, overlay, audio, refitConsole,
                get consoleSlots() { return consoleSlots; },
                get heroPreview() { return heroPreview; },

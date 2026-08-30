@@ -230,7 +230,10 @@ export class Room {
       case Msg.BUY: this.buyItem(p, u, m.itemId); break;
       case 'useItem': {
         const it = (u.items || [])[m.slot];
-        if (it) { this.world.useItem(u, it); this.sendHero(p); }
+        // an item whose ability names a target is cast at one -- the Monster
+        // Ball is the only one on this map that does
+        const t = m.targetId != null ? W.units.get(m.targetId) : null;
+        if (it) { W.useItem(u, it, t); this.sendHero(p); }
         break;
       }
       // ---- level a hero to the cap, for testing a late-game build
@@ -464,6 +467,8 @@ export class Room {
         name: i.name || int2id(i.typeId),
         icon: (ITEM_ICON.get(i.typeKey || int2id(i.typeId)) || null),
         charges: i.charges || 0,
+        // it is aimed at a unit rather than simply used
+        targeted: !!this.world.itemSpell(i),
       })),
       abilities,
     } });

@@ -871,7 +871,16 @@ function installNatives(vm, eng) {
     GetItemCharges: (i) => (i ? i.charges || 0 : 0),
     SetItemCharges: (i, n) => { if (i) i.charges = n; },
     UnitUseItem: () => true, UnitUseItemPoint: () => true, UnitUseItemTarget: () => true,
-    ItemPlayerColor: () => {}, SetItemUserData: () => {}, GetItemUserData: () => 0,
+    ItemPlayerColor: () => {},
+    // An integer the script hangs on an item and reads back. This map's Monster
+    // Ball is built on it: capturing a unit hides and pauses it, parks it in
+    // udg_units07[n], hands the captor an I008 (몬스터볼(포획상태)) and stamps n
+    // on that ball. Using, dropping or selling the ball then loops n = 1..count
+    // and matches on GetItemUserData. Stubbed, every ball read back as 0 and no
+    // iteration ever matched, so a captured unit could never be let out again --
+    // capturing one deleted it from the game and paid you a useless ball.
+    SetItemUserData: (i, d) => { if (i) i.userData = trunc(d); },
+    GetItemUserData: (i) => (i ? i.userData || 0 : 0),
 
     // ------------------------------------------- cosmetic / UI (client-side)
     DisplayTextToPlayer: (p, x, y, s) =>

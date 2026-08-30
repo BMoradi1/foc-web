@@ -496,6 +496,49 @@ Warcraft III's own screenshot still has and we do not:
 
 GAMEPLAY / INPUT
 ----------------
+[x] The Monster Ball caught nothing  (FIXED)
+    I006 몬스터볼, 1000 gold, one use, sold from a shop: aim it at a creep under
+    30% life and there is a 30% chance it is yours. The map writes the whole
+    mechanic itself across four triggers, and every one of them was landing on
+    an engine that could not carry it.
+
+    What the script does, verbatim, none of it reimplemented here:
+      SPELL_EFFECT / 'A03V'  the target must be owned by Player(12) -- creeps
+                             only -- and at GetUnitLifePercent <= 30. The roll
+                             is GetRandomInt(0,'d') <= 30; 'd' is a one-char
+                             literal, so it lexes to 100 and the odds are the
+                             30% the tooltip prints. On success the creep is
+                             hidden, paused, made over to the captor, and a
+                             captured ball I008 is stamped with its index by
+                             SetItemUserData.
+      USE_ITEM   / 'I008'    a toggle: out 150 units in front of the holder,
+                             unpaused and vulnerable, or back in.
+      DROP_ITEM  / 'I008'    puts it back in regardless.
+      PAWN_ITEM  / 'I008'    RemoveUnit -- selling the ball kills what is in it.
+    All four find their creep the same way: loop 1..count comparing
+    GetItemUserData against the stored index.
+
+    Three separate gaps, each silent:
+      - SetItemUserData/GetItemUserData were `() => {}` and `() => 0`. Every
+        ball reported index 0, so no loop iteration ever matched and use, drop
+        and sale all did nothing at all.
+      - pawnItem fired PAWN_ITEM without a soldItem key, so GetSoldItem()
+        returned null and the sale branch could not run even once the ids
+        matched.
+      - nothing could aim an item. useItem fired only USE_ITEM, with no target
+        and no spell events, so the capture trigger's own condition -- which
+        reads GetSpellTargetUnit -- was never reached.
+
+    The third is the only one that needed a design decision, and it is one
+    item's worth of behaviour rather than a system: of the map's 332 item
+    types exactly one carries an ability with both an order and a unit target,
+    and it is this ball. useItem now resolves that ability and fires the five
+    spell events before USE_ITEM; the client arms a crosshair for an item the
+    server marks `targeted` and sends the click's unit with it, and escape
+    lets go of it the same way it lets go of a pending cast.
+    tools/monsterball_test.mjs, 23 checks -- 17 through a real capture,
+    release, recall and sale, 6 in the browser for the aiming.
+
 [ ] A transformation's active abilities are on the unit but not clickable
     Fixed below: a metamorphosis now grants its alternate form's ability list,
     so Ichigo's Bankai really does carry the Black Getsuga (A030) and Eneru's

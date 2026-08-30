@@ -228,8 +228,13 @@ export class UI {
         cell.innerHTML = `<img src="${icon(it.icon)}" onerror="this.style.opacity=.2">` +
                          (it.charges > 0 ? `<b class="chg">${it.charges}</b>` : '');
         cell.title = `${it.name}${it.charges > 0 ? ` (${it.charges} charges)` : ''}` +
-                     '\nclick to use · right-click to drop';
-        cell.onclick = () => this.net.send({ t: 'useItem', slot: i });
+                     (it.targeted ? '\nclick then click a target · right-click to drop'
+                                  : '\nclick to use · right-click to drop');
+        // an item aimed at a unit arms the cursor instead of firing at once
+        cell.onclick = () => {
+          if (it.targeted && this.onAimItem) this.onAimItem(i, it);
+          else this.net.send({ t: 'useItem', slot: i });
+        };
         // right-click drops; shift+right-click sells it back. Warcraft III sells
         // by dragging the item onto a shop, which a single canvas cannot offer,
         // so the gesture is ours -- the refund and the event it fires are not.

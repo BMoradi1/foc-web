@@ -990,7 +990,13 @@ export class World {
     if (p) p.gold = (p.gold || 0) + refund;
     u.items = u.items.filter((x) => x !== it);
     this.recalc(u);
-    this.fireUnitEvent('EVENT_PLAYER_UNIT_PAWN_ITEM', { unit: u, item: it, player: p });
+    // GetSoldItem is what a PAWN_ITEM trigger reads, and it answers from
+    // ctx.soldItem: the shop-purchase path at sellItem carries both keys and
+    // this one carried only `item`, so every pawn trigger saw a null item. The
+    // Monster Ball's is the one that shows it -- selling a captured ball is
+    // supposed to destroy what is inside it.
+    this.fireUnitEvent('EVENT_PLAYER_UNIT_PAWN_ITEM',
+                       { unit: u, item: it, soldItem: it, seller: u, player: p });
     this.removeItem(it);
     return refund;
   }
@@ -1070,14 +1076,55 @@ export class World {
     }
   }
 
-  /** Use a carried item: its own ability data says what that does. */
-  useItem(u, it) {
+  /**
+   * The ability an item casts at something, if it has one.
+   *
+   * Exactly one item on this map does: I006, the Monster Ball, whose A03V
+   * targets nonhero/enemies/ground. Everything else with an ability either
+   * carries a passive bonus or acts on its holder, so this is one item's worth
+   * of behaviour and not a general item-spell system.
+   */
+  itemSpell(it) {
+    for (const id of (it && it.abilities) || []) {
+      const a = abilEntry(id);
+      if (!a || !a.order) continue;
+      const t = (a.targets || '').toLowerCase();
+      if (t && t !== 'none' && t !== 'self' && !t.startsWith('none')) return id;
+    }
+    return null;
+  }
+
+  /**
+   * Use a carried item: its own ability data says what that does.
+   *
+   * An item whose ability names a target is *cast*, not merely used: Warcraft
+   * III fires that ability's spell events with GetSpellAbilityId set to it, and
+   * the Monster Ball's whole capture trigger hangs off exactly that. Using it
+   * still fires USE_ITEM as well, as the game does -- the map listens for both,
+   * on different balls.
+   */
+  useItem(u, it, target = null) {
     if (!u || !it) return false;
     const eff = itemUse(it);
     if (eff) {
       if (eff.kind === 'heal') this.heal(u, eff.amount);
       else if (eff.kind === 'mana') u.mana = Math.min(u.maxMana, u.mana + eff.amount);
       else if (eff.kind === 'xp') this.addXp(u, eff.amount);
+    }
+    const spell = this.itemSpell(it);
+    if (spell && this.jass) {
+      const abil = abilEntry(spell);
+      const tx = target ? target.x : u.x, ty = target ? target.y : u.y;
+      this.emit({ t: 'cast', id: u.id, ab: spell, anim: abil?.art?.anim || null });
+      this.emitAbilityArt(abil, u, target, tx, ty);
+      const ctx = { unit: u, spellId: id2int(spell), targetUnit: target || null,
+                    targetX: tx, targetY: ty, player: this.playerOf(u) };
+      for (const name of ['EVENT_PLAYER_UNIT_SPELL_CHANNEL', 'EVENT_PLAYER_UNIT_SPELL_CAST',
+                          'EVENT_PLAYER_UNIT_SPELL_EFFECT', 'EVENT_PLAYER_UNIT_SPELL_FINISH',
+                          'EVENT_PLAYER_UNIT_SPELL_ENDCAST']) {
+        const k = this.jass.eventId(name);
+        if (k != null) this.jass.fire(k, ctx);
+      }
     }
     this.fireUnitEvent('EVENT_PLAYER_UNIT_USE_ITEM',
                        { unit: u, item: it, player: this.playerOf(u) });
