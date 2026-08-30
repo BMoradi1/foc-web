@@ -346,7 +346,7 @@ def placed_doodad_models():
         placed = {d['id'] for d in json.load(open('data/doodads.json'))['doodads']}
     except Exception:
         return []
-    table, tex = {}, {}
+    table, tex, path = {}, {}, {}
     for f, idk in ((os.path.join(OUT, 'Doodads/Doodads.slk'), 'doodID'),
                    (os.path.join(OUT, 'Units/DestructableData.slk'), 'DestructableID')):
         if os.path.exists(f):
@@ -362,16 +362,29 @@ def placed_doodad_models():
                     tf = str(r.get('texFile') or '').strip()
                     if tf and tf not in ('_', '-'):
                         tex[i] = tf
+                    # pathTex: the footprint a destructable blocks. Warcraft III
+                    # stamps it into the pathing map at runtime, which is why
+                    # the editor does not bake it into war3map.wpm and why the
+                    # walls and gates were walked straight through.
+                    pt = str(r.get('pathTex') or '').strip()
+                    if pt and pt.lower() not in ('_', '-', 'none', ''):
+                        path[i] = pt
     return ([table[i] for i in placed if table.get(i)],
-            [tex[i] for i in placed if tex.get(i)])
+            [tex[i] for i in placed if tex.get(i)],
+            [path[i] for i in placed if path.get(i)])
 
 dood_models = 0
-_dood_files, _dood_tex = placed_doodad_models()
+_dood_files, _dood_tex, _dood_path = placed_doodad_models()
 dood_tex = 0
 for tp in _dood_tex:
     ap = resolve(tp)
     if ap and grab(ap):
         dood_tex += 1
+dood_path = 0
+for pp in _dood_path:
+    ap = resolve(pp)
+    if ap and grab(ap):
+        dood_path += 1
 for fp in _dood_files:
     # doodads come in numbered variations (Cactus0.mdx, Cactus1.mdx ...); the
     # SLK gives the stem and war3map.doo's `variation` picks one
@@ -382,7 +395,8 @@ for fp in _dood_files:
             got = True
     if got:
         dood_models += 1
-print('doodad replaceable textures: %d grabbed from DestructableData texFile' % dood_tex)
+print('doodad replaceable textures: %d grabbed from texFile, %d pathing footprints from pathTex'
+      % (dood_tex, dood_path))
 
 # ---- 4. this map's tileset, plus UI and team-colour sets
 def tileset_dirs():

@@ -308,6 +308,54 @@ Warcraft III's own screenshot still has and we do not:
         traverse indexes the alpha array correctly.
     tools/doodadtex_test.mjs, 11 checks.
 
+[x] Walls and gates were walked straight through  (FIXED)
+    Reported from play. war3map.wpm is the *terrain's* pathing and the World
+    Editor bakes ordinary doodads into it -- the 204 city low walls read 202,
+    no-walk, straight from the file. Destructables are not baked in, because
+    Warcraft III stamps their footprint at runtime and lifts it when they die,
+    so the 58 stone walls, all six gates and the 27 trees read 64 or 72, which
+    is walkable. 64 of 64 wall and gate centres were open.
+
+    The footprint is a TGA named per type in pathTex, one pixel per 32-unit
+    pathing cell -- the same grid war3map.wpm uses -- with the flags in the
+    colour channels: red unwalkable, green unflyable, blue unbuildable. Only red
+    is read; nothing here flies and nothing builds. Read off the art rather than
+    assumed: StoneWall1Path is a 10x2 solid bar (320x64 units), StoneWall3Path
+    the same rotated, GateLarge1Path a 28x4 bar, and Gate2Path a 22x22 diagonal
+    band, which is what the four diagonal gates need.
+
+    Two stages were missing. extract_blizzard pulled the models a placed type
+    names and not its pathTex, so 20 of the 22 footprints were never unpacked;
+    it follows pathTex now. stage.py then stamps them into walk.bin at each
+    placement, taking the rotation to the nearest quarter turn because Warcraft
+    III keeps a stamped footprint square to the grid.
+
+    361 placements stamped, 2456 cells newly blocked. The check that matters as
+    much as the blocking: reachable area fell by 2116 cells against 2456
+    blocked, so nothing was orphaned -- no base, lane or shop was sealed off,
+    which is the way this breaks a game rather than fixing one.
+    tools/pathblock_test.mjs, 8 checks.
+
+    Found while testing: camfit_test asserted a click always picks the unit it
+    was aimed at, and the creeps now path differently around the walls, so two
+    overlapped and the pick correctly returned the nearer one. The assertion was
+    wrong, not the pick; it now accepts a unit drawn in front.
+
+    STILL OPEN: the gates block permanently. Warcraft III lifts the footprint
+    when a destructable dies, and nothing here can die yet -- see the
+    destructables item below.
+
+[ ] Destructables are not entities
+    The gates and walls are drawn and they block, but nothing can target or
+    damage them: no destructable exists server-side at all, so there is no
+    health, no death and no way to open a gate. war3map.doo gives each one a
+    life percentage (all six gates are 100, so they start closed) and
+    DestructableData.slk gives hit points, armour and the death sequence the
+    model already carries. When one dies its pathing footprint has to be lifted
+    from walk.bin and the client has to switch it to the death geosets -- both
+    of which now exist and are indexed, so the remaining work is the entity
+    itself and the client message that carries its state.
+
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.
 

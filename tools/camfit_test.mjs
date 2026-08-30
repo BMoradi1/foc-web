@@ -56,7 +56,13 @@ const out = await page.evaluate(() => {
   const p = view.camTarget.clone().project(view.camera);
   const frac = (1 - p.y) / 2;                       // 0 at the top of the screen
 
-  // every visible unit, projected to its own screen point and picked back
+  // Every visible unit, projected to its own screen point and picked back.
+  //
+  // Landing on a *different* unit is not a miss when that one is drawn in
+  // front: units overlap, and picking the nearest is what a click should do.
+  // The failure this is looking for is a pick that lands on nothing, or on
+  // something further away, which is what an unshifted raycast would produce.
+  const cam = view.camera.position;
   const tried = [], hit = [], missed = [];
   for (const [id, v] of view.views) {
     if (!v.root.visible || v.locust || v.loading) continue;
@@ -65,7 +71,11 @@ const out = await page.evaluate(() => {
     if (Math.abs(s.x) > 0.95 || Math.abs(s.y) > 0.95) continue;
     tried.push(id);
     const got = view.pickEntity(s.x, s.y);
-    if (got && got.id === id) hit.push(id); else missed.push({ id, got: got?.id ?? null });
+    if (got && got.id === id) { hit.push(id); continue; }
+    const other = got && view.views.get(got.id);
+    const mine = cam.distanceTo(v.root.position);
+    if (other && cam.distanceTo(other.root.position) <= mine + 1) hit.push(id);
+    else missed.push({ id, got: got?.id ?? null });
     if (tried.length >= 25) break;
   }
   return {
@@ -87,8 +97,9 @@ check('the camera aims at the middle of what is visible',
       `${out.targetFromTop} vs ${out.stripCentre} (window centre would be 0.5)`);
 check('and that is above the window centre', out.targetFromTop < 0.48,
       `${out.targetFromTop} -- the old framing put it at 0.5`);
-check('a click still lands on the unit under it', out.tried > 0 && out.hit === out.tried,
-      `${out.hit}/${out.tried} picked`, );
+check('a click lands on the unit under it, or one in front of it',
+      out.tried > 0 && out.hit === out.tried,
+      `${out.hit}/${out.tried} picked` + (out.missed.length ? ' misses: ' + JSON.stringify(out.missed) : ''));
 // A missing hero portrait 404s on purpose -- the lobby card's onerror falls
 // back to the unit's original Warcraft III icon -- so those are not failures.
 const real = errs.filter((e) => !/404|portraits\//.test(e));

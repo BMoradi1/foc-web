@@ -1,6 +1,7 @@
 """Stage runtime assets into public/ for the Node server."""
 import json, os, shutil, struct, sys
 sys.path.insert(0, os.path.dirname(__file__))
+import math
 import numpy as np
 from PIL import Image
 
@@ -30,6 +31,95 @@ open(PUB + '/data/tiles.bin', 'wb').write(np.array(t['tex'], np.uint8).tobytes()
 p = json.load(open('data/pathing.json'))
 cells = np.array(p['cells'], np.uint8)
 walk = ((cells & 0x02) == 0).astype(np.uint8)      # 0x02 = no-walk
+
+
+def stamp_destructable_pathing(walk, pw, ph):
+    """Block the cells the map's destructables stand on.
+
+    war3map.wpm is the *terrain's* pathing, and the World Editor bakes ordinary
+    doodads into it -- the city low walls read 202, no-walk, straight from the
+    file. Destructables are not baked in, because Warcraft III stamps their
+    footprint at runtime and lifts it again when they die: the stone walls, all
+    six gates and the trees read 64 or 72, walkable, and were walked through.
+
+    The footprint is a TGA named per type in pathTex, one pixel per 32-unit
+    pathing cell, with the flags in the colour channels -- red unwalkable, green
+    unflyable, blue unbuildable. So a 10x2 StoneWall1Path is a 320x64 bar and
+    Gate2Path is a 22x22 diagonal band. Only red is read here; the port has
+    nothing that flies and nothing that builds.
+
+    Warcraft III keeps a stamped footprint square to the grid, so the rotation
+    is taken to the nearest quarter turn rather than interpolated.
+    """
+    from PIL import Image as _Image
+    sys.path.insert(0, 'tools')
+    from slk import parse_slk as _pslk
+    doo = json.load(open('data/doodads.json'))['doodads']
+    tex_of = {}
+    for _f, _k in (('war3_extracted/Doodads/Doodads.slk', 'doodID'),
+                   ('war3_extracted/Units/DestructableData.slk', 'DestructableID')):
+        if not os.path.exists(_f):
+            continue
+        for _r in _pslk(_f):
+            _i = str(_r.get(_k) or '')
+            _pt = str(_r.get('pathTex') or '').strip()
+            if _i and _pt and _pt.lower() not in ('_', '-', 'none'):
+                tex_of[_i] = _pt
+
+    masks = {}
+    def mask_for(rel):
+        if rel in masks:
+            return masks[rel]
+        cand = os.path.join('war3_extracted', os.path.splitext(rel)[0].replace('\\', os.sep))
+        m = None
+        for ext in ('.tga', '.blp', '.png'):
+            if os.path.exists(cand + ext):
+                a = np.asarray(_Image.open(cand + ext).convert('RGB'))
+                m = a[:, :, 0] > 127            # red channel: unwalkable
+                break
+        masks[rel] = m
+        return m
+
+    ox, oy, PC = t['offsetX'], t['offsetY'], 32.0
+    blocked, placed_n, missing = 0, 0, set()
+    for d in doo:
+        rel = tex_of.get(d['id'])
+        if not rel:
+            continue
+        m = mask_for(rel)
+        if m is None:
+            missing.add(rel)
+            continue
+        # nearest quarter turn, counter-clockwise like the game's own rotation
+        k = int(round(float(d.get('rot') or 0) / (math.pi / 2))) % 4
+        mm = np.rot90(m, k)
+        mh, mw = mm.shape
+        # the footprint is centred on the doodad, and image row 0 is its north edge
+        cx = (d['x'] - ox) / PC
+        cy = (d['y'] - oy) / PC
+        x0 = int(round(cx - mw / 2.0))
+        y0 = int(round(cy - mh / 2.0))
+        placed_n += 1
+        for r in range(mh):
+            wy = y0 + (mh - 1 - r)              # flip: image y grows downward
+            if wy < 0 or wy >= ph:
+                continue
+            row = mm[r]
+            for c in range(mw):
+                wx = x0 + c
+                if wx < 0 or wx >= pw or not row[c]:
+                    continue
+                if walk[wy * pw + wx]:
+                    walk[wy * pw + wx] = 0
+                    blocked += 1
+    if missing:
+        print('WARNING no pathing footprint for:', sorted(missing)[:4])
+    print('destructable pathing: %d placements stamped, %d cells newly blocked'
+          % (placed_n, blocked))
+    return walk
+
+
+walk = stamp_destructable_pathing(walk, p['width'], p['height'])
 open(PUB + '/data/walk.bin', 'wb').write(walk.tobytes())
 
 # Water: the w3e flag nibble sets bit 0x4 on a submerged vertex, and a tile
