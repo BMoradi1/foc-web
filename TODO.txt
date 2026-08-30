@@ -543,8 +543,20 @@ GAMEPLAY / INPUT
 [ ] SetUnitTimeScale -- 36 calls, currently a no-op
     Animation speed changes (hastes, slows, channel speeds) do nothing.
 
-[ ] Text-tag motion natives -- 26 calls each, currently no-ops
-    SetTextTagVelocity and friends. Floating combat text does not drift.
+[ ] Text tags: no floating text renders at all
+    Measured 2026-08-30, and this entry used to understate it as "text does
+    not drift" -- the text never appears. CreateTextTag returns an inert
+    handle (engine.js), nothing serialises a tag to the client, and the
+    client's addFloater/floaters machinery has zero callers. Missing on
+    screen: the engine's own bounty gold "+N" on kills (war3map.j sets
+    GIVES_BOUNTY for all ten players and world.js already pays the gold),
+    the map's 48 scripted tags (spell-name shouts over casters, the duel
+    arena's 3-2-1-Fight countdown, "Winner is <hero>"), and only then the
+    SetTextTagVelocity/Fadepoint/Permanent motion natives (26 calls each,
+    no-ops) -- the drift of text that first has to exist. One feature, not
+    several: a TEXTTAG message in the snapshot path, the client wiring
+    addFloater to it, then the motion natives. Fuller breakdown in
+    AbilityAudit.txt.
 
 [ ] Fog of war
     Nothing exists. The whole map is visible to everyone.
