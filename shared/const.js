@@ -19,6 +19,12 @@ export const Msg = {
 
 export const Ent = { HERO: 1, CREEP: 2, SHOP: 3, PROJECTILE: 4, SUMMON: 5, DOODAD: 6 };
 
+// A destructable's entity id is this plus its index in the doodad list, so both
+// sides can name the same gate without the client being told the mapping. Kept
+// clear of the unit ids, which count up from 1, so that a lookup in the wrong
+// map answers with nothing rather than with the wrong thing.
+export const DEST_ID = 900000;
+
 // Warcraft III damage: armor reduces incoming damage multiplicatively.
 export function armorFactor(armor) {
   return armor >= 0 ? 1 - (0.06 * armor) / (1 + 0.06 * armor)

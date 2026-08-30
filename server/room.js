@@ -199,8 +199,11 @@ export class Room {
       case Msg.MOVE:   W.order(u, { type: m.attack ? 'attack' : 'move', x: m.x, y: m.y }); break;
       case Msg.STOP:   W.order(u, { type: 'stop' }); break;
       case Msg.ATTACK: {
-        const t = W.units.get(m.targetId);
-        if (t) W.order(u, { type: 'attack', target: t });
+        // either a unit or one of the map's destructables -- only the six gates
+        // carry DestructableData's selectable flag, and a click may not land on
+        // anything else
+        const t = W.target(m.targetId);
+        if (t && (!t.isDest || t.selectable)) W.order(u, { type: 'attack', target: t });
         break;
       }
       case Msg.CAST: {
@@ -489,7 +492,24 @@ export class Room {
   broadcastState() {
     this.broadcast({ t: Msg.STATE, phase: this.phase, players: this.list,
                      board: this.scriptBoard(), killsToWin: GAME.meta.killsToWin,
-                     winner: null });
+                     dests: this.destState(), winner: null });
+  }
+
+  /**
+   * What has already been broken. A player who joins or reconnects mid-match
+   * has to see the gates that are down, and their hit points if they are not;
+   * the events only carry a change.
+   */
+  destState() {
+    if (!this.world) return null;
+    const out = [];
+    for (const d of this.world.dests.values()) {
+      if (!d.selectable) continue;                 // nothing else can be hit
+      if (d.alive && d.hp >= d.maxHp) continue;    // untouched, and the default
+      out.push({ d: d.index, hp: Math.max(0, Math.round(d.hp)),
+                 max: Math.round(d.maxHp), dead: !d.alive });
+    }
+    return out.length ? out : null;
   }
   send(ws, o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   broadcast(o) {

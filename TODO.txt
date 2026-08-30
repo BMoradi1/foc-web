@@ -380,16 +380,69 @@ Warcraft III's own screenshot still has and we do not:
     footprint on death needs, and the test uses it to flood the map with the
     gates open. tools/pathblock_test.mjs, 11 checks.
 
-[ ] Destructables are not entities
-    The gates and walls are drawn and they block, but nothing can target or
-    damage them: no destructable exists server-side at all, so there is no
-    health, no death and no way to open a gate. war3map.doo gives each one a
-    life percentage (all six gates are 100, so they start closed) and
-    DestructableData.slk gives hit points, armour and the death sequence the
-    model already carries. When one dies its pathing footprint has to be lifted
-    from walk.bin and the client has to switch it to the death geosets -- both
-    of which now exist and are indexed, so the remaining work is the entity
-    itself and the client message that carries its state.
+[x] Destructables were not entities  (FIXED)
+    Nothing could target or damage a gate: no destructable existed server-side
+    at all, so a closed gate blocked for ever. All 115 the map places are
+    entities now, because every one of them owns cells that have to be released
+    if it dies, but only the six gates can be clicked: DestructableData's own
+    selectable flag is 1 for them and 0 for the 58 stone walls, the 27 trees and
+    the 24 pathing blockers. They are 500 hit points at war3map.doo's life 100 --
+    shut and whole.
+
+    The map's script has no part in this. war3map.j names five destructable
+    functions and every one of them is dead Blizzard.j boilerplate -- the
+    filterEnumDestructablesInCircleBJ global and its filter. No KillDestructable,
+    no DestructableRestoreLife, no enumeration. A gate opens because a player
+    hit it, and for no other reason.
+
+    Two things the data settled that would otherwise have been guesses:
+
+      - pathTexDeath. A broken gate is not clear ground: the death footprint is
+        its two posts. Gate2PathDeath is 32 red pixels at the ends of the 124
+        the live one covers, so breaking a gate opens 92 cells and leaves 32 as
+        rubble. Those textures had never been unpacked -- extract_blizzard
+        followed pathTex and not pathTexDeath, the same gap that left the live
+        footprints missing.
+      - the range to a gate is measured to its footprint, not to its centre. A
+        gate is 896 units across and its centre is inside its own footprint,
+        where nothing can stand; measured to the centre a melee hero pressed
+        against one is over 400 units away from it and never swings.
+
+    A cell reopens only when nothing standing still claims it -- neighbouring
+    walls share cells where their bars meet -- and only if the bare terrain
+    allowed it in the first place, which is why stage.py records the
+    terrain-allowed subset per placement rather than the whole footprint.
+
+    World keeps its own copy of walk.bin rather than the module's array: a gate
+    broken in one match must not start the next one broken.
+    tools/destructable_test.mjs, 22 checks, including a hero ordered at a gate
+    from 460 units away walking to it and breaking it, and the crossing it seals
+    going from no route at all to 352 units.
+
+    NOT DONE: deathSnd names a label (TreeWallDeath) and animsounds.json is keyed
+    by MDX event id, so there is nothing to resolve it against. Only the trees
+    carry one and nothing can hit a tree here. The field is compiled and carried
+    so it is ready when a label-keyed table exists.
+
+[x] Two test checks that could not fail  (FIXED)
+    Found while running the suite for the destructable work, not looked for.
+
+    run_tests reuses a server already answering on the port, and one had been up
+    since a previous session. Every browser test in that run was measuring code
+    from before the change. It is worth knowing before reading a green run.
+
+    render_test's GPU-memory checks then failed for real once they had a current
+    server, and both were wrong rather than the code being wrong:
+      - the counters were read off a lost WebGL context. Chromium drops this
+        page's first context and hands back another a few frames later, and
+        three no-ops its renders in between, so every reading was 0 and
+        "peak > base" compared 0 with 0. It now draws across frames until the
+        counter moves.
+      - the baseline was taken before the model cache was warm. loadModel keeps
+        the glTF it parsed, so the first spawn of a type uploads geometry that is
+        never given back -- the cache doing its job -- and "every cycle gives the
+        geometry back" was comparing against an empty renderer. Warming it first
+        gives 29 -> 55 -> 29, the same across three runs.
 
 [ ] The info panel's bottom row clips against its arch
     GOLD and K/D run out of the opening at 1440x900.

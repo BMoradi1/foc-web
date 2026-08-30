@@ -438,6 +438,12 @@ export class Renderer {
     // real game; their effect is in the pathing map, which the server already uses.
     const visible = (list || []).filter((d) => (meta[d.id] || {}).visible !== false);
     if (!visible.length) return;
+    // Where each placement ended up, by its index in the list the server keys
+    // its destructables on. A gate that dies has to be found again to be shown
+    // broken, and clicked on before that.
+    const idxOf = new Map();
+    (list || []).forEach((d, i) => idxOf.set(d, i));
+    this.doodadAt = this.doodadAt || new Map();
     const byType = new Map();
     for (const d of visible) {
       if (!byType.has(d.id)) byType.set(d.id, []);
@@ -532,16 +538,19 @@ export class Renderer {
                || seqs.find((q) => /^stand/i.test(q.name));
         return s?.geosetAlpha || null;
       };
-      const applyStand = (root, rec) => {
-        const a = standAlpha(rec);
-        if (!a) return;
-        let i = 0;
-        root.traverse((o) => {
-          if (!o.isMesh) return;
-          const v = a[i++];
-          if (v !== undefined && v <= 0.01) o.visible = false;
-        });
+      const seqAlpha = (rec, name) => {
+        const seqs = rec?.meta?.sequences || [];
+        const s = seqs.find((q) => new RegExp('^' + name + '$', 'i').test(q.name))
+               || seqs.find((q) => new RegExp('^' + name, 'i').test(q.name));
+        return s?.geosetAlpha || null;
       };
+      const applyAlpha = (root, a) => {
+        if (!a) return false;
+        let i = 0;
+        root.traverse((o) => { if (o.isMesh) { const v = a[i++]; o.visible = !(v !== undefined && v <= 0.01); } });
+        return true;
+      };
+      const applyStand = (root, rec) => applyAlpha(root, standAlpha(rec));
       for (const d of items) {
         const rec = await protoFor(d.variation || 0);
         const proto = rec && rec.scene;
@@ -563,10 +572,55 @@ export class Renderer {
         const s = (info.s || 1);
         holder.scale.set((d.sx || 1) * s, (d.sz || 1) * s, (d.sy || 1) * s);
         group.add(holder);
+        const di = idxOf.get(d);
+        if (di != null) this.doodadAt.set(di, { holder, obj, rec, dead: false });
       }
     }
     this.scene.add(group);
     this.doodads = group;
+  }
+
+  /**
+   * Show a destructable broken.
+   *
+   * The wreckage is already in the model, hidden by the stand sequence's
+   * geoset-alpha track -- the elven gate stands as [1,0,1,0] and dies as
+   * [1,1,0,0]. Dying is that second row, so this is the same switch the stand
+   * pose made, read from the other sequence. A model with no geoset animation
+   * (the city entrance gate has none) has no wreckage to show and is left as it
+   * is rather than being hidden, which would leave a hole in the wall.
+   */
+  setDoodadDead(index) {
+    const e = this.doodadAt && this.doodadAt.get(index);
+    if (!e || e.dead) return false;
+    e.dead = true;
+    const seqs = e.rec?.meta?.sequences || [];
+    const s = seqs.find((q) => /^death$/i.test(q.name)) || seqs.find((q) => /^death/i.test(q.name));
+    const a = s && s.geosetAlpha;
+    if (!a) return false;
+    let i = 0;
+    e.obj.traverse((o) => { if (o.isMesh) { const v = a[i++]; o.visible = !(v !== undefined && v <= 0.01); } });
+    return true;
+  }
+
+  /**
+   * The destructable under the cursor, by placement index.
+   *
+   * Against the meshes rather than a bounding sphere: a gate is 896 units of
+   * wall and a sphere around its centre would take clicks meant for whatever
+   * stands beside it, and miss its ends.
+   */
+  pickDoodad(nx, ny, allowed) {
+    if (!this.doodadAt || !this.doodadAt.size) return null;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
+    let best = null, bd = Infinity;
+    for (const [i, e] of this.doodadAt) {
+      if (allowed && !allowed.has(i)) continue;
+      const hit = ray.intersectObject(e.holder, true);
+      if (hit.length && hit[0].distance < bd) { bd = hit[0].distance; best = i; }
+    }
+    return best;
   }
 
   // ---------------------------------------------------------------- models

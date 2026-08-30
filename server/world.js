@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Grid } from './pathing.js';
+import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
          auraEffects, itemBonuses, itemUse, abilityBonuses } from './abilities.js';
@@ -14,6 +15,12 @@ const readJSON = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), 'utf8'));
 export const TERR = readJSON('public/data/terrain.json');
 export const TYPES = readJSON('data/unittypes.json');
 const WALK = new Uint8Array(fs.readFileSync(path.join(ROOT, 'public/data/walk.bin')));
+// The map's destructables, with the pathing cells each one claims. walk.bin
+// already has them stamped in; this is what is needed to take one back out
+// again when it dies, which is the only way a closed gate ever opens.
+const DESTS = (() => { try { return readJSON('public/data/destructables.json'); }
+                       catch { return []; } })();
+
 // Warcraft III plays unit sound sets from the engine, not from map triggers.
 // Every item type, not just the ones a shop happens to sell: an item dropped,
 // created by the script or carried over from another map still needs to know
@@ -152,8 +159,12 @@ const MORPH_FIELDS = ['typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType'
 
 export class World {
   constructor() {
-    this.grid = new Grid(WALK, TERR.pathWidth, TERR.pathHeight, TERR.offsetX, TERR.offsetY);
+    // a copy, not the module's array: a gate that dies opens cells, and one
+    // world's broken gate must not be broken in the next match as well
+    this.walk = new Uint8Array(WALK);
+    this.grid = new Grid(this.walk, TERR.pathWidth, TERR.pathHeight, TERR.offsetX, TERR.offsetY);
     this.units = new Map();
+    this.dests = new Map();
     this.items = new Map();
     this.nextId = 1;
     this.now = 0;
@@ -167,6 +178,102 @@ export class World {
     this.fxSeq = 0;                // ids for engine-drawn ability art
     this.missiles = [];            // shots in flight, resolved on impact
     this.regionWatch = [];
+    this.initDests();
+  }
+
+  /**
+   * The map's destructables as things that can be hit.
+   *
+   * war3map.doo gives each placement a life percentage and DestructableData
+   * gives the type its hit points, its selectable flag and the footprint it
+   * stands on. Only the six gates are selectable -- the stone walls, the trees
+   * and the pathing blockers are 0, and Warcraft III will not let a click land
+   * on one of those -- but every one of them is built, because every one of
+   * them owns cells that have to be released if it ever dies.
+   */
+  initDests() {
+    for (const r of DESTS) {
+      const maxHp = r.hp || 1;
+      this.dests.set(DEST_ID + r.d, {
+        id: DEST_ID + r.d, isDest: true, index: r.d, typeKey: r.id,
+        x: r.x, y: r.y, facing: r.r || 0,
+        hp: maxHp * ((r.life ?? 100) / 100), maxHp,
+        radius: r.rad || 0, selectable: !!r.sel, targType: r.targ || '',
+        armorType: 'none', armorTotal: 0, armor: 0,
+        cells: r.c || [], ownCells: r.w || r.c || [],
+        deadCells: r.k || [], deathSound: r.snd || null,
+        alive: true,
+      });
+    }
+  }
+
+  /**
+   * An order or a spell may name either kind of thing, so both id spaces
+   * resolve through here. units.get() on its own silently missed a gate and
+   * stepAttack then fell through to acquiring whatever enemy stood nearest.
+   */
+  target(id) {
+    if (id == null) return null;
+    return this.units.get(id) || this.dests.get(id) || null;
+  }
+
+  /**
+   * How far a unit is from a destructable it means to hit.
+   *
+   * Not the distance to its centre: a gate is 896 units across and its centre
+   * is inside its own footprint, where nothing can stand, so a melee hero beside
+   * one would never be in range of it. The footprint is what the thing occupies,
+   * so the range is measured to the nearest cell of it.
+   */
+  destRange(d, x, y) {
+    if (d._cx == null) {
+      const W = TERR.pathWidth;
+      d._cx = d.cells.map((c) => TERR.offsetX + ((c % W) + 0.5) * 32);
+      d._cy = d.cells.map((c) => TERR.offsetY + (Math.floor(c / W) + 0.5) * 32);
+    }
+    let best = Infinity;
+    for (let i = 0; i < d._cx.length; i++) {
+      const dx = d._cx[i] - x, dy = d._cy[i] - y;
+      const v = dx * dx + dy * dy;
+      if (v < best) best = v;
+    }
+    // half a cell in, so touching the footprint's edge counts as reaching it
+    return Math.max(0, Math.sqrt(best) - 16);
+  }
+
+  /**
+   * Kill a destructable and give its ground back.
+   *
+   * A cell only reopens when nothing standing still claims it: neighbouring
+   * walls overlap where their bars meet, and a gate keeps its own posts --
+   * pathTexDeath is the two pillars, so a broken gate is a hole with rubble
+   * either side rather than clear ground.
+   */
+  killDest(d, src) {
+    if (!d || !d.alive) return;
+    d.alive = false; d.hp = 0;
+    const still = new Set();
+    for (const o of this.dests.values()) {
+      if (!o.alive || o === d) continue;
+      for (const c of o.cells) still.add(c);
+    }
+    const keep = new Set(d.deadCells);
+    let opened = 0;
+    // ownCells is the part of the footprint the bare terrain allows: a cell the
+    // terrain blocks was never this destructable's to give back
+    for (const c of d.ownCells) {
+      if (keep.has(c) || still.has(c)) continue;
+      if (this.walk[c] !== 1) { this.walk[c] = 1; opened++; }
+    }
+    this.emit({ t: 'destDead', d: d.index, id: d.id, opened });
+    // deathSnd names a label -- TreeWallDeath -- and animsounds.json is keyed by
+    // MDX event id, not by label, so there is nothing yet to resolve it against.
+    // Only the trees carry one and nothing can hit a tree here; the field is
+    // kept so it is ready when the label table is.
+    // anything walking now has a stale route: the world it was planned in has
+    // changed shape, and a path that went the long way round is no longer the
+    // one the unit would pick
+    for (const u of this.units.values()) if (u.alive && u.path) u.path = null;
   }
 
   // ------------------------------------------------------------------ terrain
@@ -559,6 +666,24 @@ export class World {
   }
   resetCooldowns(u) { if (u) u.cooldowns = new Map(); return true; }
 
+  /**
+   * Damage a destructable.
+   *
+   * None of what happens when a unit dies applies: there is no owner, no
+   * experience, no corpse and nothing calls for help. The attack-type table has
+   * no row for the Wood and Stone armour DestructableData names, so typeBonus
+   * would return 1 for every one of them and is not consulted.
+   */
+  damageDest(src, d, amount) {
+    const dmg = Math.max(0, amount);
+    d.hp -= dmg;
+    d.lastAttackedAt = this.now;
+    this.emit({ t: 'destDmg', d: d.index, id: d.id, hp: Math.max(0, Math.round(d.hp)),
+                max: Math.round(d.maxHp) });
+    if (d.hp <= 0) this.killDest(d, src);
+    return dmg;
+  }
+
   /** Learning a skill is an event the map's triggers listen for. */
   learnSkill(u, abilId) {
     if (!u) return 0;
@@ -590,6 +715,7 @@ export class World {
   // ----------------------------------------------------------------- combat
   damage(src, tgt, amount, opts = {}) {
     if (!tgt || !tgt.alive || tgt.invulnerable) return 0;
+    if (tgt.isDest) return this.damageDest(src, tgt, amount, opts);
     let dmg = amount;
     if (!opts.raw) {
       // spells use the "spells" row; attacks use the attacker's own attack type
@@ -616,7 +742,11 @@ export class World {
     const name = typeof o.type === 'string' ? o.type : String(o.type);
     if (/stop|halt/i.test(name)) { u.order = { type: 'idle' }; u.path = null; return true; }
     if (o.target) {
-      u.order = { type: 'attack', targetId: o.target.id }; u.path = null;
+      u.order = { type: 'attack', targetId: o.target.id };
+      // a gate is 896 units across and its middle is inside its own footprint,
+      // so walk at it rather than at a point nothing can stand on
+      u.path = o.target.isDest ? this.grid.path(u.x, u.y, o.target.x, o.target.y) : null;
+      if (o.target.isDest) return true;         // no script event names one
       this.fireUnitEvent('EVENT_PLAYER_UNIT_ISSUED_TARGET_ORDER',
         { unit: u, orderTarget: o.target, orderId: o.type, player: this.playerOf(u) });
       return true;
@@ -1365,7 +1495,7 @@ export class World {
     // A unit keeps chasing what it acquired until the guard rules above turn it
     // around -- otherwise nothing would ever stray far enough to be leashed.
     if (u.order.type === 'attack') {
-      const t = this.units.get(u.order.targetId);
+      const t = this.target(u.order.targetId);
       if (t && t.alive && !t.hidden) return;
       u.order = { type: 'idle' }; u.path = null;
     }
@@ -1422,8 +1552,15 @@ export class World {
     // once they close, and clinging to the waypoint from the original approach
     // left them drifting out of attack range without ever stepping back in.
     if (u.order.type === 'attack') {
-      const t = this.units.get(u.order.targetId);
-      if (t && t.alive) {
+      const t = this.target(u.order.targetId);
+      if (t && t.alive && t.isDest) {
+        if (this.destRange(t, u.x, u.y) > u.atkRange) {
+          if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
+            u.path = this.grid.path(u.x, u.y, t.x, t.y);
+            u.repathAt = this.now + 400;
+          }
+        } else u.path = null;
+      } else if (t && t.alive) {
         if (Math.hypot(t.x - u.x, t.y - u.y) > u.atkRange + t.radius) {
           if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
             u.path = this.grid.path(u.x, u.y, t.x, t.y);
@@ -1526,7 +1663,7 @@ export class World {
     const step = this.dt;
     const keep = [];
     for (const m of this.missiles) {
-      const t = m.targetId != null ? this.units.get(m.targetId) : null;
+      const t = m.targetId != null ? this.target(m.targetId) : null;
       // a homing shot whose target died or left is spent, and damages nothing
       if (m.targetId != null && (!t || !t.alive)) {
         this.emit({ t: 'missileEnd', fx: m.fx });
@@ -1536,7 +1673,8 @@ export class World {
       const dx = aimX - m.x, dy = aimY - m.y;
       const dist = Math.hypot(dx, dy);
       const travel = m.speed * step;
-      if (dist <= travel + ((t && t.radius) || 0) || this.now > m.deadline) {
+      const reach = t && t.isDest ? this.destRange(t, m.x, m.y) : dist - ((t && t.radius) || 0);
+      if (reach <= travel || this.now > m.deadline) {
         m.x = aimX; m.y = aimY;
         this.emit({ t: 'missileEnd', fx: m.fx });
         const src = this.units.get(m.srcId);
@@ -1553,7 +1691,7 @@ export class World {
   stepAttack(u) {
     if (u.atkTimer > 0) u.atkTimer -= this.dt;
     if (u.order.type !== 'attack' && u.order.type !== 'attackMove') return;
-    let t = this.units.get(u.order.targetId);
+    let t = this.target(u.order.targetId);
     if (!t || !t.alive) {
       let bd = Infinity; t = null;
       for (const o of this.units.values()) {
@@ -1564,8 +1702,9 @@ export class World {
       }
       if (!t) return;
     }
-    const d = Math.hypot(t.x - u.x, t.y - u.y);
-    if (d > u.atkRange + t.radius) return;
+    const d = t.isDest ? this.destRange(t, u.x, u.y)
+                       : Math.hypot(t.x - u.x, t.y - u.y) - t.radius;
+    if (d > u.atkRange) return;
     u.facing = Math.atan2(t.y - u.y, t.x - u.x);
     if (u.atkTimer > 0) return;
     u.atkTimer = u.atkCd / Math.max(0.2, u.attackSpeedMul || 1);

@@ -366,12 +366,16 @@ def placed_doodad_models():
                     # stamps it into the pathing map at runtime, which is why
                     # the editor does not bake it into war3map.wpm and why the
                     # walls and gates were walked straight through.
-                    pt = str(r.get('pathTex') or '').strip()
-                    if pt and pt.lower() not in ('_', '-', 'none', ''):
-                        path[i] = pt
+                    # pathTexDeath is the footprint the wreckage leaves once it
+                    # is destroyed -- a broken gate is a hole with rubble in it,
+                    # not clear ground -- so both are needed to open one.
+                    for _c in ('pathTex', 'pathTexDeath'):
+                        pt = str(r.get(_c) or '').strip()
+                        if pt and pt.lower() not in ('_', '-', 'none', ''):
+                            path.setdefault(i, []).append(pt)
     return ([table[i] for i in placed if table.get(i)],
             [tex[i] for i in placed if tex.get(i)],
-            [path[i] for i in placed if path.get(i)])
+            [p for i in placed for p in path.get(i, ())])
 
 dood_models = 0
 _dood_files, _dood_tex, _dood_path = placed_doodad_models()

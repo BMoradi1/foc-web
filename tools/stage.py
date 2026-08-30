@@ -51,28 +51,57 @@ def stamp_destructable_pathing(walk, pw, ph):
     Warcraft III keeps a stamped footprint square to the grid, so the rotation
     is taken to the nearest quarter turn rather than interpolated.
 
-    The turn is measured from 270 degrees, not from zero: 270 is the World
-    Editor's default facing, and every wall and gate on this map is placed at
-    it, so the footprints are authored in that orientation. Measured from zero
-    each one came out a quarter turn off -- a wall running north-south stamped
-    an east-west bar through its own middle, which blocks its centre and leaves
-    an eight-cell hole to either side of it. The line of walls read as a row of
+    The turn is measured from 270 degrees, the editor's default facing, which is
+    the orientation a footprint is authored in. Measured from zero every one
+    came out a quarter turn off -- a wall running north-south stamped an
+    east-west bar through its own middle, which blocks its centre and leaves an
+    eight-cell hole to either side of it, so the line of walls read as a row of
     detached stubs and was walked straight between.
+
+    Only destructables are stamped, and the two halves of that rule are visible
+    in the map's own file: every one of the 214 ordinary doodads placed here is
+    already no-walk in war3map.wpm, because the editor baked it in, and not one
+    of the 361 destructables is. Stamping the doodads as well would be stamping
+    them twice, at a rotation the editor has already applied.
     """
     from PIL import Image as _Image
     sys.path.insert(0, 'tools')
     from slk import parse_slk as _pslk
     doo = json.load(open('data/doodads.json'))['doodads']
-    tex_of = {}
-    for _f, _k in (('war3_extracted/Doodads/Doodads.slk', 'doodID'),
-                   ('war3_extracted/Units/DestructableData.slk', 'DestructableID')):
-        if not os.path.exists(_f):
+
+    def _f(_v, _d=0.0):
+        try:
+            return float(_v)
+        except (TypeError, ValueError):
+            return _d
+
+    def _tex(_r, _c):
+        _v = str(_r.get(_c) or '').strip()
+        return _v if _v and _v.lower() not in ('_', '-', 'none') else None
+
+    stats = {}
+    for _r in _pslk('war3_extracted/Units/DestructableData.slk'):
+        _i = str(_r.get('DestructableID') or '')
+        _pt = _tex(_r, 'pathTex')
+        if not _i or not _pt:
             continue
-        for _r in _pslk(_f):
-            _i = str(_r.get(_k) or '')
-            _pt = str(_r.get('pathTex') or '').strip()
-            if _i and _pt and _pt.lower() not in ('_', '-', 'none'):
-                tex_of[_i] = _pt
+        stats[_i] = {
+            'tex': _pt,
+            # what the wreckage still blocks: the gates' death footprint is
+            # their two posts, so a broken gate is a hole with rubble either
+            # side of it rather than clear ground
+            'dead': _tex(_r, 'pathTexDeath'),
+            'hp': _f(_r.get('HP')),
+            # DestructableData's own selectable flag: only the six gates carry
+            # it. The walls, the trees and the pathing blockers are 0, and
+            # Warcraft III will not let a click land on one of those.
+            'sel': int(_f(_r.get('selectable'))),
+            'targ': str(_r.get('targType') or ''),
+            'rad': _f(_r.get('radius')),
+            'armor': str(_r.get('armor') or ''),
+            'death': _tex(_r, 'deathSnd'),
+        }
+    tex_of = {_i: _v['tex'] for _i, _v in stats.items()}
 
     masks = {}
     def mask_for(rel):
@@ -96,26 +125,26 @@ def stamp_destructable_pathing(walk, pw, ph):
     # neighbouring walls share cells where their bars overlap, so a cell may only
     # open once nothing left standing still claims it.
     stamps = []
-    for d in doo:
-        rel = tex_of.get(d['id'])
-        if not rel:
-            continue
+    # what the bare terrain allows, kept before anything is stamped into it: a
+    # cell the terrain itself blocks must not be handed back when whatever
+    # stands on it dies
+    terrain_ok = walk.copy()
+
+    def cells_of(d, rel):
+        """The pathing cells one placement's footprint covers."""
         m = mask_for(rel)
         if m is None:
             missing.add(rel)
-            continue
-        # nearest quarter turn from the editor's default facing (270 degrees),
-        # counter-clockwise like the game's own rotation
+            return None
+        # nearest quarter turn from the editor's default facing, counter-
+        # clockwise like the game's own rotation
         k = int(round((float(d.get('rot') or 0) - DEFAULT_FACING) / (math.pi / 2))) % 4
         mm = np.rot90(m, k)
         mh, mw = mm.shape
         # the footprint is centred on the doodad, and image row 0 is its north edge
-        cx = (d['x'] - ox) / PC
-        cy = (d['y'] - oy) / PC
-        x0 = int(round(cx - mw / 2.0))
-        y0 = int(round(cy - mh / 2.0))
-        placed_n += 1
-        claimed = []
+        x0 = int(round((d['x'] - ox) / PC - mw / 2.0))
+        y0 = int(round((d['y'] - oy) / PC - mh / 2.0))
+        out = []
         for r in range(mh):
             wy = y0 + (mh - 1 - r)              # flip: image y grows downward
             if wy < 0 or wy >= ph:
@@ -123,18 +152,38 @@ def stamp_destructable_pathing(walk, pw, ph):
             row = mm[r]
             for c in range(mw):
                 wx = x0 + c
-                if wx < 0 or wx >= pw or not row[c]:
-                    continue
-                claimed.append(wy * pw + wx)
-                if walk[wy * pw + wx]:
-                    walk[wy * pw + wx] = 0
-                    blocked += 1
-        stamps.append({'id': d['id'], 'x': d['x'], 'y': d['y'], 'c': claimed})
+                if 0 <= wx < pw and row[c]:
+                    out.append(wy * pw + wx)
+        return out
+
+    for di, d in enumerate(doo):
+        st = stats.get(d['id'])
+        if not st:
+            continue
+        claimed = cells_of(d, st['tex'])
+        if claimed is None:
+            continue
+        placed_n += 1
+        for i in claimed:
+            if walk[i]:
+                walk[i] = 0
+                blocked += 1
+        rec = {'d': di, 'id': d['id'], 'x': d['x'], 'y': d['y'],
+               'r': d.get('rot') or 0, 'hp': st['hp'], 'life': d.get('life', 100),
+               'sel': st['sel'], 'targ': st['targ'], 'rad': st['rad'],
+               'armor': st['armor'], 'c': claimed,
+               'w': [i for i in claimed if terrain_ok[i]]}
+        if st['dead']:
+            rec['k'] = cells_of(d, st['dead']) or []
+        if st['death']:
+            rec['snd'] = st['death']
+        stamps.append(rec)
     if missing:
         print('WARNING no pathing footprint for:', sorted(missing)[:4])
-    json.dump(stamps, open(PUB + '/data/pathstamp.json', 'w'), separators=(',', ':'))
-    print('destructable pathing: %d placements stamped, %d cells newly blocked'
-          % (placed_n, blocked))
+    json.dump(stamps, open(PUB + '/data/destructables.json', 'w'), separators=(',', ':'))
+    sel = sum(1 for s in stamps if s['sel'])
+    print('destructables: %d placements stamped, %d cells newly blocked, %d selectable'
+          % (placed_n, blocked, sel))
     return walk
 
 

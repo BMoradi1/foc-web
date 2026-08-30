@@ -107,12 +107,32 @@ const out = await page.evaluate(async (model) => {
   const draw = () => view.renderer.render(view.scene, view.camera);
   const mem = () => ({ g: view.renderer.info.memory.geometries,
                        t: view.renderer.info.memory.textures });
+  // Chromium drops this page's first WebGL context and hands back a new one a
+  // few frames later; three no-ops its renders in between and uploads nothing,
+  // so a counter read right after a draw can be zero for a reason that has
+  // nothing to do with disposal. Draw across frames until it moves.
+  const settle = async (want) => {
+    for (let i = 0; i < 60 && !(mem().g > want); i++) {
+      await new Promise(requestAnimationFrame);
+      draw();
+    }
+  };
   // Cycled, not measured once: a leak is growth over time, and a single
   // spawn/remove pair cannot tell "freed" from "never allocated".
+  // Warm the model cache before the baseline is taken. loadModel keeps the
+  // glTF it parsed, so the *first* spawn of a type uploads geometry that is
+  // never given back -- that is the cache doing its job, not a leak. Measuring
+  // from before it was warm made "gives the geometry back" a comparison against
+  // an empty renderer, which nothing could satisfy; it passed only because a
+  // lost WebGL context had every counter reading zero.
+  let id = 80000;
+  await view.spawnView(ent(++id, 0));
+  draw();
+  await settle(0);
+  view.removeView(id);
   draw();
   const base = mem();
   const cycles = [];
-  let id = 80000;
   for (let c = 0; c < 3; c++) {
     const ids = [];
     for (let i = 0; i < 4; i++) { ids.push(++id); await view.spawnView(ent(id, i * 90)); }

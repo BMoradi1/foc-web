@@ -104,12 +104,19 @@ const idx = (cx, cy) => (cx >= 0 && cy >= 0 && cx < W && cy < H);
 // ground off from the arena until something destroys them. The invariant that
 // still has to hold is about the walls: they may not seal anything. Flood with
 // the gates' own footprints lifted, which is exactly what their death will do.
-const stamps = read('public/data/pathstamp.json');
+const stamps = read('public/data/destructables.json');
 const open = new Uint8Array(walk);
+// exactly what killing them frees: the cells the bare terrain allows, less the
+// posts pathTexDeath leaves standing, less anything another destructable still
+// claims -- the same arithmetic World.killDest does
 const gateCells = new Set();
-for (const st of stamps) if (GATES.includes(st.id)) for (const c of st.c) gateCells.add(c);
+for (const st of stamps) {
+  if (!GATES.includes(st.id)) continue;
+  const posts = new Set(st.k || []);
+  for (const c of st.w) if (!posts.has(c)) gateCells.add(c);
+}
 for (const st of stamps) if (!GATES.includes(st.id)) for (const c of st.c) gateCells.delete(c);
-for (const c of gateCells) if ((raw[c] & 0x02) === 0) open[c] = 1;
+for (const c of gateCells) open[c] = 1;
 
 const before = flood((cx, cy) => idx(cx, cy) && (raw[cy * W + cx] & 0x02) === 0);
 const gatesOpen = flood((cx, cy) => idx(cx, cy) && open[cy * W + cx] === 1);

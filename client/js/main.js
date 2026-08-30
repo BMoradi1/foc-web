@@ -6,7 +6,7 @@ import { HeroPreview } from './heroview.js';
 import { Overlay } from './overlay.js';
 import { buildConsole, buildTopBar, placeIn } from './console.js';
 import { Audio } from './audio.js';
-import { Msg, Phase, Ent } from '/shared/const.js';
+import { Msg, Phase, Ent, DEST_ID } from '/shared/const.js';
 
 const net = new Net();
 const ui = new UI(net);
@@ -72,6 +72,16 @@ net.on(Msg.STATE, (m) => {
   S.phase = m.phase;
   ui.renderTeams(m.players, S.you, m.phase);
   ui.updateScore(m.board, m.killsToWin);
+  // a gate broken before this client joined, or before it reconnected: the
+  // events only carry a change, so the state carries what has already happened
+  if (m.dests && S.dests) {
+    for (const d of m.dests) {
+      const g = S.dests.get(d.d);
+      if (!g) continue;
+      g.hp = d.hp; g.max = d.max;
+      if (d.dead && !g.dead) { g.dead = true; view.setDoodadDead(d.d); }
+    }
+  }
   if (m.phase === Phase.PLAYING) ui.startGame();
   if (m.phase === Phase.LOBBY && S.game) ui.showLobby(S.game, S.heroes);
   // Second matches in one room are real now that the room lifecycle is fixed,
@@ -255,6 +265,20 @@ function handleEvent(ev) {
       break; }
     case 'gameover': ui.gameOver(ev.winner, ev.board); break;
     case 'dmg': if (ev.id === S.hero?.id && ev.amt > 0) flash(); break;
+    case 'destDmg': {
+      const g = S.dests?.get(ev.d);
+      if (g) { g.hp = ev.hp; g.max = ev.max; }
+      break;
+    }
+    case 'destDead': {
+      const g = S.dests?.get(ev.d);
+      if (g) { g.dead = true; g.hp = 0; }
+      // the wreckage is already in the model, hidden until now by the stand
+      // sequence's geoset-alpha track
+      view.setDoodadDead(ev.d);
+      if (g && S.destPick?.has(ev.d)) ui.log('a gate has been broken open', 'kill');
+      break;
+    }
     // the map's script drives its own spell visuals through these
     case 'anim':     view.playUnitAnim(ev.id, ev.name); break;
     case 'animIdx':  view.playUnitAnimIndex(ev.id, ev.i); break;
@@ -302,11 +326,15 @@ function flash() { flashT = 0.25; }
 
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
-  const [terr, heightsBuf, doodads, unitModels, ubersplats,
+  const [terr, heightsBuf, doodads, dests, unitModels, ubersplats,
          splatTable, spawnTable, animSounds, boltTable, uiSounds, buffArt] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
+    // the destructables among them: which can be clicked, and what they cost
+    // to break. Static, so it is read here rather than sent per match; only
+    // what has actually been damaged comes over the wire.
+    fetch('/data/destructables.json').then((r) => r.json()).catch(() => []),
     fetch('/data/unitmodels.json').then((r) => r.json()),
     // the ground decals buildings are stamped on
     fetch('/data/ubersplats.json').then((r) => r.json()).catch(() => ({})),
@@ -401,6 +429,14 @@ async function boot(m) {
   ui.setLoading('building arena…', 0.6);
   await view.buildTerrain(terr, new Float32Array(heightsBuf), cliffs);
   await view.addDoodads(doodads, doodadMeta);
+  // only DestructableData's selectable flag may be clicked: that is the six
+  // gates, and not the walls, the trees or the pathing blockers
+  S.dests = new Map();
+  S.destPick = new Set();
+  for (const d of dests || []) {
+    S.dests.set(d.d, { type: d.id, x: d.x, y: d.y, hp: d.hp, max: d.hp, dead: false });
+    if (d.sel) S.destPick.add(d.d);
+  }
   const img = new Image();
   img.src = '/assets/textures/war3mapMap.png';
   img.onload = () => { S.minimapImg = img; };
@@ -478,12 +514,25 @@ canvas.addEventListener('mousedown', (e) => {
     const me = S.ents.get(S.hero?.id);
     if (t && t.id !== S.hero?.id && S.ents.get(t.id)?.t !== me?.t) {
       net.send({ t: Msg.ATTACK, targetId: t.id });
+    } else if (pickGate(nx, ny) != null) {
+      const di = pickGate(nx, ny);
+      net.send({ t: Msg.ATTACK, targetId: DEST_ID + di });
+      const g = S.dests.get(di);
+      if (g) markMove(g);
     } else {
       const g = view.pickGround(nx, ny);
       if (g) { net.send({ t: Msg.MOVE, x: g.x, y: g.y, attack: true }); markMove(g); }
     }
   }
 });
+/** A gate under the cursor, if it is still standing. */
+function pickGate(nx, ny) {
+  if (!S.destPick || !S.destPick.size) return null;
+  const i = view.pickDoodad(nx, ny, S.destPick);
+  if (i == null) return null;
+  return S.dests.get(i)?.dead ? null : i;
+}
+
 function markMove(g) {
   spawnRing(new THREE.Vector3(toX(g.x), view.heightAt(g.x, g.y) + 4, toZ(g.y)), 0x66ff99, 70);
 }
