@@ -146,7 +146,10 @@ const stubs = new Set();
 for (const [name, fn] of eng.vm.natives)
   if (/^\((?:[^)]*)\)\s*=>\s*(\{\s*\}|null|0|false|true|'')$/.test(String(fn).trim()))
     stubs.add(name);
-const stubHit = [...reached].filter(n => declared.has(n) && stubs.has(n)).sort();
+// Stubs are NOT filtered to declared natives: the engine also stubs
+// overrides of Blizzard.j functions (CinematicModeBJ, the ambient sounds),
+// which shadow the real BJ body -- same silence, different route.
+const stubHit = [...reached].filter(n => stubs.has(n)).sort();
 const missing = [...reached].filter(n => declared.has(n) && !entries.has(n)).sort();
 
 // -------------------------------------------------------------------- report
