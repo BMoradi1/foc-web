@@ -928,6 +928,65 @@ GAMEPLAY / INPUT
     read the other way both get 2. The AEer case picks by target type. The other
     twelve sites still do not.
 
+INTERFACE -- THE SHOP
+---------------------
+[x] The shop is the command card now, not a floating list  (FIXED)
+    Warcraft III does not open a window for a shop. Selecting the building
+    replaces what the bottom bar shows: the portrait becomes the shop's model,
+    the name and bars become the shop's, and the command card -- the same
+    measured cells the hero's abilities sit in -- fills with its stock. Clicking
+    a cell buys. The inventory stays up, which is the only way to see whether
+    there is room for what you are buying.
+    The shops are the buildings inside each base: five types, two of each,
+    mirrored at x = +/-4000. n000 스텟 상점 (7 items), n001 아이템 상점 (10),
+    n00H 전용템 상점 (11), n00N 전용템 상점2 (11), n013 아이템& 전용템 상점
+    (8 items and 1 unit). data/game.json keys its shop list by that unit type,
+    so an entity is a shop when its type id is one of the five.
+    What it replaced was a floating panel on the 'b' key, which was wrong twice.
+    It is not what the game does, and the keydown handler consults the ability
+    hotkey table first -- 4 of the 26 heroes bind an ability to 'b', so on those
+    heroes the key was swallowed before the shop saw it, and if the ability was
+    not yet learned the handler returned without doing anything at all. The
+    shop simply could not be opened. Shopping now needs no key.
+    tools/shop_test.mjs, 20 checks: the buildings are on the field and are
+    buildings, the card becomes the stock with a price and icon per cell laid
+    into distinct measured cells, the panel and portrait follow, clicking sends
+    the right buy, clearing restores the hero, and pressing 'b' does nothing.
+
+[x] The heroes ran at the shop as if to attack it  (FIXED)
+    Reported from play. Nothing was ever damaged -- shops sit on player 15,
+    Neutral Passive, and world.hostile refuses that outright, so stepAttack
+    never swung. What happened is that the client offered the order and the hero
+    walked over to deliver it.
+    Cause: the right-click handler compared TEAMS. A shop is on player 15's
+    team 2 while the heroes are on teams 0 and 1, so `te.t !== me.t` was true
+    and it sent an attack. relationTo had the same fault, so a shop was also
+    being coloured as an enemy.
+    Right-clicking a shop now walks to it, which is what Warcraft III does with
+    that click -- you approach a shop to trade with it. server/room.js converts
+    an attack order on any non-hostile unit into a move as well, so a client
+    that sends one anyway gets the same answer.
+    Measured while fixing: world.damage itself is NOT filtered by hostility, so
+    a direct call does take health off a shop (5000 -> 2500 after armour). Left
+    alone deliberately -- the map's own triggers call UnitDamageTarget on
+    whatever they please and the engine has to obey. Every spell path already
+    goes through enemiesInRange or hostile() first.
+    Asserted at both layers: tools/spellshape_test.mjs checks the shop is never
+    returned as an enemy in range and that ordering an attack takes nothing off
+    it over six seconds; tools/shop_test.mjs checks the client reads it as
+    neutral, and that this is not vacuous because the teams really do differ.
+
+[ ] Buying has no range check
+    server/room.js:310 sells from anywhere on the map -- the hero never has to
+    walk to the shop. Warcraft III requires the buyer to be in range. Left
+    alone deliberately: it is a gameplay change rather than an interface one.
+
+[ ] Selling back is still a gesture of ours
+    shift+right-click on an inventory slot. The comment at client/js/ui.js says
+    Warcraft III sells by dragging the item onto the shop, "which a single
+    canvas cannot offer" -- but now that a shop can be SELECTED, dropping an
+    item while one is up is a closer match and is available if wanted.
+
 TESTS AND THE END-TO-END HALF
 ----------------------------
 [x] The five skipped tests now run and assert  (FIXED)
