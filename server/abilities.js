@@ -11,7 +11,17 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 export const ABILS = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/abilities.json'), 'utf8'));
 
 export const PASSIVE_BASES = new Set(['Aloc', 'Avul', 'Aneu', 'Apig', 'Abds', 'Abdl', 'Abgs',
-  'Aeat', 'Arlm', 'Aspi', 'Aro1', 'ACm2', 'Asph', 'Aspy', 'Alit', 'ACct']);
+  'Aeat', 'Arlm', 'Aspi', 'Aro1', 'ACm2', 'Asph', 'Aspy', 'Alit', 'ACct',
+  // Named here because the map's own use of them settles it, not because the
+  // base name suggests it.  AIcf (Cloak of Flames) reaches the map three ways
+  // and none of them is a cast: A05Y is handed to a three-second o007 dummy by
+  // SetUnitAbilityLevelSwapped and never ordered, A020 rides Eneru's Thunder
+  // God form (O003) and does not appear in war3map.j at all, and AIcf is
+  // already carried in ITEM_BONUS as a bonus held rather than cast.  ACnr
+  // (Neutral Regen) sits on the base structure hatw, targets allies, and is
+  // likewise never named by the script.  Both burn or heal on their own clock;
+  // see TODO.txt -- until that clock exists they are silent rather than wrong.
+  'AIcf', 'ACnr']);
 
 const AURA_BASES = {
   AOae: { kind: 'speed', pct: 0.10 },        // Endurance Aura
@@ -78,8 +88,13 @@ export function isPassive(ab) {
   // Warcraft III gives its passive skills an order string too, so the icon is
   // the tell: passive art lives under ReplaceableTextures\PassiveButtons.
   if (ab.passiveArt) return true;
-  if (ab.order !== undefined) return !ab.order;
-  // an ability table built before order strings were carried through
+  // An order string proves it can be cast.  Its ABSENCE proves nothing:
+  // Blizzard writes Order= into AbilityFunc for only some abilities, and
+  // Fire Bolt, Finger of Death, Cloak of Flames and Neutral Regen carry an
+  // Art= line and no Order= at all -- 462 of the 1046 abilities here have no
+  // order string in the data.  So an empty order falls through to the targets
+  // it declares rather than deciding on its own.
+  if (ab.order) return false;
   const t = (ab.targets || '').toLowerCase();
   return t === '' || t === 'none' || t.includes('nonenone');
 }

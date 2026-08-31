@@ -496,6 +496,66 @@ Warcraft III's own screenshot still has and we do not:
 
 GAMEPLAY / INPUT
 ----------------
+[x] An empty order string was read as proof of a passive  (FIXED)
+    Found by tools/ability_audit.mjs, not from play. isPassive returned on the
+    order line and the targets line under it was dead code:
+
+        if (ab.order !== undefined) return !ab.order;   // returned here
+        const t = (ab.targets || '').toLowerCase();     // never reached
+
+    The order string is the right signal in one direction only. It comes from
+    Order= in Units\*AbilityFunc.txt, and Blizzard writes that line for only
+    some abilities: Fire Bolt (Awfb), Finger of Death (ANfd), Cloak of Flames
+    (AIcf) and Neutral Regen (ACnr) each carry an Art= line and no Order= at
+    all. Measured: 462 of the 1046 abilities here have no order string, and the
+    map casts two of them -- A00H and A01G both raise
+    EVENT_PLAYER_UNIT_SPELL_EFFECT in war3map.j. So absence proves nothing, and
+    isPassive now falls through to the targets the ability declares. Presence
+    still decides, and the PassiveButtons icon still overrides both.
+
+    Six verdicts move, and only one of them was doing harm:
+      A00V  종경 백제검, Byakuya      5000 damage, Fire Bolt, no engine case and
+                                     no trigger -- it did nothing at all, and
+                                     now takes the data-driven damage fallback
+      A01O  하늘의 쇠사슬            60 damage, Finger of Death, on h02I
+      A01G, A00H                     the map's own triggers already ran them
+      AIrl, AIpr                     potions; useItem never calls execute
+    The audit's dead list goes 14 -> 13, the fallback list 18 -> 19, and nothing
+    becomes newly dead.
+
+    The dangerous half was the four that must NOT move. AIcf and ACnr carry a
+    damage figure and an area, so reaching the fallback would have fired a
+    500-damage nuke where the map wants a burn and a 40-damage one across 800
+    units where it wants a heal. They are named in PASSIVE_BASES on the map's
+    own use of them, not on the missing field: A05Y is handed to a
+    three-second o007 dummy by SetUnitAbilityLevelSwapped and never ordered,
+    A020 rides Eneru's Thunder God form and does not appear in war3map.j at
+    all, and A002 sits on the base structure hatw and targets allies.
+    tools/passive_test.mjs, 20 checks, asserting the victim's health rather
+    than the predicate's return value.
+
+    Two findings from the same measurement, both left alone deliberately:
+      - the map's own aart override is not a reliable passive tell. Two
+        abilities here wear a PassiveButtons icon and only one means it: A057
+        아이스타임 has cooldown 2, range 800 and a five-second duration and is
+        plainly active. So the icon rule stays keyed to Blizzard's base art.
+      - A06D, the captured Monster Ball, is the map's one aord override
+        ('summoning' where its AIrr base says 'roar') and tools/abilities.py
+        does not read the field. Nothing consumes the *value* of an order
+        string -- isPassive and itemSpell both only test whether one exists --
+        so this changes no behaviour today. It would matter the moment
+        anything dispatches on the string.
+
+    NOT DONE: A020 and A05Y are correctly silent rather than correctly burning.
+    Cloak of Flames damages on its own clock, and what the data carries is
+    Area, the damage in Icfd (Blizzard 10; this map 500 on A020 and 850-3000
+    across A05Y's five levels) and a duration of 1. Whether that duration is
+    the interval between bursts is not stated anywhere in AbilityMetaData --
+    adur is the generic Duration field every ability shares, so its label
+    settles nothing the way Ore1's did for Reincarnation. Guessing it is a
+    one-second pulse is exactly the kind of plausible inference that has been
+    reverted here before, so the pulse is not written.
+
 [x] The Monster Ball caught nothing  (FIXED)
     I006 몬스터볼, 1000 gold, one use, sold from a shop: aim it at a creep under
     30% life and there is a 30% chance it is yours. The map writes the whole

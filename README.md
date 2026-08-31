@@ -260,6 +260,16 @@ engine "cast" a permanent stat bonus, found a number in its data and threw it at
 damage, and no hero ever received the stats. They are now applied in `recalc`, next to the item
 bonuses, from the same three data slots the stat tomes use.
 
+The converse is not true either, and reading it as though it were disabled a spell. An order
+string proves an ability can be ordered; its *absence* proves nothing, because Blizzard writes
+`Order=` into `Units\*AbilityFunc.txt` for only some abilities — Fire Bolt, Finger of Death,
+Cloak of Flames and Neutral Regen each carry an `Art=` line and no order at all, and 462 of the
+map's 1046 abilities are in that position. The map settles it: two of them raise
+`EVENT_PLAYER_UNIT_SPELL_EFFECT` in `war3map.j`, so they are plainly cast. `isPassive` now lets
+an empty order fall through to the targets the ability declares, and the four bases above are
+named passive on the evidence of how the map itself hands them out rather than on the missing
+field. `tools/passive_test.mjs`, 20 checks.
+
 ### Where the numbers come from
 
 Gameplay constants are layered exactly as the game layers them: `Units\MiscGame.txt` from the
@@ -342,7 +352,7 @@ stub-native lists are the honest size of the new map's gap before anyone plays i
 
 | | |
 |---|---|
-| Dead spells | `tools/ability_audit.mjs` prints the live list — currently 14 abilities with no engine case, no map trigger and no data fallback (Mana Shield's absorption is the classic), plus the buff seams and stub natives it checks alongside |
+| Dead spells | `tools/ability_audit.mjs` prints the live list — currently 13 abilities with no engine case, no map trigger and no data fallback (Mana Shield's absorption is the classic), plus the buff seams and stub natives it checks alongside |
 | Ramp wedges | `CliffTrans` pieces are drawn as ordinary cliff walls, affecting the 20 cells flanking the two base ramps |
 | `ParticleEmitter1` | parsed, exported, and spawns its pieces, but has never been confirmed to put a pixel on screen |
 | Ribbon colour | a ribbon's colour and alpha over its life are not applied; its visibility track, and an emitter's visibility and emission rate, are |
