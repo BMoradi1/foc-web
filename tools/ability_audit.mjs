@@ -39,6 +39,13 @@ const ABSRC   = read('server/abilities.js');
 // What execute() handles, read off the source: the switch's case labels, and
 // the label groups whose block stamps a named buff (`code: i.buff`).
 const CASES = new Set([...ABSRC.matchAll(/case '(\w{4})'/g)].map(m => m[1]));
+// A base routed through BASE_ALIAS runs the case its target names, so it is
+// handled even though its own code never appears as a label -- ANcf reaches
+// the breath case that way.  Without this the alias reads as a regression.
+for (const [from, to] of [...ABSRC.slice(ABSRC.indexOf('const BASE_ALIAS'),
+                                        ABSRC.indexOf('export function baseOf'))
+                             .matchAll(/(\w{4})\s*:\s*'(\w{4})'/g)].map(m => [m[1], m[2]]))
+  if (CASES.has(to)) CASES.add(from);
 const APPLY_BASES = new Set();
 for (const m of ABSRC.matchAll(/^ {4}((?:case '\w{4}':\s*)+)\{([\s\S]*?)^ {4}\}/gm))
   if (m[2].includes('code: i.buff'))

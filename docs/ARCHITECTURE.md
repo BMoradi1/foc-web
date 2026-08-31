@@ -44,6 +44,17 @@ FOC spells are re-skinned Blizzard abilities plus a trigger for the trimmings:
 3. the engine fires `EVENT_PLAYER_UNIT_SPELL_EFFECT`, and the map's trigger adds its sound,
    effects, animations and any dummy-unit chain.
 
+Step 2 is where the port is most exposed. Warcraft III has no named damage field: an ability
+carries `DataA..DataF`, and which slot holds which quantity is a property of the base ability,
+declared in `Units\\AbilityMetaData.slk` (the `useSpecific` column names the bases a field belongs
+to and the slot it fills) and labelled in `UI\\WorldEditStrings.txt`. `server/abilities.js` reads
+those slots positionally, so a case that has them in the wrong order is invisible: the case exists,
+it is reached, damage is dealt, the trigger plays its effects. Blizzard's `Hbz1` is *Number of
+Waves* and `Hbz2` is *Damage*; swapped, the total damage stays correct and only the shape changes,
+which is how a 30-wave ultimate ran as 1100 waves. `tools/slot_test.mjs` resolves the metadata and
+holds every case to it, and refuses to pass a case that reads a slot without declaring what it
+believes the slot to be.
+
 Dummy units are how most FOC spells deliver their payload: a trigger spawns a unit carrying one
 ability and orders it to cast. Ordering a dummy runs that ability through the same engine path.
 
@@ -398,6 +409,14 @@ dealt, summons made, buffs applied, whether the caster moved or changed form, wh
 charged. `tools/spell_render.mjs` answers the other half, replaying the effects each cast emitted
 into the renderer on its own (`tools/fxview.html`) and counting how many pixels of the frame
 change. `tools/spell_sheet.py` renders both as one page.
+
+`tools/slot_test.mjs` is the static counterpart and needs no server: it derives each base
+ability's slot meanings from `AbilityMetaData.slk` and `WorldEditStrings.txt` and checks three
+things — that bases sharing one `case` agree on what `d1..d4` mean, that a base routed through
+`BASE_ALIAS` shares its target's slots, and that the engine's declared reading of each slot matches
+the map's. The first two are derived from the SLK and cannot drift. `tools/spellshape_test.mjs`
+then casts the spells and measures what arrived, because asserting the source rather than the
+outcome is a mistake this project has made more than once.
 
 It is a heuristic and reads as a worklist, not a verdict — but the harness has to be honest about
 its own failures, and three of them were instructive:

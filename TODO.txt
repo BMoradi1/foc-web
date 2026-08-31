@@ -894,6 +894,131 @@ GAMEPLAY / INPUT
 [ ] Fog of war
     Nothing exists. The whole map is visible to everyone.
 
+ABILITY DATA SLOTS
+------------------
+[x] The engine now has to name every data slot it reads  (tools/slot_test.mjs)
+    Warcraft III stores no "damage" field. It stores DataA..DataF, and what each
+    one means depends on the base ability. server/abilities.js necessarily reads
+    them positionally as d1..d4, and nothing in the source recorded which
+    meaning it believed it was reading -- which made a wrong slot invisible to
+    every check we had. ability_audit.mjs asks whether a case EXISTS; the render
+    tests ask whether art draws; a player sees a spell go off either way.
+
+    The map ships the answer and always has. AbilityMetaData.slk's useSpecific
+    column says which bases use each field and which slot it occupies, and
+    WorldEditStrings.txt turns the field id into the label a map author reads.
+    tools/slotmeta.mjs resolves the two into base -> slot -> label.
+    tools/slot_test.mjs then runs three checks, in order of how much
+    hand-written material each needs:
+      1. GROUPING  bases sharing one `case` are read through the same d1..d4,
+         so they must agree on what those slots mean. Fully derived from the
+         SLK -- nothing to maintain and no way for it to drift.
+      2. ALIAS     BASE_ALIAS claims one base IS another's behaviour; then
+         their slots have to line up too.
+      3. CONTRACT  what the engine believes each slot is, written out in the
+         test and checked against the map. The only hand-written part, so the
+         test also fails if a case group reads a slot with no contract entry.
+
+    78 checks. The ACCEPTED list in that file is the debt: 5 entries, every one
+    of them a base this map never builds an ability on, so none can reach a
+    player today. The count only goes down.
+
+[x] Nine slot and routing defects the check found, all fixed
+    Each is quoted with the field it comes from; none is an inference.
+
+    Blizzard family (A027 보구의 비, A06R 시엔플루르)
+        Hbz1 is "Number of Waves" and Hbz2 "Damage" -- the case had them the
+        other way round. Total damage came out right, which is why nothing ever
+        caught it, and the shape did not: Nico Robin's rank-3 ultimate is 30
+        waves of 1100 and ran as 1100 waves of 30, bombarding a 600 radius for
+        eighteen minutes. The wave INTERVAL is not a field anywhere in the w3a,
+        the SLK or AbilityMetaData; the case now spreads the waves across the
+        ability's own duration and says so in a marked comment.
+    Starfall (AEsf)
+        Never used the Hbz fields at all -- Esf1 "Damage Dealt", Esf2 "Damage
+        Interval", no wave count. It had been sharing Blizzard's block. Unused
+        by this map; split out so it stays honest.
+    Finger of Death (A01G 금술오의-시귀봉진, A01O 하늘의 쇠사슬)
+        Nfd1 Graphic Delay, Nfd2 Graphic Duration, Nfd3 Damage. It was aliased
+        to Death Coil, whose single slot IS its damage, so slot 1 was spent as
+        the damage figure: A01G carries 10000 in Nfd3 and 0.25 in Nfd1, and
+        dealt the 0.25. Sandaime's ultimate was four orders of magnitude short.
+    Breath of Fire (A01N 폭류파, A02T 화둔-호화구의 술, A04A 은령호작)
+        ANcf names no fields of its own; AbilityData.slk gives it code = ANbf
+        and the comment "Chen - Breath of Fire", and every field the map writes
+        onto it is a Ucs/Nbf one. It was reaching the Fan of Knives case, so
+        InuYasha's 800-long cone became a 100-radius ring at his own feet.
+        Now aliased to ANbf.
+    Battle Roar (A00C 『철괴』, A01I 소환술-초지검, A03S 섬경 천본앵경엄)
+        ANbr's slots are Nbr1 "Damage Increase" then Roa2..Roa6, and it targets
+        friend and self. It was in the cone-damage case, pointing a hostile
+        breath at three abilities that are friendly buffs.
+    Impale (A04T 고사리싹의 춤)
+        Uim1 Wave Distance, Uim2 Wave Time, Uim3 Damage Dealt, Uim4 Air Time --
+        not Carrion Swarm's Damage/Max/Distance/Area, which it had been sharing.
+        Read positionally it ran a 2000-long, 1-wide sliver capped at 0.3 total
+        damage, so it hit nothing at all.
+    Cluster Rockets (A00R 숏건, A02L 숏건, A03A 소기탄)
+        Ncs1 Damage Amount, Ncs2 Damage Interval, Ncs3 Missile Count, Ncs4 Max
+        Damage. It is a barrage into an area, not a line. Read as a line, Ncs2
+        became a total damage cap of 0.3 and the spell stopped after one unit.
+    Frost Nova (AUfn)
+        Ufn1 is "Area of Effect Damage" and Ufn2 "Specific Target Damage", so
+        the unit clicked takes slot 2 and the splash takes slot 1. The block had
+        them reversed -- the retail Lich carries 50 and 100 in that order, and a
+        nova that splashes harder than it hits is the wrong way round. Latent
+        here: the map's only user, A06J, zeroes both.
+    ANcl aliased to Chain Lightning
+        Its slots are Follow Through Time / Target Type / Options and the SLK
+        comments it "Illidan - Channel". Unused by this map, so the alias was a
+        trap waiting for a port that does use it. Removed.
+
+    Behaviour is asserted in tools/spellshape_test.mjs, 22 checks, which casts
+    each of these and reads what arrived -- wave counts and per-wave damage off
+    the queued channel, damage taken by dummies placed along the line and the
+    cone. Asserting the source instead of the outcome is the mistake this
+    project has made three times.
+
+    Also fixed while in there: ability_audit.mjs read handled-ness off the case
+    labels alone, so routing a base through BASE_ALIAS read as a regression.
+    It now resolves aliases, and the fallback count is 28 either way.
+
+[x] The phantom `d1 || N` defaults -- 27 abilities  (FIXED)
+    Where the map explicitly wrote 0 into a data slot, the engine substituted a
+    literal: `d1 || 100`, `d1 || 80`, `d1 || 40`. These are not absent fields
+    coerced to zero. Every one is an explicit mod in data/war3map.w3a.json --
+    Htb1:1=0.0, Ocl1:1=0.0, Ucs1:1=0.0 -- written by the author because the
+    ability's own trigger carries the payload. Two prove the intent outright:
+    A04R writes Osh1:1..5=0 and then Osh1:6..10=1800..3000 in the same field,
+    and A007 does the same at Ucs1:4.
+    `execute` now keeps d1..d4 undefined when the map set nothing and reads
+    them through `slot(v, default)`, so a zero survives and only a genuinely
+    absent field falls back. 29 substitution sites.
+    Count is measured over all 1046 compiled abilities against the case that
+    reads each: 27 of the map's own ability ids carry an explicit all-level zero
+    at a defaulted site. HeroSweep.TXT names 18 of them; the other 9 are ones it
+    never saw -- A00K (Itachi's 츠쿠요미), A02M, A03F, A047, A04A, A04B, A04P,
+    A056 and A05Q.
+    Worth knowing, measured while fixing it: across every ability this map
+    builds, exactly TWO levels reach one of those sites with the slot genuinely
+    absent, and both are retail rows the map never uses. The defaults were never
+    doing the job they look like they are doing. They are kept, because a base
+    row can still reach the site.
+
+[x] War Stomp floored a 0.01 duration to a full second  (FIXED)
+    `Math.max(1, dur)` in the AOws case. A duration of 0.01 is this map saying
+    the base ability does nothing and the trigger does the work -- the silence
+    case in the same file already reads it that way and says so in a comment.
+    Four abilities carry adur = ahdu = 0.01 and were stunning for a second
+    anyway: 초콜릿이 되라, 적주함발, 드래곤회오리 치기, 만뇌.
+    The other five `Math.max(n, dur)` floors were measured too and no ability in
+    this map reaches them with a near-zero duration, so they are left alone.
+
+    Both are asserted in tools/spellshape_test.mjs (32 checks), which casts four
+    zeroed abilities from four bases and four heroes -- one of them, Itachi's
+    츠쿠요미, from the unswept half -- and then casts one that DOES declare its
+    damage, so a blanket "everything deals zero" cannot pass.
+
 PERFORMANCE
 -----------
 [ ] Skinning is the suspected remaining cost, unconfirmed on real hardware

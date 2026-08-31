@@ -301,6 +301,19 @@ second gave 25 of the 26 heroes a collision of `0.1` — the map's backswing val
 real overrides on 127 units. `ua1z` is `Missilespeed`, not the attack's target list, and `umh1` is
 `MissileHoming`, not a damage upgrade.
 
+The same rule binds harder for **ability data slots**, because there is nothing to notice when it
+is broken. Warcraft III stores no "damage" field: it stores `DataA..DataF`, and which of those
+carries the damage depends on the base ability. `Units\\AbilityMetaData.slk` says so — its
+`useSpecific` column names the bases each field belongs to and which slot it occupies — and
+`UI\\WorldEditStrings.txt` turns the field id into the label a map author reads. Blizzard's own
+`Hbz1` is **Number of Waves** and `Hbz2` is **Damage**; reading them the other way round leaves the
+*total* damage correct and the shape unrecognisable, so a 30-wave ultimate ran as 1100 waves and
+bombarded a 600 radius for eighteen minutes with nothing downstream able to tell. `ANcf` names no
+fields of its own at all — its `code` column is `ANbf` — and `ANfd` keeps its damage in slot 3
+behind two graphic-timing fields, so aliasing it to Death Coil made a 10,000-damage ultimate deal
+0.25. `tools/slot_test.mjs` holds every case in `server/abilities.js` to the meaning the map
+declares, and fails if a new case reads a slot without saying what it thinks the slot is.
+
 Experience follows the documented `f(x) = A*f(x-1) + B*x + C` tables. Skill unlocks come from
 each ability's own `reqLevel` / `levelSkip`, not a fixed every-other-level rule, so an ultimate
 can legitimately want hero level 30.

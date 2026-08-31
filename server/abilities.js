@@ -40,19 +40,36 @@ const AURA_BASES = {
 const BASE_ALIAS = {
   AOw2: 'AOws', Awrg: 'AOws', Awrh: 'AOws', Awrs: 'AOws', ACst: 'AOws',
   AOs2: 'AOsh', ACsh: 'AOsh', ANsh: 'AOsh',
-  ACcl: 'AOcl', ANcl: 'AOcl',
-  ANfd: 'AUdc', Afod: 'AUdc', AUfd: 'AUdc',
+  // ANcl was in this line too and is not Chain Lightning: its slots are
+  // Follow Through Time / Target Type / Options and AbilityData.slk comments
+  // it "Illidan - Channel".  Unused by this map, so the alias was only ever a
+  // trap waiting for a port that does use it.
+  ACcl: 'AOcl',
+  Afod: 'AUdc', AUfd: 'AUdc',
   ACfn: 'AUfn', ACdc: 'AUdc', ACtc: 'AHtc',
   ANbf2: 'ANbf',
+  // AbilityData.slk's ANcf row carries `code = ANbf` and the comment
+  // "Chen - Breath of Fire", and every field the map writes onto it is a
+  // Ucs/Nbf one.  It names no fields of its own at all.  It was reaching the
+  // Fan of Knives case, so InuYasha's 800-long cone became a 100-radius ring
+  // around his own feet.
+  ANcf: 'ANbf',
 };
 export function baseOf(ab) { return (ab && (BASE_ALIAS[ab.base] || ab.base)) || ''; }
 
-/** Base abilities `execute` handles with a named behaviour (not the fallback). */
+/**
+ * Base abilities `execute` handles with a named behaviour (not the fallback).
+ *
+ * AOcr is deliberately absent: it used to share the roar case, spending its
+ * Chance to Critical Strike as a rage percentage. It is passive and is read at
+ * attack time out of PROC_BASES instead, which is where its Ocr1..Ocr4 mean
+ * what they say.
+ */
 export const HANDLED_BASES = new Set([
   'AHtb', 'ANtb', 'AUfn', 'AHtc', 'AOws', 'AUcs', 'AOsh', 'AUim', 'ANcs',
-  'ANbr', 'ANbf', 'AEfk', 'ANcf', 'ACtb', 'AOcl', 'AEch', 'AEbl', 'AUin',
+  'ANbr', 'ANbf', 'AEfk', 'ACtb', 'AOcl', 'AEch', 'AEbl', 'AUin', 'ANfd',
   'AOmi', 'AUls', 'ANpi', 'AEim', 'AIim', 'AHhb', 'AOhw', 'AChw', 'AHdi',
-  'ACbh', 'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'AOcr', 'ANdr', 'AUdc',
+  'ACbh', 'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'ANdr', 'AUdc',
   'AHfs', 'ANin', 'ANsl', 'AUsl', 'ACsw', 'AHbz', 'AEsf', 'ANrf',
   'AOww', 'ANht', 'ANcr',
 ]);
@@ -100,6 +117,8 @@ export function isPassive(ab) {
 }
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+/** The map's value for a data slot, falling back only when it set none. */
+const slot = (v, dflt) => (v === undefined || v === null ? dflt : v);
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 /**
@@ -137,7 +156,25 @@ export function execute(w, caster, ab, lvl, o = {}) {
   const i = levelInfo(ab, lvl);
   const tx = o.x ?? (o.target ? o.target.x : caster.x);
   const ty = o.y ?? (o.target ? o.target.y : caster.y);
-  const d1 = i.data1 || 0, d2 = i.data2 || 0, d3 = i.data3 || 0, d4 = i.data4 || 0;
+  // A field the map set to 0 and a field the map never set are different
+  // things, and `||` cannot tell them apart.  27 of this map's own abilities
+  // write an explicit zero into a slot the engine then defaults over --
+  // Htb1:1=0.0, Ocl1:1=0.0, Ucs1:1=0.0, all of them mods in war3map.w3a --
+  // because the ability's own trigger carries the payload.  Luffy's A04R
+  // proves it is deliberate rather than lazy: Osh1:1..5=0 and then
+  // Osh1:6..10=1800..3000 in the same field.  Substituting 80 or 100 there
+  // invents damage the author removed.
+  //
+  // Measured while fixing it: across every ability this map builds, exactly
+  // TWO levels reach one of these sites with the slot genuinely absent, and
+  // both are retail rows the map never uses.  So the `|| 100` defaults were
+  // never doing the job they look like they are doing -- they only ever fired
+  // on a deliberate zero.  They are kept because a base row can still reach
+  // here, and because the fallback belongs at the site that needs it.
+  //
+  // The compiled table keeps the distinction (152 levels omit data1 outright),
+  // so `slot` can read it and d1..d4 stay undefined when the map set nothing.
+  const d1 = i.data1, d2 = i.data2, d3 = i.data3, d4 = i.data4;
   const area = i.area || 0;
   const dur = i.heroDuration || i.duration || 0;
   const enemies = (x, y, r) => w.enemiesInRange(caster, x, y, r);
@@ -148,7 +185,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'AHtb': case 'ANtb': {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
-      w.damage(caster, t, d1 || 100, { spell: true });
+      w.damage(caster, t, slot(d1, 100), { spell: true });
       if (dur > 0) w.applyBuff(t, { kind: 'stun', until: w.now + dur * 1000 });
       return { ok: true };
     }
@@ -168,16 +205,19 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'AUfa': case 'AUfu': case 'ACfa': {
       const t = o.target || caster;
       w.applyBuff(t, { kind: 'armor', code: i.buff || null, armor: d2,
-                       until: w.now + (d1 || 0) * 1000 });
+                       until: w.now + slot(d1, 0) * 1000 });
       return { ok: true };
     }
     // ---- point AoE damage + slow (Frost Nova)
     case 'AUfn': {
-      // field 1 is the headline damage the map scales per level; field 2, when the
-      // map supplies it, is the reduced splash applied to everyone else.
+      // Ufn1 is "Area of Effect Damage" and Ufn2 "Specific Target Damage", so
+      // the unit actually clicked takes slot 2 and the splash takes slot 1 --
+      // the retail Lich carries 50 and 100 in exactly that order, and a nova
+      // that splashed harder than it hit would be the wrong way round.  This
+      // block had them reversed.
       for (const e of enemies(tx, ty, area || 200)) {
-        const primary = !o.target || e === o.target;
-        const dmg = primary ? (d1 || 100) : (d2 || d1 || 50);
+        const primary = !!o.target && e === o.target;
+        const dmg = primary ? slot(d2, slot(d1, 100)) : slot(d1, 50);
         w.damage(caster, e, dmg, { spell: true });
         if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.4, until: w.now + dur * 1000 });
       }
@@ -186,34 +226,62 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // ---- caster-centred AoE + slow (Thunder Clap / War Stomp)
     case 'AHtc': case 'AOws': {
       for (const e of enemies(caster.x, caster.y, area || 300)) {
-        w.damage(caster, e, d1 || 80, { spell: true });
-        if (B === 'AOws') w.applyBuff(e, { kind: 'stun', until: w.now + Math.max(1, dur) * 1000 });
-        else if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.25, until: w.now + dur * 1000 });
+        w.damage(caster, e, slot(d1, 80), { spell: true });
+        // A duration of 0.01 is this map saying "the base does nothing here,
+        // the trigger does the work" -- the same reading the silence case below
+        // already applies.  Flooring it to a second gave four War Stomps a
+        // one-second stun the map had deliberately removed: 초콜릿이 되라,
+        // 적주함발, 드래곤회오리 치기 and 만뇌 all carry adur = ahdu = 0.01.
+        // Below that threshold neither buff lands: a War Stomp must not fall
+        // through to Thunder Clap's slow, which is a different ability.
+        if (dur <= 0.1) continue;
+        if (B === 'AOws') w.applyBuff(e, { kind: 'stun', until: w.now + dur * 1000 });
+        else w.applyBuff(e, { kind: 'slow', pct: 0.25, until: w.now + dur * 1000 });
       }
       return { ok: true };
     }
-    // ---- line damage (Carrion Swarm / Shock Wave / Impale)
-    case 'AUcs': case 'AOsh': case 'AUim': case 'ANcs': {
-      const len = d3 || i.range || 800;
-      const wid = d4 || area || 120;
-      const dmg = B === 'AUim' ? (d3 || d1 || 100) : (d1 || 100);
-      const cap = d2 > 0 ? d2 : Infinity;
-      const ang = Math.atan2(ty - caster.y, tx - caster.x);
-      let total = 0;
-      for (const e of w.allUnits()) {
-        if (!w.hostile(caster, e)) continue;
-        const dx = e.x - caster.x, dy = e.y - caster.y;
-        const along = dx * Math.cos(ang) + dy * Math.sin(ang);
-        const side = Math.abs(-dx * Math.sin(ang) + dy * Math.cos(ang));
-        if (along <= 0 || along > len || side > wid + e.radius) continue;
-        if (total >= cap) break;
-        total += w.damage(caster, e, dmg, { spell: true });
-        if (B === 'AUim' && dur > 0) w.applyBuff(e, { kind: 'stun', until: w.now + dur * 1000 });
-      }
+    // ---- line damage (Carrion Swarm / Shock Wave)
+    //
+    // Ucs1..Ucs4 and Osh1..Osh4 are the same four in the same order: Damage,
+    // Max Damage, Distance, Final Area.  Impale and Cluster Rockets used to
+    // share this block and do not share those meanings -- see the two cases
+    // below.
+    case 'AUcs': case 'AOsh': {
+      w.lineDamage(caster, tx, ty, slot(d1, 100), slot(d3, i.range || 800),
+                   slot(d4, area || 120), d2 > 0 ? d2 : Infinity);
+      return { ok: true };
+    }
+    // ---- Impale: a line, but its slots are not Carrion Swarm's
+    //
+    // Uim1 Wave Distance, Uim2 Wave Time, Uim3 Damage Dealt, Uim4 Air Time.
+    // Read positionally as a Carrion Swarm this ran a 2000-long, 1-wide sliver
+    // capped at 0.3 total damage: Akiha's 고사리싹의 춤 hit nothing at all.
+    // The width is the ability's own area -- Uim has no width field.
+    case 'AUim': {
+      const hit = w.lineDamage(caster, tx, ty, slot(d3, 100), slot(d1, i.range || 800),
+                               area || 120, Infinity);
+      const air = slot(d4, dur);
+      if (air > 0) for (const e of hit) w.applyBuff(e, { kind: 'stun', until: w.now + air * 1000 });
+      return { ok: true };
+    }
+    // ---- Cluster Rockets: a barrage into an area, not a line at all
+    //
+    // Ncs1 Damage Amount, Ncs2 Damage Interval, Ncs3 Missile Count, Ncs4 Max
+    // Damage.  Yusuke's 숏건 fires Ncs3 rockets one every Ncs2 seconds into the
+    // ability's own area; read as a line its Damage Interval became a total
+    // damage cap of 0.3 and it stopped after a single unit.
+    case 'ANcs': {
+      const shots = Math.max(1, Math.round(slot(d3, 1)));
+      w.channel(caster, tx, ty, area || 200, slot(d1, 100), shots, slot(d2, 0.25));
       return { ok: true };
     }
     // ---- cone damage (Breath of Fire / Breath of Frost)
-    case 'ANbr': case 'ANbf': {
+    //
+    // ANbr is NOT one of these.  Its slots are Nbr1 "Damage Increase" then
+    // Roa2..Roa6 -- it is Battle Roar, targets friend and self, and belongs
+    // with the roar case below.  Running it here pointed a hostile cone at
+    // Rob Lucci's 『철괴』 and Byakuya's 섬경 천본앵경엄.
+    case 'ANbf': {
       const len = i.range || 500, half = 0.45;
       const ang = Math.atan2(ty - caster.y, tx - caster.x);
       for (const e of w.allUnits()) {
@@ -224,20 +292,20 @@ export function execute(w, caster, ab, lvl, o = {}) {
         while (da > Math.PI) da -= Math.PI * 2;
         while (da < -Math.PI) da += Math.PI * 2;
         if (Math.abs(da) > half) continue;
-        w.damage(caster, e, d1 || 80, { spell: true });
-        if (B === 'ANbf' && dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.3, until: w.now + dur * 1000 });
+        w.damage(caster, e, slot(d1, 80), { spell: true });
+        if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.3, until: w.now + dur * 1000 });
       }
       return { ok: true };
     }
     // ---- caster AoE nuke (Fan of Knives, Cluster Rockets, Cyclone-likes)
-    case 'AEfk': case 'ANcf': case 'ACtb': {
-      for (const e of enemies(caster.x, caster.y, area || 400)) w.damage(caster, e, d1 || 100, { spell: true });
+    case 'AEfk': case 'ACtb': {
+      for (const e of enemies(caster.x, caster.y, area || 400)) w.damage(caster, e, slot(d1, 100), { spell: true });
       return { ok: true };
     }
     // ---- chain lightning
     case 'AOcl': case 'AEch': {
-      let t = o.target, dmg = d1 || 100;
-      const hops = Math.max(1, d2 || 4);
+      let t = o.target, dmg = slot(d1, 100);
+      const hops = Math.max(1, slot(d2, 4));
       const hit = new Set();
       for (let k = 0; k < hops && t; k++) {
         w.damage(caster, t, dmg, { spell: true });
@@ -264,37 +332,67 @@ export function execute(w, caster, ab, lvl, o = {}) {
       caster.path = null;
       return { ok: true };
     }
-    // ---- channelled area damage (Blizzard, Starfall, Rain of Fire)
-    case 'AHbz': case 'AEsf': case 'ANrf': {
-      const r = area || 250;
-      const waves = Math.max(1, Math.round(d2 || 4));
-      const per = d1 || 40;
-      const cx = B === 'AEsf' ? caster.x : tx, cy = B === 'AEsf' ? caster.y : ty;
-      w.channel(caster, cx, cy, r, per, waves, 1.0);
+    // ---- channelled area damage (Blizzard, Rain of Fire)
+    //
+    // Hbz1 is the WAVE COUNT and Hbz2 the damage per wave, in that order --
+    // AbilityMetaData gives both fields to AHbz, ACbz, ANrf and ACrf, and
+    // WorldEditStrings names them "Number of Waves" and "Damage".  Read the
+    // other way round the total came out right and the shape did not: Nico
+    // Robin's rank-3 시엔플루르, 30 waves of 1100, ran as 1100 waves of 30 and
+    // bombarded a 600 radius for eighteen minutes.  tools/slot_test.mjs now
+    // holds both fields to their declared meaning.
+    //
+    // APPROXIMATION -- the wave INTERVAL is not a field.  Nothing in the w3a,
+    // the SLK or AbilityMetaData carries one for this family: retail spreads
+    // the waves across the ability's own duration, so that is what this does.
+    // It is the map's own two numbers rather than a constant of ours, and it
+    // is right for 보구의 비 (5 waves, adur 10 -> one every 2s); where the map
+    // has zeroed the duration to 0.01 to drive the spell from its own trigger,
+    // the interval falls below a tick and stepChannels fires one wave per tick
+    // regardless, so 시엔플루르's 30 waves land in about a second rather than
+    // over the eighteen minutes the swapped slots produced.
+    case 'AHbz': case 'ANrf': {
+      const waves = Math.max(1, Math.round(slot(d1, 4)));
+      const per = slot(d2, 40);
+      const secs = i.duration || i.heroDuration || 0;
+      w.channel(caster, tx, ty, area || 250, per, waves, secs > 0 ? secs / waves : 0);
+      return { ok: true };
+    }
+    // ---- Starfall: its own fields, not Blizzard's
+    //
+    // Esf1 Damage Dealt, Esf2 Damage Interval, Esf3 Building Reduction -- no
+    // wave count, no shards.  It shared the block above until the slot check
+    // pointed out that AbilityMetaData never gives AEsf an Hbz field.  Unused
+    // by this map; kept honest so it stays that way.
+    case 'AEsf': {
+      const every = slot(d2, 1);
+      const secs = i.duration || i.heroDuration || 0;
+      w.channel(caster, caster.x, caster.y, area || 250, slot(d1, 40),
+                Math.max(1, Math.round(secs / every)), every, true);
       return { ok: true };
     }
     // ---- Bladestorm: damage everything around the caster for a duration
     case 'AOww': {
-      w.channel(caster, caster.x, caster.y, area || 200, d1 || 75,
+      w.channel(caster, caster.x, caster.y, area || 200, slot(d1, 75),
                 Math.max(1, Math.round(dur || 6)), 1.0, true);
       return { ok: true };
     }
     // ---- Howl of Terror: cut nearby enemies' damage
     case 'ANht': {
       for (const e of enemies(caster.x, caster.y, area || 500))
-        w.applyBuff(e, { kind: 'weaken', pct: (Math.abs(d1) || 25) / 100,
+        w.applyBuff(e, { kind: 'weaken', pct: Math.abs(slot(d1, 25)) / 100,
                          until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
     // ---- summons
     case 'AUin': {                             // Inferno: summon + impact damage
-      for (const e of enemies(tx, ty, area || 200)) w.damage(caster, e, d1 || 50, { spell: true });
+      for (const e of enemies(tx, ty, area || 200)) w.damage(caster, e, slot(d1, 50), { spell: true });
       // the map can re-skin what Inferno drops; its own UnitID says which
       w.summon(caster, i.unit || 'ninf', tx, ty, dur || 60);
       return { ok: true };
     }
     case 'AOmi': {                             // Mirror Image
-      const n = Math.max(1, d1 || 1);
+      const n = Math.max(1, slot(d1, 1));
       for (let k = 0; k < n; k++) {
         const a = (k / n) * Math.PI * 2;
         w.summon(caster, caster.typeKey, caster.x + Math.cos(a) * 120,
@@ -313,20 +411,20 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // damage is the petals' own attack out of their unit type rather than a
     // number of ours.
     case 'AUls': {
-      const n = Math.round(d1 || 0);
+      const n = Math.round(slot(d1, 0));
       if (!i.unit || n < 1) return { ok: false, reason: 'no swarm in the data' };
-      const made = w.releaseSwarm(caster, i.unit, n, d2 || 0.05, dur || 5);
+      const made = w.releaseSwarm(caster, i.unit, n, slot(d2, 0.05), dur || 5);
       return made ? { ok: true, summoned: made } : { ok: false, reason: 'no swarm unit' };
     }
     // ---- damage-over-time aura the unit carries (Immolation)
     case 'ANpi': case 'AEim': case 'AIim': {
-      caster.immolation = { dps: d1 || 10, area: area || 200 };
+      caster.immolation = { dps: slot(d1, 10), area: area || 200 };
       return { ok: true };
     }
     // ---- heals / buffs
     case 'AHhb': case 'AOhw': case 'AChw': {
       const t = (o.target && !w.hostile(caster, o.target)) ? o.target : caster;
-      w.heal(t, d1 || 200);
+      w.heal(t, slot(d1, 200));
       return { ok: true };
     }
     case 'AHdi': case 'ACbh': case 'AHbn': {
@@ -344,18 +442,30 @@ export function execute(w, caster, ab, lvl, o = {}) {
       w.applyBuff(caster, { kind: 'morph', pct: 0.35, until: w.now + Math.max(15, dur) * 1000 });
       return { ok: true };
     }
-    case 'ACro': case 'AOcr': {                // Roar-likes: friendly damage buff
+    case 'ACro': case 'ANbr': {                // Roar-likes: friendly damage buff
       for (const a of w.alliesInRange(caster, caster.x, caster.y, area || 500))
-        w.applyBuff(a, { kind: 'rage', pct: (d1 || 25) / 100, until: w.now + Math.max(5, dur) * 1000 });
+        w.applyBuff(a, { kind: 'rage', pct: slot(d1, 25) / 100, until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
     // (AOsf -- Spirit Wolves -- used to sit in this group, which meant a spell
     //  whose own data names the wolves to summon threw a damage number instead.)
+    // ---- Finger of Death
+    //
+    // Nfd1 Graphic Delay, Nfd2 Graphic Duration, Nfd3 Damage.  It was aliased
+    // to Death Coil, whose single slot IS its damage, so slot 1 was spent as
+    // the damage figure: Sandaime's 금술오의-시귀봉진 carries 10000 in Nfd3 and
+    // 0.25 in Nfd1, and dealt the 0.25.
+    case 'ANfd': {
+      const t = o.target;
+      if (!t) return { ok: false, reason: 'need target' };
+      if (d3 > 0) w.damage(caster, t, d3, { spell: true });
+      return { ok: true };
+    }
     case 'ANdr': case 'AUdc': case 'AHfs': case 'ANin': {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
-      w.damage(caster, t, d1 || 120, { spell: true });
-      if (B === 'ANdr') w.heal(caster, d1 || 120);
+      w.damage(caster, t, slot(d1, 120), { spell: true });
+      if (B === 'ANdr') w.heal(caster, slot(d1, 120));
       return { ok: true };
     }
     // ---- Silence: the area cannot cast until it wears off.  FOC zeroes this
@@ -373,7 +483,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     }
     case 'ANsl': case 'AUsl': case 'ACsw': {
       for (const e of enemies(tx, ty, area || 250))
-        w.applyBuff(e, { kind: 'slow', pct: (d1 || 30) / 100, until: w.now + Math.max(4, dur) * 1000 });
+        w.applyBuff(e, { kind: 'slow', pct: slot(d1, 30) / 100, until: w.now + Math.max(4, dur) * 1000 });
       return { ok: true };
     }
     default: {

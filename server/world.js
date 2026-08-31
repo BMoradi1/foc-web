@@ -1343,6 +1343,34 @@ export class World {
   }
 
   /** Repeated area damage over time, as channelled spells do. */
+  /**
+   * A damage line out of the caster toward a point: everything hostile within
+   * `width` of the line and `length` along it, in the order the world holds
+   * them, until `cap` total damage has been dealt.
+   *
+   * Shared by Carrion Swarm, Shock Wave and Impale, which agree on the shape
+   * and disagree completely on which data slot carries which of these four
+   * numbers -- so the caller resolves the slots and this only draws the line.
+   * Returns the units actually hit, for callers that also stun them.
+   */
+  lineDamage(caster, tx, ty, damage, length, width, cap = Infinity) {
+    const ang = Math.atan2(ty - caster.y, tx - caster.x);
+    const cos = Math.cos(ang), sin = Math.sin(ang);
+    const hit = [];
+    let total = 0;
+    for (const e of this.allUnits()) {
+      if (!this.hostile(caster, e)) continue;
+      const dx = e.x - caster.x, dy = e.y - caster.y;
+      const along = dx * cos + dy * sin;
+      const side = Math.abs(-dx * sin + dy * cos);
+      if (along <= 0 || along > length || side > width + e.radius) continue;
+      if (total >= cap) break;
+      total += this.damage(caster, e, damage, { spell: true });
+      hit.push(e);
+    }
+    return hit;
+  }
+
   channel(caster, x, y, radius, perWave, waves, interval, followCaster = false) {
     this.channels = this.channels || [];
     this.channels.push({ caster, x, y, radius, perWave, left: waves,
