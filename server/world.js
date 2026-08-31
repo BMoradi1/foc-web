@@ -7,7 +7,7 @@ import { Grid } from './pathing.js';
 import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
-         auraEffects, itemBonuses, itemUse, abilityBonuses } from './abilities.js';
+         auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs } from './abilities.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const readJSON = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), 'utf8'));
@@ -1349,6 +1349,40 @@ export class World {
                          nextAt: this.now, interval: interval * 1000, followCaster });
   }
 
+  /**
+   * Locust Swarm's release, from the ability's own fields: Uls1 units of type
+   * Ulsu, one every Uls2 seconds, all expiring together when the swarm's
+   * duration runs out.  They are ordinary units after that -- they acquire and
+   * attack with the damage their own unit type carries, which is where the
+   * swarm's damage comes from.  Nothing here is a damage figure of our own.
+   */
+  releaseSwarm(caster, typeKey, count, interval, seconds) {
+    if (!this.type(typeKey) || count < 1) return 0;
+    this.swarms = this.swarms || [];
+    this.swarms.push({ caster, typeKey, left: Math.round(count),
+                       interval: Math.max(10, (interval || 0.05) * 1000),
+                       nextAt: this.now, until: this.now + Math.max(1, seconds) * 1000 });
+    return Math.round(count);
+  }
+
+  stepSwarms() {
+    if (!this.swarms || !this.swarms.length) return;
+    for (const s of this.swarms) {
+      if (s.left <= 0) continue;
+      if (!s.caster.alive || this.now >= s.until) { s.left = 0; continue; }
+      while (s.left > 0 && this.now >= s.nextAt) {
+        s.nextAt += s.interval;
+        s.left--;
+        const a = Math.random() * Math.PI * 2, r = 24 + Math.random() * 64;
+        const u = this.summon(s.caster, s.typeKey,
+                              s.caster.x + Math.cos(a) * r, s.caster.y + Math.sin(a) * r,
+                              Math.max(1, (s.until - this.now) / 1000));
+        if (!u) { s.left = 0; break; }
+      }
+    }
+    this.swarms = this.swarms.filter((s) => s.left > 0);
+  }
+
   stepChannels() {
     if (!this.channels || !this.channels.length) return;
     for (const c of this.channels) {
@@ -1581,6 +1615,7 @@ export class World {
       this.stepMove(u);
       this.stepAttack(u);
     }
+    this.stepSwarms();
     this.stepChannels();
     this.stepFountains();
     this.separate(alive);
@@ -1624,7 +1659,7 @@ export class World {
 
     let best = null, bd = Infinity;
     for (const o of this.enumInRange(u.x, u.y, u.acquisitionRange)) {
-      if (!o.alive || o === u || o.hidden || o.isBuilding) continue;
+      if (!o.alive || o === u || o.hidden || o.isBuilding || this.isLocust(o)) continue;
       if (this.isAlly(this.playerOf(u), this.playerOf(o))) continue;
       // no point acquiring prey that already stands outside this unit's post
       if (Math.hypot(o.x - u.homeX, o.y - u.homeY) > MAX_GUARD_DIST) continue;
@@ -1817,7 +1852,7 @@ export class World {
     if (!t || !t.alive) {
       let bd = Infinity; t = null;
       for (const o of this.units.values()) {
-        if (!o.alive || o === u || o.hidden) continue;
+        if (!o.alive || o === u || o.hidden || this.isLocust(o)) continue;
         if (this.isAlly(this.playerOf(u), this.playerOf(o))) continue;
         const d = Math.hypot(o.x - u.x, o.y - u.y);
         if (d < u.atkRange + o.radius + 40 && d < bd) { bd = d; t = o; }
@@ -1842,11 +1877,26 @@ export class World {
       if (hs) this.emit({ t: 'sound', path: hs.path, x: victim.x, y: victim.y,
                           vol: hs.vol * 0.7, pitch: hs.pitch });
       if (!src) return;                        // the shooter died mid-flight
+      // The defender's chance first: an evaded attack deals nothing, so it has
+      // to short-circuit before cleave as well as before the hit itself.
+      const def = attackProcs(this, victim);
+      if (def.evade > 0 && Math.random() < def.evade) {
+        this.emit({ t: 'miss', id: victim.id });
+        return;
+      }
+      // ...then the attacker's.  The multiplier goes on the roll rather than on
+      // the result, because damage() is where armour applies and a crit is
+      // struck before armour reads it.
+      const atk = attackProcs(this, src);
+      let swing = amount + atk.bonus;
+      const crit = atk.chance > 0 && Math.random() * 100 < atk.chance;
+      if (crit) swing *= atk.mult || 1;
       if (src.cleave) {
         for (const e of this.enemiesInRange(src, victim.x, victim.y, 150))
           if (e !== victim) this.damage(src, e, amount * src.cleave, {});
       }
-      const dealt = this.damage(src, victim, amount, {});
+      const dealt = this.damage(src, victim, swing, {});
+      if (crit && dealt > 0) this.emit({ t: 'crit', id: victim.id, n: Math.round(dealt) });
       if (src.lifesteal && dealt > 0) this.heal(src, dealt * src.lifesteal);
     };
     if (u.missileSpeed > 0 && this.launchMissile(u, t, {
@@ -1942,6 +1992,33 @@ export class World {
   }
 
   /** Locust, and no model to draw: an invisible spell-carrier, not a unit. */
+  /**
+   * APPROXIMATION -- NOT ESTABLISHED FROM THE MAP OR THE MPQs.
+   *
+   * Warcraft III's Locust ability makes a unit unselectable and untargetable,
+   * which is why a Locust Swarm's fifty petals do not pull every enemy in the
+   * lane onto themselves.  The extracted data does not say so: Aloc has a row
+   * in CommonAbilityStrings with Name=Locust, no Func entry, no tooltip and no
+   * data fields.  Everything else about the swarm is sourced; this one line is
+   * engine behaviour taken on knowledge, and it is here because the visible
+   * alternative -- every hero abandoning its target to swing at petals -- is
+   * plainly not the map's behaviour either.
+   *
+   * Deliberately narrow: it removes locusts from auto-attack ACQUISITION only.
+   * It does not make them immune to area damage, because whether Warcraft III
+   * does that is a second question the files also do not answer.
+   */
+  isLocust(u) {
+    if (!u) return false;
+    if (this._locustTypes === undefined) this._locustTypes = new Map();
+    let l = this._locustTypes.get(u.typeKey);
+    if (l === undefined) {
+      l = ((this.type(u.typeId) || {}).abilities || []).includes('Aloc');
+      this._locustTypes.set(u.typeKey, l);
+    }
+    return l;
+  }
+
   isDummy(u) {
     if (this._dummyTypes === undefined) this._dummyTypes = new Map();
     let d = this._dummyTypes.get(u.typeKey);

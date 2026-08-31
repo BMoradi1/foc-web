@@ -302,9 +302,21 @@ export function execute(w, caster, ab, lvl, o = {}) {
       }
       return { ok: true };
     }
-    case 'AUls': {                             // Locust Swarm
-      for (const e of enemies(caster.x, caster.y, area || 500)) w.damage(caster, e, d1 || 25, { spell: true });
-      return { ok: true };
+    // ---- Locust Swarm: the swarm IS the spell, and the fields say so
+    //
+    // AbilityMetaData's Uls1..Uls5 resolve through WorldEditStrings to Number
+    // of Swarm Units, Unit Release Interval, Max Swarm Units Per Target,
+    // Damage Return Factor and Damage Return Threshold.  This case used to pass
+    // d1 to w.damage -- dealing the petal COUNT as a damage figure, one
+    // invisible pulse of 50 or 100.  Byakuya's A00T is the only caster in this
+    // map: 50 uloc at ranks 1-5, 100 u000 at 6-10, one every 0.05 s, and the
+    // damage is the petals' own attack out of their unit type rather than a
+    // number of ours.
+    case 'AUls': {
+      const n = Math.round(d1 || 0);
+      if (!i.unit || n < 1) return { ok: false, reason: 'no swarm in the data' };
+      const made = w.releaseSwarm(caster, i.unit, n, d2 || 0.05, dur || 5);
+      return made ? { ok: true, summoned: made } : { ok: false, reason: 'no swarm unit' };
     }
     // ---- damage-over-time aura the unit carries (Immolation)
     case 'ANpi': case 'AEim': case 'AIim': {
@@ -492,6 +504,51 @@ export function abilityBonuses(w, u) {
     out.agi += d.data1 || 0;
     out.intel += d.data2 || 0;
     out.str += d.data3 || 0;
+  }
+  return out;
+}
+
+/**
+ * What a unit's own abilities do to an ordinary attack it makes or takes.
+ *
+ * ACct (Critical Strike), ANdb (Drunken Brawler) and AOcr (Blade Master) share
+ * one field set -- AbilityMetaData's useSpecific column lists exactly those
+ * three against Ocr1..Ocr5, and WorldEditStrings names them:
+ *
+ *   Ocr1  data1   Chance to Critical Strike   percent, minVal 0 maxVal 100
+ *   Ocr2  data2   Damage Multiplier
+ *   Ocr3  data3   Damage Bonus                zero on every ability in this map
+ *   Ocr4  data4   Chance to Evade             fraction, minVal 0 maxVal 1
+ *
+ * The two ranges are what settle the units without guessing: a chance out of
+ * 100 on one line and out of 1 on the next.  The author's own tooltips agree
+ * -- A02W level 1 reads "피할확률 7% / 치명타확률 5% / 치명타 배수 1.25배"
+ * against data4 0.07, data1 5, data2 1.25.
+ *
+ * This is read at attack time rather than stashed by recalc, because recalc
+ * returns early on anything that is not a hero and every carrier here except
+ * Itachi and Shiki is a summon.
+ *
+ * A051 블러디 어택 needs no special case: the map zeroed its Ocr1 because it
+ * runs that proc itself in war3map.j on EVENT_PLAYER_UNIT_ATTACKED, and a
+ * chance of 0 never fires.
+ */
+const PROC_BASES = new Set(['ACct', 'ANdb', 'AOcr']);
+
+export function attackProcs(w, u) {
+  const out = { chance: 0, mult: 1, bonus: 0, evade: 0 };
+  if (!u || !u.abilities) return out;
+  for (const [key, lvl] of u.abilities) {
+    if (lvl < 1) continue;
+    const ab = ABILS[w.abilKey(key)];
+    if (!ab || !PROC_BASES.has(baseOf(ab))) continue;
+    const d = levelInfo(ab, lvl);
+    // several of these on one unit is not a case this map produces; taking the
+    // strongest is a choice, and the alternative -- rolling each -- would be
+    // inventing a stacking rule the data does not state
+    if ((d.data1 || 0) > out.chance) { out.chance = d.data1 || 0; out.mult = d.data2 || 1; }
+    out.bonus += d.data3 || 0;
+    out.evade = Math.max(out.evade, d.data4 || 0);
   }
   return out;
 }

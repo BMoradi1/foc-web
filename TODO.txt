@@ -496,7 +496,8 @@ Warcraft III's own screenshot still has and we do not:
 
 GAMEPLAY / INPUT
 ----------------
-[ ] Senbonzakura spawns nothing, and deals its petal count as damage
+[x] Senbonzakura spawned nothing and dealt its petal count as damage  (FIXED,
+    except the petals' burn -- see NOT DONE)
     Researched 2026-08-30; every number below re-verified against the files
     before being written here, because the audit entry this replaces was wrong
     about the central one.
@@ -541,10 +542,34 @@ GAMEPLAY / INPUT
     strings files or the map's own tooltips discriminates. Also unstated: the
     life-return arithmetic behind Uls4/Uls5, and the petals' target-selection
     rule beyond the 12 cap.
-    So the swarm can be built exactly and the burn cannot. Worth doing in that
-    order rather than waiting for the interval.
+    So the swarm was built exactly and the burn was not.
 
-[ ] On-attack procs: one hook, but not the four bases it looked like
+    DONE: the AUls case now releases Uls1 petals of type Ulsu, one every Uls2
+    seconds, all expiring when the duration runs out, and the damage is the
+    petals' own attack out of their unit type -- no damage figure of ours
+    anywhere in it. Measured: 50 petals released over 2.43s against the 2.50s
+    the data implies, gone by the end of the 5s. releaseSwarm/stepSwarms in
+    world.js, beside the existing channel scheduler.
+    tools/swarm_test.mjs, 18 checks.
+
+    ONE APPROXIMATION, marked in the code at world.js isLocust: Warcraft III's
+    Locust makes a unit untargetable, and the extracted data does not say so --
+    Aloc has Name=Locust in CommonAbilityStrings and no Func entry, no tooltip
+    and no data fields. Without it, fifty petals are fifty valid targets and
+    every hero in the lane abandons what it was hitting to swing at them, which
+    is plainly not the map's behaviour either. So locusts are excluded from
+    auto-attack acquisition and from nothing else -- not from area damage,
+    because whether Warcraft III exempts them there is a second question the
+    files also do not answer.
+
+    NOT DONE: the petals' immolation (A02G/A02H), for the interval reason
+    above, and the Uls4/Uls5 life return, whose arithmetic is stated nowhere.
+    Both leave the swarm quieter than the real spell rather than wrong.
+    Worth watching: 50-100 extra units per cast, against a frame that already
+    costs 45 ms at 307 units. Not measured under load yet.
+
+[x] On-attack procs  (FIXED for two of the four bases; the other two cannot
+    be built from the data -- see below)
     Researched 2026-08-30. ACct, ANdb, Alit and Aspo account for 10 of the
     audit's 13 dead abilities, and the plan of "one on-attack hook covers all
     four" does not survive the data.
@@ -585,8 +610,41 @@ GAMEPLAY / INPUT
     pattern used for lifesteal will not reach them; and auraEffects is
     imported by world.js and never called, so it is not a model to copy.
 
-    Highest value, lowest risk: the ACct/ANdb crit multiplier alone, looked up
-    at attack time. Evade has no site in world.js today.
+    DONE: ACct and ANdb, through attackProcs in abilities.js -- a fourth
+    passive table beside ATTR_SKILLS, AURA_BASES and ITEM_BONUS, but read at
+    attack time rather than stashed by recalc, because recalc returns early on
+    non-heroes and every carrier but Itachi and Shiki is a summon. The
+    multiplier goes on the swing inside stepAttack's `land` closure, the one
+    point melee and missile attacks share, before damage() reads armour -- a
+    crit is struck before armour, not after. Evade got a site at the same
+    place: it has to stop the hit entirely, so it short-circuits ahead of
+    cleave as well.
+    A051 needed no special case in the end. Its chance is zero and zero cannot
+    fire; the test pins that, so a later "fix" of the zero fails there rather
+    than double-critting in play.
+    The audit's dead list goes 13 -> 5 (ability_audit.mjs taught to count the
+    new table). tools/proc_test.mjs, 20 checks, driving the real attack path
+    with Math.random stubbed so the roll is a decision rather than a coin --
+    and with the damage dice taken out, since the same stub feeds them and
+    would otherwise be measured instead of the proc. A losing roll deals
+    exactly the plain swing, a winning one exactly x4.000.
+
+    NOT DONE, and neither can be built from the data:
+      - Alit. Its only two fields are Graphic Delay and Graphic Duration.
+        There is no damage and no chance in the ability, in the map's
+        overrides, or in AbilityMetaData. It is a per-attack lightning strip
+        and world.js can already emit one, but what the delay is measured from
+        and whether the strip runs attacker-to-target are unstated, so even the
+        graphic would be half invented.
+      - Aspo. Damage per second (4) and duration (5s, 1s on heroes) are solid,
+        but whether Spo2 0.5 and Spo3 0.25 are multipliers or reductions is
+        not stated, and Spo4 = 1 reads as enum index "Movement" or bitmask bit
+        0 "Damage" depending on how it is taken. It also needs a per-buff
+        damage-over-time tick, an attack-speed buff channel and a slow that
+        works on non-heroes, none of which exist. One live carrier.
+      - A01W 맨트라 (AEev, evasion) is still dead: it is the attacker's miss
+        chance rather than the defender's evade, and has no field in common
+        with Ocr4.
 
 [x] Craters did nothing -- Kisame's water prison left the ground flat  (FIXED,
     with one approximated part, marked below and in the code)

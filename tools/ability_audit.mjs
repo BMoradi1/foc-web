@@ -51,6 +51,10 @@ const setOf = (name) => {
   return new Set(m ? [...m[1].matchAll(/'(\w{4})'|^ {2}(\w{4}):/gm)].map(x => x[1] || x[2]) : []);
 };
 const ATTR = setOf('ATTR_SKILLS'), AURAS = setOf('AURA_BASES'), ITEMS = setOf('ITEM_BONUS');
+// PROC_BASES is read at attack time rather than through recalc, because every
+// carrier but two is a summon and recalc returns early on non-heroes -- so it
+// is a fourth passive-handling table and has to count as one here.
+const PROCS = setOf('PROC_BASES');
 
 // ------------------------------------------------------- what the map reaches
 // Every identifier the map script calls, then the transitive closure through
@@ -103,12 +107,13 @@ for (const [id, via] of [...pool].sort()) {
   const passive = isPassive(ab);
   const summon  = !!(i.unit && TYPES[i.unit]);
   const damage  = !passive && (i.data1 || 0) > 0;
-  const handledPassive = ATTR.has(base) || AURAS.has(base) || ITEMS.has(base);
+  const handledPassive = ATTR.has(base) || AURAS.has(base) || ITEMS.has(base) || PROCS.has(base);
   const name = (ab.name || '').trim();
   if (!CASES.has(base) && !inTrigger) {
     if (summon || damage || handledPassive)
       approx.push([id, base, via, name,
-                   summon ? 'summon fallback' : damage ? 'damage fallback' : 'attribute/aura table']);
+                   summon ? 'summon fallback' : damage ? 'damage fallback'
+                          : PROCS.has(base) ? 'on-attack proc table' : 'attribute/aura table']);
     else dead.push([id, base, via, name, passive ? 'passive nothing reads' : 'active, no data hook']);
   }
 }
