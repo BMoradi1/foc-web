@@ -496,6 +496,166 @@ Warcraft III's own screenshot still has and we do not:
 
 GAMEPLAY / INPUT
 ----------------
+[ ] Senbonzakura spawns nothing, and deals its petal count as damage
+    Researched 2026-08-30; every number below re-verified against the files
+    before being written here, because the audit entry this replaces was wrong
+    about the central one.
+
+    A00T 시해:천본앵, Byakuya H00N, slot W, ten levels from hero level 5 every
+    four levels, no mana cost at any rank. Base AUls, Crypt Lord's Locust
+    Swarm: N flying units are released from the caster over time, auto-attack
+    what is near, and return a fraction of their damage to him as life.
+
+    AbilityMetaData's Uls1..Uls5 resolve through WorldEditStrings to:
+      Uls1 data1  Number of Swarm Units        50 (rank 1-5) / 100 (6-10)
+      Uls2 data2  Unit Release Interval        0.05 s
+      Uls3 data3  Max Swarm Units Per Target   12
+      Uls4 data4  Damage Return Factor         0.1
+      Uls5 data5  Damage Return Threshold      20
+      Ulsu unit   Swarm Unit Type              uloc (1-5) / u000 (6-10)
+    with area 800/1000 and duration 5-25 s / 20-60 s.
+
+    AbilityAudit.txt read data3 as the petal count. It is the per-target cap;
+    corrected there. The live defect is worse than a missing animation:
+    abilities.js's AUls case passes d1 to w.damage, and d1 is Uls1, so casting
+    it deals one instant invisible pulse of 50 or 100 -- the petal count used
+    as a damage figure. The data-driven summon path (summonFrom, which already
+    reads count from data1 and the type from `unit`) is never reached because
+    the case pre-empts it.
+
+    The petals are fully present and need no invention: uloc and u000 are the
+    stock Blizzard locust with the map's edits, and the only differences
+    between them are attack damage (150 vs 600), the immolation they carry,
+    the name and the race. Both are Aloc, neither is invulnerable, both have a
+    real model and icon already converted.
+
+    NOT ESTABLISHED, and it is the number that decides the spell's whole
+    output: the tick interval of the petals' immolation (A02H 150 on uloc,
+    A02G 200 on u000, both radius 500). Apig's three fields are Damage per
+    Interval, Mana Drained per Second and Buffer Mana Required -- no period
+    among them. Blizzard's own tooltips call the field "damage per second",
+    which fits a hard-coded 1 s; but every retail immolation also carries
+    Dur = 1, which fits Dur being the interval just as well, and this map
+    overrode Dur to 10 on both petals. The two readings differ by 10x on 50 to
+    100 petals at once. Nothing in AbilityMetaData, WorldEditStrings, the
+    strings files or the map's own tooltips discriminates. Also unstated: the
+    life-return arithmetic behind Uls4/Uls5, and the petals' target-selection
+    rule beyond the 12 cap.
+    So the swarm can be built exactly and the burn cannot. Worth doing in that
+    order rather than waiting for the interval.
+
+[ ] On-attack procs: one hook, but not the four bases it looked like
+    Researched 2026-08-30. ACct, ANdb, Alit and Aspo account for 10 of the
+    audit's 13 dead abilities, and the plan of "one on-attack hook covers all
+    four" does not survive the data.
+
+    ACct and ANdb share AOcr's field set, confirmed through AbilityMetaData's
+    useSpecific column and WorldEditStrings:
+      Ocr1 data1  Chance to Critical Strike (percent, 0-100)
+      Ocr2 data2  Damage Multiplier
+      Ocr3 data3  Damage Bonus          -- zero on every ability here
+      Ocr4 data4  Chance to Evade (fraction, 0-1)
+    Alucard's five hellhounds run 20%/x2 through 60%/x4. Itachi's A02W and
+    Shiki's A066 are ANdb and are crit-plus-evade, not an orb: 5/8/10% and
+    8/11/14% at x1.25/1.5/1.75, with 7/14/21% evade.
+
+    Two things that would have been got wrong by building the obvious thing:
+      - A051 블러디 어택 must be left alone. Its Ocr1 is overridden to exactly
+        0, because the map does that proc itself in war3map.j on
+        EVENT_PLAYER_UNIT_ATTACKED -- 50% for Alucard's agility -- and
+        world.js already fires that event. An engine crit would double it.
+      - Alit is not a damage ability at all. Its only two fields are Graphic
+        Delay and Graphic Duration; there is no damage and no chance anywhere
+        in it or in the map's overrides. It is a per-attack lightning strip,
+        and world.js can already emit one. Inventing a damage figure for it
+        would be inventing a mechanic.
+
+    Aspo has one live carrier (Orochimaru's n00A) and needs machinery that
+    does not exist: a per-buff damage-over-time tick, an attack-speed buff
+    channel, and a slow that works on non-heroes. Its damage (4/s) and
+    duration (5 s, 1 s on heroes) are solid; NOT ESTABLISHED is whether
+    Spo2 0.5 and Spo3 0.25 are multipliers or reductions, and whether
+    Spo4 = 1 is the enum index Movement or bitmask bit 0 Damage.
+
+    The hook site is settled: world.js's `land` closure inside stepAttack, the
+    one point both melee and missile attacks pass through, already hosting
+    cleave and lifesteal, with attacker, victim and the damage roll in hand
+    and no spell flag. Two constraints found with it -- recalc returns early
+    on non-heroes and every carrier here is a summon, so the recalc-stash
+    pattern used for lifesteal will not reach them; and auraEffects is
+    imported by world.js and never called, so it is not a model to copy.
+
+    Highest value, lowest risk: the ACct/ANdb crit multiplier alone, looked up
+    at attack time. Evade has no site in world.js today.
+
+[x] Craters did nothing -- Kisame's water prison left the ground flat  (FIXED,
+    with one approximated part, marked below and in the code)
+    Reported from play. The map makes six TerrainDeform calls and four are
+    craters: Gaara's A03O 사막의 수록 and Kisame's A069 개미 물지옥 each dig one
+    and cancel it about ten seconds later. TerrainDeformCrater was
+    `() => null`, so nothing moved.
+
+    What the files establish exactly, and what the code now does:
+      - the route. tft_supplement.j's native lines are NOT the hook: boot.js
+        loads the supplement only when common.j is the Reign of Chaos one, and
+        with the MPQs extracted it is TFT. The live path is war3map.j ->
+        Blizzard.j's real TerrainDeformationCraterBJ -> common.j's native ->
+        the engine. So the wrapper's arithmetic is the map's own script
+        running, not something reimplemented: duration reaches the native in
+        milliseconds.
+      - the arguments. All four calls are literals and none scales with level:
+        radius 400, depth +400 then -400 at the same point, 500 ms, permanent.
+      - the direction, which decides whether a water prison is a pit or a
+        hill. Blizzard states it rather than leaving it to be inferred:
+        UI/TriggerStrings.txt's TerrainDeformationCraterBJHint reads "Depth may
+        be negative for bumps", so a positive depth digs. That file is the
+        World Editor's own help text, shipped inside the MPQ -- the same class
+        of source that settled Ore1 for Reincarnation.
+      - which vertices move. The client terrain is a real heightfield, one
+        vertex per w3e grid vertex at 128 units, and render.js keeps the array
+        it was built from. heightAt and pickGround both read it, so units,
+        doodads, missiles and clicks follow the new ground for free.
+
+    APPROXIMATED, and the only part that is: the radial falloff curve.
+    TerrainDeformCrater is a bare `native` line in common.j and the shape it
+    applies is in Blizzard's engine binary, which is not in war3.mpq or any of
+    the three expansion archives -- the MPQs are data. render.js uses a raised
+    cosine (full depth at the centre, nothing at the rim, zero slope at both
+    ends) through a function named APPROX_CRATER_FALLOFF, with the reasoning
+    on it. It is not claimed to be Warcraft III's, and settling it needs a
+    measurement against the retail game rather than another reading of the
+    files. Nothing else in the crater is a guess.
+
+    What makes shipping the approximation safe: the map always cancels a
+    crater with an equal and opposite one at the same point and radius, and
+    displacement is linear in depth, so whatever curve is used the undo
+    restores the original heights exactly. The error is bounded to how the
+    hole looks for ten seconds; it cannot accumulate and dent the map.
+
+    Server-side there is nothing to keep in step. The engine's own heightfield
+    is read by exactly one native, GetLocationZ, and war3map.j never calls it
+    (0 occurrences), so the deformation is the client's alone and no
+    simulation state depends on it.
+    tools/crater_test.mjs, 17 checks, asserting the heightfield's own numbers
+    and the drawn mesh's vertex rather than that a function was called -- a
+    stub passes the latter. The check that matters is the last one: dig, then
+    undo, and the vertex has to come back to where it started to four decimal
+    places.
+
+    NOT DONE, deliberately:
+      - Ripple. The other two of the six calls, on Rob Lucci's A00H and Zoro's
+        A03H. Same transport, but its wave profile is unestablished the same
+        way the falloff is, and unlike the crater it is never cancelled, so an
+        approximation there is not self-correcting. FableAudit.TXT attributed
+        these two to Yusuke and Rock Lee and was wrong; corrected there.
+      - Temporary craters. The map only ever asks for permanent ones, and what
+        `duration` means for a temporary deformation (time to dig? whole
+        lifetime including the return?) is not stated anywhere.
+      - The water mesh bakes its shoreline alpha from the heights at build
+        time and is not rebuilt, so a crater dug into the moat edge will not
+        move the waterline. Neither spell targets water in any observed cast,
+        so this is noted rather than fixed.
+
 [x] An empty order string was read as proof of a passive  (FIXED)
     Found by tools/ability_audit.mjs, not from play. isPassive returned on the
     order line and the targets line under it was dead code:
@@ -531,20 +691,25 @@ GAMEPLAY / INPUT
     three-second o007 dummy by SetUnitAbilityLevelSwapped and never ordered,
     A020 rides Eneru's Thunder God form and does not appear in war3map.j at
     all, and A002 sits on the base structure hatw and targets allies.
-    tools/passive_test.mjs, 20 checks, asserting the victim's health rather
+    tools/passive_test.mjs, 22 checks, asserting the victim's health rather
     than the predicate's return value.
 
-    Two findings from the same measurement, both left alone deliberately:
-      - the map's own aart override is not a reliable passive tell. Two
-        abilities here wear a PassiveButtons icon and only one means it: A057
-        아이스타임 has cooldown 2, range 800 and a five-second duration and is
-        plainly active. So the icon rule stays keyed to Blizzard's base art.
-      - A06D, the captured Monster Ball, is the map's one aord override
-        ('summoning' where its AIrr base says 'roar') and tools/abilities.py
-        does not read the field. Nothing consumes the *value* of an order
-        string -- isPassive and itemSpell both only test whether one exists --
-        so this changes no behaviour today. It would matter the moment
-        anything dispatches on the string.
+    Two findings from the same measurement:
+      - the map's own aart override is not a reliable passive tell, so it is
+        deliberately not used. Two abilities here wear a PassiveButtons icon
+        and only one means it: A057 아이스타임 has cooldown 2, range 800 and a
+        five-second duration and is plainly active. The icon rule therefore
+        stays keyed to Blizzard's base art.
+      - tools/abilities.py did not read the map's own aord override, so an
+        ability that renames its order string was compiled with the base's.
+        A06D, the captured Monster Ball, is the only one: it answers to
+        'summoning' where its AIrr base says 'roar'. FIXED -- the compiled
+        table now prefers the map's field, and exactly one of the 1046 entries
+        changed. No behaviour moves today, because nothing consumes the value
+        of an order string: isPassive and itemSpell both only test whether one
+        exists. That is exactly why it would have gone unnoticed until
+        something did dispatch on the string, which is the reason to close it
+        now rather than file it.
 
     NOT DONE: A020 and A05Y are correctly silent rather than correctly burning.
     Cloak of Flames damages on its own clock, and what the data carries is

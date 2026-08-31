@@ -129,6 +129,28 @@ function sampleCurve(c, t) {
   return span <= 0 ? a0 : a0 + (a1 - a0) * ((t - t0) / span);
 }
 
+/**
+ * APPROXIMATION -- NOT ESTABLISHED FROM THE MAP OR THE MPQs.
+ *
+ * The one number in the crater that no extracted file supplies: the shape of
+ * the bowl. TerrainDeformCrater is a bare `native` in common.j, and the curve
+ * it applies lives in Blizzard's engine binary, which is not in war3.mpq or
+ * any of the three expansion archives. Everything else about these craters is
+ * sourced -- radius, depth, duration, sign, which vertices -- and is marked as
+ * such where it is read; this function alone is a guess with a shape.
+ *
+ * Raised cosine over 0..1: full depth at the centre, nothing at the rim, and
+ * zero slope at both ends so the crater meets undisturbed ground without a
+ * crease. Chosen because it is the smoothest thing that satisfies the two
+ * endpoints we DO know; it is not claimed to be Warcraft III's.
+ *
+ * If it ever needs settling, it needs a measurement against the retail game,
+ * not another reading of the files -- they do not contain it. Until then, do
+ * not cite this curve as map-derived behaviour and do not build anything on
+ * its exact profile. See TODO.txt.
+ */
+const APPROX_CRATER_FALLOFF = (t) => 0.5 * (1 + Math.cos(Math.PI * Math.min(1, t)));
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -416,6 +438,76 @@ export class Renderer {
    * levels there, only the cliff model's own step, and interpolating across it
    * would float a unit halfway up the face.  Those keep the nearest corner.
    */
+  /**
+   * Warcraft III's TerrainDeformCrater, as far as the files can carry it.
+   *
+   * What is measured and exact: which vertices move, by how much at the
+   * centre, over how long, and in which direction -- Blizzard's own
+   * TriggerStrings.txt says of CraterBJ that "Depth may be negative for
+   * bumps", so a positive depth digs.  This map only ever asks for radius 400
+   * depth +/-400 over 500 ms, permanent, from Gaara's A03O and Kisame's A069.
+   *
+   * What is NOT established anywhere in the extracted files: the radial
+   * falloff curve itself.  TerrainDeformCrater is a bare `native` line in
+   * common.j and the shape it applies lives in Blizzard's engine binary, which
+   * is not in the MPQs.  The raised-cosine bowl below is therefore an
+   * approximation and is labelled as one rather than passed off as the game's.
+   *
+   * The one thing that makes the approximation safe to ship: the map always
+   * cancels a crater with a second crater of the same radius at the same point
+   * and the opposite depth.  Displacement is linear in depth, so whatever
+   * curve is chosen, the undo restores the original heights exactly and no
+   * error accumulates in the terrain.
+   */
+  deformTerrain(ev) {
+    const t = this.terrInfo;
+    if (!t || !this.heights || !this.terrain) return null;
+    const { width: W, height: H, tileSize: TS, offsetX, offsetY } = t;
+    const R = Math.max(1, ev.r || 0), depth = ev.depth || 0;
+    const ci = (ev.x - offsetX) / TS, cj = (ev.y - offsetY) / TS;
+    const span = Math.ceil(R / TS);
+    const verts = [];
+    for (let j = Math.max(0, Math.floor(cj - span)); j <= Math.min(H - 1, Math.ceil(cj + span)); j++)
+      for (let i = Math.max(0, Math.floor(ci - span)); i <= Math.min(W - 1, Math.ceil(ci + span)); i++) {
+        const d = Math.hypot((i - ci) * TS, (j - cj) * TS);
+        if (d > R) continue;
+        verts.push([j * W + i, -depth * APPROX_CRATER_FALLOFF(d / R)]);
+      }
+    if (!verts.length) return null;
+    const def = { verts, applied: 0, ms: Math.max(1, ev.ms || 0), t: 0 };
+    (this.deforms || (this.deforms = [])).push(def);
+    return def;
+  }
+
+  /**
+   * Walk each live deformation forward and write the delta it has not applied
+   * yet, so overlapping craters compose instead of the last writer winning.
+   */
+  tickTerrain(dt) {
+    if (!this.deforms || !this.deforms.length) return;
+    const pos = this.terrain.geometry.attributes.position;
+    let touched = false;
+    for (const d of this.deforms) {
+      d.t = Math.min(d.ms, d.t + dt * 1000);
+      const want = d.t / d.ms;
+      const step = want - d.applied;
+      if (step === 0) continue;
+      d.applied = want;
+      touched = true;
+      for (const [v, full] of d.verts) {
+        this.heights[v] = (this.heights[v] || 0) + full * step;
+        pos.array[v * 3 + 1] = this.heights[v];
+      }
+    }
+    // a finished deformation stays: both of this map's craters are permanent,
+    // and the script undoes them with a crater of its own
+    this.deforms = this.deforms.filter((d) => d.applied < 1);
+    if (touched) {
+      pos.needsUpdate = true;
+      this.terrain.geometry.computeVertexNormals();
+    }
+  }
+
   heightAt(wx, wy) {
     const t = this.terrInfo;
     if (!t || !this.heights) return 0;
@@ -2147,6 +2239,7 @@ export class Renderer {
       e.mixer?.update(dt);
       if (e.deathCurve) this.tickDoodadCurves(e, dt);
     }
+    this.tickTerrain(dt);
     const tViews = performance.now();
     for (const e of this.effects.values()) {
       e.mixer?.update(dt);

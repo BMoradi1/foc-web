@@ -57,6 +57,19 @@ const noOrder = Object.values(ABILS).filter((a) => !a.order).length;
 check('most of the roster has no order string', noOrder > 400,
       `${noOrder} of ${Object.keys(ABILS).length}`);
 
+// And where the map overrides the string, the map wins.  Exactly one ability
+// here sets 'aord', and tools/abilities.py used to take the base's string for
+// it -- naming an order the map does not use.  Nothing dispatches on the value
+// yet, which is precisely why it would have gone unnoticed.
+const w3a = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/war3map.w3a.json'), 'utf8'));
+const overrides = [...(w3a.custom || []), ...(w3a.base || [])]
+  .map((r) => [r.id, r.mods && r.mods['aord:0']]).filter(([, o]) => o);
+check('the map overrides exactly one order string', overrides.length === 1,
+      overrides.map(([id, o]) => `${id} -> ${o}`).join(', ') || 'none');
+check('and the compiled table takes it over the base\'s',
+      overrides.length > 0 && overrides.every(([id, o]) => ABILS[id] && ABILS[id].order === o),
+      overrides.map(([id, o]) => `${id}: table says ${ABILS[id] && ABILS[id].order}, map says ${o}`).join(', '));
+
 // The map casts two of them, which is what makes absence meaningless.
 const mapj = fs.readFileSync(path.join(ROOT, 'extracted/war3map.j'), 'utf8');
 check('the map casts abilities that have no order string',

@@ -252,6 +252,7 @@ function handleEvent(ev) {
       break;
     }
     case 'camShake': view.setShake(ev.mag, ev.vel, ev.vert); break;
+    case 'terrainDeform': view.deformTerrain(ev); break;
     // the engine draws these itself rather than playing a model
     case 'lightning': view.spawnBolt(ev); break;
     case 'aoe': spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xff8844, ev.r); break;

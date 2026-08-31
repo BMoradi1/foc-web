@@ -312,7 +312,12 @@ for tbl in ('base', 'custom'):
             return int(v) if v is not None else dflt
         table[o['id']] = dict(id=o['id'], base=base, name=str(name),
                               targets=str(m.get('atar:1') or b.get('targs') or ''),
-                              order=ORDERS.get(base, ''),
+                              # 'aord' is the map's own order-string override.  Exactly one
+                              # ability here sets it -- A06D, the captured Monster Ball, which
+                              # answers to 'summoning' where its AIrr base says 'roar' -- but
+                              # taking the base's string for it would name an order the map
+                              # does not use.
+                              order=str(m.get('aord:0') or ORDERS.get(base, '')),
                               passiveArt=base in PASSIVE_ART,
                               art=art_for(base, m, levels),
                               reqLevel=gate('arlv', 'reqLevel', 0),

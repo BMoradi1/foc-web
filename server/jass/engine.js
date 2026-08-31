@@ -848,7 +848,25 @@ function installNatives(vm, eng) {
     MoveLightning: () => true, MoveLightningEx: () => true,
     DestroyLightning: () => true,
     SetLightningColor: () => true, GetLightningColorA: () => 1,
-    TerrainDeformCrater: () => null, TerrainDeformRipple: () => null,
+    // Crater is the only one of the family this map reaches with anything to
+    // show: 4 of its 6 TerrainDeform calls, all through Blizzard.j's real
+    // TerrainDeformationCraterBJ, which passes duration in ms.  Gaara (A03O)
+    // and Kisame (A069) each dig one and cancel it about ten seconds later
+    // with a second, negative-depth crater at the same point -- so the sign
+    // matters, and Blizzard states it rather than leaving it to be guessed:
+    // TriggerStrings.txt's CraterBJ hint reads "Depth may be negative for
+    // bumps", making a positive depth a pit.
+    //
+    // The simulation cannot observe any of this.  The server's own heightfield
+    // is read by exactly one native, GetLocationZ, and war3map.j never calls
+    // it, so the deformation is the client's alone and nothing desynchronises.
+    TerrainDeformCrater: (x, y, radius, depth, duration, permanent) => {
+      const h = H('terraindeformation', { x, y, radius, depth });
+      eng.emit({ t: 'terrainDeform', shape: 'crater', x, y,
+                 r: radius, depth, ms: duration, permanent: !!permanent });
+      return h;
+    },
+    TerrainDeformRipple: () => null,
     TerrainDeformWave: () => null, TerrainDeformStop: () => {},
     AddWeatherEffect: () => H('weathereffect', {}),
     EnableWeatherEffect: () => {}, RemoveWeatherEffect: () => {},
