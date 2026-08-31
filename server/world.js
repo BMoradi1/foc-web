@@ -718,8 +718,12 @@ export class World {
     // map can never see one -- and this map asks constantly, from Ichigo's
     // AGI x3 attack bonus to the guard that stops his Hollow form re-triggering.
     const code = typeof abilId === 'number' ? int2id(abilId) : abilId;
-    return (u.buffs || []).some((b) => b.code === code
-      && (!b.until || b.until > this.now)) ? 1 : 0;
+    // A w3a `abuf` field can name several buffs at once -- Gilgamesh's A027
+    // carries "B00I,BHbz" -- so a stored code is matched as a list, not a
+    // string, or the map's UnitHasBuffBJ misses every multi-buff ability.
+    const carries = (b) => b.code === code
+      || (typeof b.code === 'string' && b.code.includes(',') && b.code.split(',').includes(code));
+    return (u.buffs || []).some((b) => carries(b) && (!b.until || b.until > this.now)) ? 1 : 0;
   }
   setAbilityLevel(u, abilId, lv) {
     if (!u) return 0;
@@ -1344,6 +1348,34 @@ export class World {
 
   /** Repeated area damage over time, as channelled spells do. */
   /**
+   * Damage on one unit over time: `perTick` every `interval` seconds for
+   * `seconds`, stopping if either party dies.
+   *
+   * The area channel next door is the wrong shape for this -- Entangling Roots
+   * burns the unit it rooted and nothing standing beside it, and a radius small
+   * enough to fake that would still catch whatever shares the tile.
+   */
+  dotUnit(caster, target, perTick, seconds, interval = 1) {
+    if (!target || perTick <= 0 || seconds <= 0) return;
+    this.dots = this.dots || [];
+    this.dots.push({ caster, target, perTick,
+                     interval: Math.max(100, interval * 1000),
+                     nextAt: this.now + interval * 1000,
+                     until: this.now + seconds * 1000 });
+  }
+
+  stepDots() {
+    if (!this.dots || !this.dots.length) return;
+    for (const d of this.dots) {
+      if (this.now >= d.until || !d.target.alive) { d.until = 0; continue; }
+      if (this.now < d.nextAt) continue;
+      d.nextAt = this.now + d.interval;
+      this.damage(d.caster && d.caster.alive ? d.caster : null, d.target, d.perTick, { spell: true });
+    }
+    this.dots = this.dots.filter((d) => d.until > this.now && d.target.alive);
+  }
+
+  /**
    * A damage line out of the caster toward a point: everything hostile within
    * `width` of the line and `length` along it, in the order the world holds
    * them, until `cap` total damage has been dealt.
@@ -1644,6 +1676,7 @@ export class World {
       this.stepAttack(u);
     }
     this.stepSwarms();
+    this.stepDots();
     this.stepChannels();
     this.stepFountains();
     this.separate(alive);

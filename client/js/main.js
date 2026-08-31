@@ -518,6 +518,16 @@ canvas.addEventListener('mousedown', (e) => {
       canvas.style.cursor = 'default';
       return;
     }
+    // Warcraft III selects a shop by clicking it, and the bottom bar becomes
+    // the shop. Clicking anywhere else hands the console back to the hero.
+    const picked = view.pickEntity(nx, ny);
+    const shop = shopFor(picked);
+    if (shop) {
+      ui.selectShop(S.ents.get(picked.id) || picked, shop);
+      showUnitPortrait();
+      return;
+    }
+    if (ui.shopSel) { ui.clearShop(); showUnitPortrait(); }
     const g = view.pickGround(nx, ny);
     if (g) { net.send({ t: Msg.MOVE, x: g.x, y: g.y }); markMove(g); }
   } else if (e.button === 2) {
@@ -527,7 +537,19 @@ canvas.addEventListener('mousedown', (e) => {
     if (gi) { net.send({ t: 'pickup', itemId: gi.id }); markMove({ x: gi.x, y: gi.y }); return; }
     const t = view.pickEntity(nx, ny);
     const me = S.ents.get(S.hero?.id);
-    if (t && t.id !== S.hero?.id && S.ents.get(t.id)?.t !== me?.t) {
+    const te = t ? S.ents.get(t.id) : null;
+    // Right-clicking a shop walks to it, as Warcraft III does -- you approach a
+    // shop to trade with it. It used to send an attack, because this compared
+    // TEAMS and a shop sits on player 15's team 2 while the heroes are on 0 and
+    // 1. The server refused the order (world.hostile is false for neutral
+    // passive, so nothing was ever damaged) but the hero still ran at the
+    // building as though it meant to swing.
+    if (te && te.p === NEUTRAL_PASSIVE) {
+      net.send({ t: Msg.MOVE, x: te.x, y: te.y });
+      markMove({ x: te.x, y: te.y });
+      return;
+    }
+    if (t && t.id !== S.hero?.id && te?.t !== me?.t) {
       net.send({ t: Msg.ATTACK, targetId: t.id });
     } else if (pickGate(nx, ny) != null) {
       const di = pickGate(nx, ny);
@@ -546,6 +568,20 @@ function pickGate(nx, ny) {
   const i = view.pickDoodad(nx, ny, S.destPick);
   if (i == null) return null;
   return S.dests.get(i)?.dead ? null : i;
+}
+
+/**
+ * The shops are the buildings inside each base -- five per side, mirrored:
+ * n000 스텟 상점, n001 아이템 상점, n00H and n00N 전용템 상점, n013.
+ * data/game.json keys its shop list by that unit type, so an entity is a shop
+ * when its type id is one of them.
+ */
+const SHOP_BY_TYPE = new Map();
+function shopFor(ent) {
+  if (!ent) return null;
+  if (!SHOP_BY_TYPE.size) for (const sh of (S.game?.shops || [])) SHOP_BY_TYPE.set(sh.id, sh);
+  const e = S.ents.get(ent.id) || ent;
+  return SHOP_BY_TYPE.get(e.u) || null;
 }
 
 function markMove(g) {
@@ -585,9 +621,9 @@ addEventListener('keydown', (e) => {
     ui.log(`frame stats ${overlay.stats.on ? 'on' : 'off'}`, 'lvl'); }
   else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
   else if (k === 's') net.send({ t: Msg.STOP });
-  else if (k === 'b') ui.showShop(S.game.shops, S.hero);
   else if (k === 'escape') {
     S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default';
+    if (ui.shopSel) { ui.clearShop(); showUnitPortrait(); }
   }
   else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }
   else if (e.key === 'Tab') { e.preventDefault(); S.showScore = true; ui.toggleScore(true); }
@@ -617,11 +653,18 @@ addEventListener('mousemove', (e) => {
   mouseNX = (e.clientX / innerWidth) * 2 - 1;
   mouseNY = -(e.clientY / innerHeight) * 2 + 1;
 });
+// Warcraft III's fixed neutral slots. Player 15 is Neutral Passive -- the
+// shops, the taverns and the pick-area props -- and server/world.js refuses to
+// make it hostile to anything. The client has to agree, or it paints a shop as
+// an enemy and offers to attack it.
+const NEUTRAL_PASSIVE = 15;
+
 function relationTo(e) {
   if (!e) return null;
   if (e.i === S.hero?.id) return 'own';
   const me = S.ents.get(S.hero?.id);
   if (e.p != null && me && e.p === me.p) return 'own';
+  if (e.p === NEUTRAL_PASSIVE) return 'neutral';
   if (e.t == null || !me || me.t == null) return 'neutral';
   return e.t === me.t ? 'ally' : 'enemy';
 }
@@ -749,8 +792,12 @@ function frame() {
 let unitPortrait = null;
 function showUnitPortrait() {
   const cv = document.getElementById('unitPortrait');
-  const h = S.heroes?.find((x) => x.id === S.hero?.unitId)
-         || S.heroes?.find((x) => x.id === ui.selected);
+  // While a shop is selected the arch shows the shop's building, as the game
+  // does; S.unitModels carries every unit type's model, shops included.
+  const sel = ui.shopSel;
+  const h = sel ? { id: sel.shop.id, name: sel.shop.name }
+          : (S.heroes?.find((x) => x.id === S.hero?.unitId)
+             || S.heroes?.find((x) => x.id === ui.selected));
   if (!cv || !h) return;
   const box = cv.getBoundingClientRect();
   const size = { w: Math.max(48, Math.round(box.width) || 128),
@@ -828,7 +875,8 @@ ui.onAimItem = (slot, it) => {
   ui.log(`${escapeHtml(it.name || 'item')}: pick a target`, 'lvl');
 };
 
-window.FOC = { view, S, ui, net, overlay, audio, refitConsole,
+window.FOC = { view, S, ui, net, overlay, audio, refitConsole, shopFor,
+               showUnitPortrait, relationTo,
                get consoleSlots() { return consoleSlots; },
                get heroPreview() { return heroPreview; },
                get unitPortrait() { return unitPortrait; } };

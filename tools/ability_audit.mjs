@@ -48,7 +48,10 @@ for (const [from, to] of [...ABSRC.slice(ABSRC.indexOf('const BASE_ALIAS'),
   if (CASES.has(to)) CASES.add(from);
 const APPLY_BASES = new Set();
 for (const m of ABSRC.matchAll(/^ {4}((?:case '\w{4}':\s*)+)\{([\s\S]*?)^ {4}\}/gm))
-  if (m[2].includes('code: i.buff'))
+  // `code: i.buff`, or the shorthand `{ kind: 'stun', code, ... }` after a
+  // `const code = i.buff` above it. Matching only the long form reported a
+  // seam on A059 that runtime says is closed.
+  if (/code:\s*i\.buff/.test(m[2]) || (/\bcode\s*=\s*i\.buff/.test(m[2]) && /\bcode\b\s*[,}]/.test(m[2])))
     for (const c of m[1].matchAll(/'(\w{4})'/g)) APPLY_BASES.add(c[1]);
 
 // Passive handling tables, same way. A passive base in none of these has no

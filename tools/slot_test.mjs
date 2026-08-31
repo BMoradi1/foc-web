@@ -135,6 +135,7 @@ const CONTRACT = {
   'AHhb,AOhw,AChw':          { 1: 'Amount Healed/Damaged' },
   'ACro,ANbr':               { 1: 'Damage Increase (%)' },
   'ANfd':                    { 3: 'Damage' },
+  'AEer':                    { 1: 'Damage per Second' },
   'ANdr,AUdc,AHfs,ANin':     { 1: 'Damage' },
   'ANsl,AUsl,ACsw':          { 1: 'Movement Speed Factor' },
 };

@@ -894,6 +894,95 @@ GAMEPLAY / INPUT
 [ ] Fog of war
     Nothing exists. The whole map is visible to everyone.
 
+[x] The four buff seams the audit has been printing  (FIXED)
+    war3map.j gates real trigger chains on UnitHasBuffBJ, and four of the eight
+    codes it reads could never be true: 13 of the 14 applyBuff call sites passed
+    no `code`, so server/world.js:720 (the engine's answer to
+    GetUnitAbilityLevel on a buff id) and the buff-art path at :2071 could never
+    see them. 클러치 (A06Q) filters for units carrying B00H and 사폭장송 (A05Q)
+    for B00X -- both filters were permanently empty, and both spells are also on
+    the deliberate-zero list, so neither half of them did anything.
+    Every buff-applying case now passes the code the ability declares. A w3a
+    `abuf` field can name several at once -- Gilgamesh's A027 carries
+    "B00I,BHbz" -- so the lookup matches a stored code as a list rather than a
+    string.
+    Seams 4 -> 0. Asserted on the unit rather than in the source
+    (tools/spellshape_test.mjs): A059 stamps B00S on the enemies it stomps,
+    A03S stamps B00N on the caster because a roar buffs its own side, and the
+    two AEer abilities stamp B00X and B00H on what they root.
+    ability_audit.mjs only recognised the long form `code: i.buff` and reported
+    a seam on A059 that runtime said was closed; it now also sees the shorthand.
+
+[x] Entangling Roots had no case at all  (FIXED)
+    AEer -- A00O, A000, A05K, A03P, A06P -- fell to the damage fallback. Eer1 is
+    "Damage per Second" and the base holds the target in place while it burns;
+    it can still attack, so this is a total movement slow rather than a stun.
+    Gilgamesh's A03P is the one HeroSweep.TXT row under the phantom-default
+    pattern that the deliberate-zero fix did not close, and this closes it.
+    world.dotUnit puts damage on ONE unit over time. The area channel next door
+    is the wrong shape: a radius small enough to fake a single target still
+    catches whatever shares the tile.
+    Warcraft III carries two durations and picks by what it hit; the rest of
+    abilities.js takes heroDuration whenever there is one, which shortens every
+    effect on a creep -- 사박궤 should hold a hero 2s and a non-hero 10s, and
+    read the other way both get 2. The AEer case picks by target type. The other
+    twelve sites still do not.
+
+TESTS AND THE END-TO-END HALF
+----------------------------
+[x] The five skipped tests now run and assert  (FIXED)
+    sound, spell, match, wincond and victory were skipped by run_tests.mjs for
+    hardcoding hero ids H004/E00T. That was true and it was not the whole
+    story: they were written for a different map. This one has no 'H004' and
+    no 'E00T'; no unit 'N007' ("Boss Mulder", 0 references in war3map.j); and
+    none of '@duel', '@tome', '@nocool', '@fight', '@ar' -- it registers
+    exactly two chat commands, both on a '-' prefix.
+    Worse than the ids: all five only PRINTED. They exited 0 whatever came
+    out, so "CustomVictoryBJ called for players: NONE" and "died 0 times" were
+    passing runs. Fixing the ids alone would have re-enabled five tests that
+    cannot fail.
+    They now take their pair from tools/testheroes.mjs, which ranks the map's
+    own hero table by learnable count instead of naming anyone, and throws
+    rather than resolving to something absent. Players 0 and 5: this map
+    allies 0-3 (and 10) against 4-9 (and 11), so 0 and 1 would be teammates
+    and every spell would report a clean zero.
+    victory 10 checks, wincond 9, match 9, spell 6, sound 6. STALE in
+    run_tests.mjs is now empty and should stay that way.
+    Two measurement traps found while writing them, both of which had produced
+    a confidently wrong number:
+      - sellUnit seats a hero at its team base, and this map puts a healing
+        fountain there. 산혼철조's 433 damage landed and was regenerated away
+        before the measurement, reading as a spell that does nothing. The
+        heroes are moved to the middle of the map first.
+      - Inflating a target's maxHp to survive a run does not work: recalc
+        rebuilds a hero's maximum from its attributes and clamps hp back down,
+        which the first cast then reports as millions of damage. Top the target
+        up to its own maximum between casts instead.
+
+[ ] The script's every non-ASCII byte was replaced with '_'
+    extracted/war3map.j contains ZERO bytes above 127 across 446098 bytes, and
+    8209 underscores. extracted/war3map.wts, from the same map, contains
+    151736. So it is the .j specifically: the string table kept its Korean and
+    the script did not.
+    What that costs, measured: 59 string literals in the script are underscore
+    runs with their punctuation and colour codes intact -- '____ _____.',
+    '|c00fed101gold|r|c00ff8040_ __.' -- so every message this map displays
+    from its own triggers is unreadable. And both of its chat commands are
+    registered as '-____' and '-__', which no player can type.
+    The trigger plumbing is fine: firing the mangled literal reaches the
+    trigger and the map acts on it (tools/wincond_test.mjs asserts this). Only
+    the text is gone. The fix is in extraction, not in server/ or client/, and
+    it means re-running that step of the pipeline.
+
+[ ] Melee produces no sound
+    unitSound(u, 'hit') at server/world.js:1904 returns nothing for the
+    heroes, so thirty seconds of two heroes attacking each other emits 0 sound
+    events. Spell sounds are fine -- 3 of 5 of the test hero's spells play an
+    imported mp3, and every file they name is on disk and non-empty.
+    Not yet established whether the map supplies soundsets for its custom hero
+    models at all, so this is recorded rather than diagnosed.
+    tools/sound_test.mjs measures it and deliberately does not fail on it.
+
 ABILITY DATA SLOTS
 ------------------
 [x] The engine now has to name every data slot it reads  (tools/slot_test.mjs)
@@ -1187,11 +1276,7 @@ NETWORK
 
 HOUSEKEEPING
 ------------
-[ ] Five tests are stale, not one
-    sound_test, spell_test, match_test, wincond_test and victory_test all
-    hardcode hero ids H004/E00T and the name "Saber". Neither id exists in this
-    map's 26 heroes, so they die during setup ("tavern for Saber: undefined")
-    before reaching anything they claim to test. Predates this work.
+[x] Five tests are stale, not one  (FIXED -- see TESTS AND THE END-TO-END HALF)
 
 [ ] No licence on the repo.
 

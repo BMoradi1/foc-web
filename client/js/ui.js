@@ -200,6 +200,15 @@ export class UI {
        <span>STR</span><b>${h.str}</b><span>AGI</span><b>${h.agi}</b>
        <span>INT</span><b>${h.int}</b><span>MS</span><b>${h.moveSpeed}</b>
        <span>GOLD</span><b>${h.gold}</b><span>K/D</span><b>${h.kills}/${h.deaths}</b>`;
+    // A selected shop takes over the panel and the card, and the inventory
+    // stays: Warcraft III leaves your six slots visible while you shop, which
+    // is the only way to see whether there is room for what you are buying.
+    if (this.shopSel) {
+      this.renderShopPanel(this.shopSel);
+      this.renderShopCard(this.shopSel);
+      this.renderInventory(h);
+      return;
+    }
     this.renderAbilities(h);
     this.renderInventory(h);
     const r = $('respawn');
@@ -395,21 +404,66 @@ export class UI {
     for (const l of this.logLines) box.appendChild(el('div', l.cls, l.text));
   }
 
-  showShop(shops, hero) {
-    const s = $('shop');
-    if (!s.classList.contains('hidden')) { s.classList.add('hidden'); return; }
-    s.classList.remove('hidden');
-    s.innerHTML = '';
-    for (const sh of shops) {
-      s.appendChild(el('h3', null, sh.name));
-      for (const it of sh.items) {
-        const row = el('div', 'item');
-        row.innerHTML = `<img src="${icon(it.icon)}" onerror="this.style.opacity=.25">
-          <div><b>${it.name}</b></div><span class="g">${it.gold || 0}g</span>`;
-        row.title = it.desc || it.tip || '';
-        row.onclick = () => this.net.send({ t: 'buy', itemId: it.id });
-        s.appendChild(row);
-      }
+  /**
+   * Selecting a shop, the way Warcraft III does it.
+   *
+   * The console does not open a window for a shop: selecting the building
+   * REPLACES what the bottom bar is showing. The portrait becomes the shop's
+   * model, the name and bars become the shop's, and the command card -- the
+   * same grid the hero's abilities live in -- fills with its stock. Clicking a
+   * cell buys.
+   *
+   * This used to be a floating list on the 'b' key, which had two problems:
+   * it is not what the game does, and four of this map's heroes bind an
+   * ability to 'b', so on those heroes the key was swallowed by the ability
+   * table before it ever reached the shop.
+   */
+  selectShop(ent, shop) {
+    this.shopSel = shop ? { ent, shop } : null;
+    if (this.hero) this.updateHero(this.hero);
+    this.onShopChange?.(this.shopSel);
+  }
+  clearShop() { if (this.shopSel) this.selectShop(null, null); }
+
+  /** The shop's own name and health, in the panel the hero's would use. */
+  renderShopPanel({ ent, shop }) {
+    $('pname2').textContent = shop.name || ent.u;
+    const hp = ent.h ?? 0, maxHp = ent.H ?? 0;
+    const set = (bar, txt, v, m) => {
+      $(bar).style.width = `${Math.max(0, Math.min(100, (v / Math.max(1, m)) * 100))}%`;
+      if (txt) $(txt).textContent = m > 0 ? `${Math.round(v)} / ${Math.round(m)}` : '';
+    };
+    set('hpbar', 'hptext', hp, maxHp);
+    set('mpbar', 'mptext', ent.m ?? 0, ent.M ?? 0);
+    set('xpbar', null, 0, 1);
+    const gold = this.hero ? this.hero.gold : 0;
+    $('stats').innerHTML =
+      `<span>SHOP</span><b>${esc(shop.name || '')}</b>` +
+      `<span>STOCK</span><b>${shop.items.length}</b>` +
+      `<span>GOLD</span><b>${gold}</b><span></span><b></b>`;
+    $('respawn').classList.add('hidden');
+  }
+
+  /** The shop's stock, laid into the command card's own cells. */
+  renderShopCard({ shop }) {
+    queueMicrotask(() => this.placeCard());
+    const box = $('abilities');
+    if (!box) return;
+    box.innerHTML = '';
+    const gold = this.hero ? this.hero.gold : 0;
+    for (const it of shop.items) {
+      const afford = gold >= (it.gold || 0);
+      // 'shopitem' keeps the shop's styling off the ability buttons that share
+      // these cells -- the gold price uses the corner an ability rank sits in.
+      const cell = el('div', 'slot shopitem' + (afford ? '' : ' tooldear'));
+      cell.style.backgroundImage = it.icon ? `url(${icon(it.icon)})` : 'none';
+      cell.title = `${it.name} — ${it.gold || 0} gold`
+                 + (afford ? '' : '\nNot enough gold')
+                 + (it.desc || it.tip ? `\n${it.desc || it.tip}` : '');
+      cell.innerHTML = `<span class="lv">${it.gold || 0}g</span>`
+                     + (it.icon ? '' : `<span class="noicon">${(it.name || '?')[0]}</span>`);
+      cell.onclick = () => this.net.send({ t: 'buy', itemId: it.id });
+      box.appendChild(cell);
     }
   }
 

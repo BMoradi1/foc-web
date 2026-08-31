@@ -1,41 +1,106 @@
+// Do the map's spell sounds reach the client, and is there a file behind them?
+//
+// This project has been burnt here before: a sound test once passed 15/15
+// while the game was silent, because it asserted that a function had been
+// called rather than that any audio existed. So this checks both halves -- the
+// map emits a sound event, AND the file it names is on disk and is not a
+// zero-length stub.
+//
+// It also used to name two heroes ('H004', 'E00T') that are not in this map,
+// so it died during setup and was skipped from the suite. Ids come from
+// tools/testheroes.mjs now.
+//
+//   node tools/sound_test.mjs        (no server needed)
+import fs from 'node:fs';
+import path from 'node:path';
 import { World, id2int } from '../server/world.js';
 import { JassEngine } from '../server/jass/engine.js';
-import fs from 'node:fs';
-const GAME = JSON.parse(fs.readFileSync('data/game.json', 'utf8'));
+import { testHeroes } from './testheroes.mjs';
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+const fails = [];
+let pass = 0;
+const check = (name, ok, detail = '') => {
+  if (ok) { pass++; console.log(`  ok    ${name}`); }
+  else { fails.push(name); console.log(`  FAIL  ${name}${detail ? '  -- ' + detail : ''}`); }
+};
+
 const w = new World(); const e = new JassEngine(w);
 e.load(); e.boot();
 const tick = (s) => { for (let i = 0; i < Math.round(s * 30); i++) { e.update(1000 / 30); w.step(); } };
 tick(2);
-const A = w.sellUnit(w.tavernFor('H004'), e.players[0], 'H004');   // Saber
-const B = w.sellUnit(w.tavernFor('E00T'), e.players[5], 'E00T');   // Goku
-const hero = GAME.heroes.find((h) => h.id === 'H004');
-for (const a of hero.learnable) { w.addAbility(A, id2int(a)); w.setAbilityLevel(A, id2int(a), 3); }
-A.mana = A.maxMana = 9999; B.hp = B.maxHp = 999999;
-w.moveUnit(A, B.x + 120, B.y);
+
+const { caster, target } = testHeroes();
+const A = w.sellUnit(w.tavernFor(caster.id), e.players[0], caster.id);
+const B = w.sellUnit(w.tavernFor(target.id), e.players[5], target.id);
+check('both heroes are seated', !!A && !!B, `${caster.id} / ${target.id}`);
+for (const a of caster.learnable) { w.addAbility(A, id2int(a)); w.setAbilityLevel(A, id2int(a), 3); }
+A.mana = A.maxMana = 9999;
+// Off the team base, where this map's fountain would keep the target topped up
+// and end the fight before there is anything to listen to.
+w.moveUnit(B, 0, 0); w.moveUnit(A, 120, 0);
+B.hp = B.maxHp;
 e.clientEvents.length = 0;
+
+console.log(`\n-- ${caster.titleEn || caster.name}'s spells`);
 const heard = [];
-for (const a of hero.learnable) {
+for (const a of caster.learnable) {
+  w.moveUnit(B, 0, 0); w.moveUnit(A, 120, 0);
+  if (!B.alive) w.reviveUnit(B, 0, 0);
+  B.hp = B.maxHp;
   w.castAbility(A, id2int(a), B, B.x, B.y);
   tick(1.5);
   const snd = e.flushClientEvents().filter((x) => x.t === 'sound');
-  heard.push([a, hero.abilities.find((z) => z.id === a)?.name, snd.map((s) => s.path)]);
+  const name = (caster.abilities.find((z) => z.id === a) || {}).name;
+  heard.push([a, name, snd.map((s) => s.path)]);
   A.cooldowns.clear(); A.mana = A.maxMana;
 }
-console.log('sounds the map plays per spell (Saber):');
 for (const [id, name, paths] of heard)
-  console.log(`  ${id}  ${String(name).padEnd(20)} -> ${paths.join(', ') || '(none)'}`);
+  console.log(`   ${id}  ${String(name).padEnd(22)} -> ${paths.join(', ') || '(none)'}`);
 
-// how many distinct sounds over a longer fight, and are the files present?
+const withSound = heard.filter(([, , p]) => p.length);
+check('at least one spell plays a sound the map imported', withSound.length > 0,
+      `${withSound.length} of ${heard.length} spells`);
+
+// ---- and there is real audio behind the names
+//
+// The files are checked against the sounds the SPELLS produced, because those
+// are the ones this map imports and ships. A melee exchange is measured too but
+// not asserted on: combat sounds come from the unit's soundset via
+// unitSound(u, 'hit'), and these heroes carry custom models whose soundsets the
+// map does not supply, so thirty seconds of swinging is silent. That is
+// recorded in TODO.txt rather than failed here.
+console.log('\n-- the files behind the names');
 e.clientEvents.length = 0;
-A.order = { type: 'attack', targetId: B.id }; B.order = { type: 'attack', targetId: A.id };
+A.order = { type: 'attack', targetId: B.id };
+B.order = { type: 'attack', targetId: A.id };
+B.hp = B.maxHp = 5_000_000;
 tick(30);
-const all = e.flushClientEvents().filter((x) => x.t === 'sound');
-const uniq = [...new Set(all.map((s) => s.path))];
-console.log(`\n${all.length} sound events over 30s, ${uniq.length} distinct files`);
-let present = 0, absent = [];
+const melee = e.flushClientEvents().filter((x) => x.t === 'sound');
+console.log(`   melee over 30s: ${melee.length} sound events`);
+
+const uniq = [...new Set([...heard.flatMap(([, , p]) => p), ...melee.map((s) => s.path)])];
+// Guard against the shape of failure this file is named for: if nothing was
+// collected, the two file checks below would both pass on an empty set and the
+// run would look clean while the game was silent.
+check('there is a non-empty set of sounds to check files for', uniq.length > 0,
+      `${uniq.length} distinct paths`);
+
+const served = [], missing = [], empty = [];
 for (const p of uniq) {
-  const local = p.includes('/') ? null : `public/assets/sounds/${p}`;
-  if (local && fs.existsSync(local)) present++; else absent.push(p);
+  if (p.includes('/')) continue;                     // a War3local.mpq path, not ours
+  const local = path.join(ROOT, 'public/assets/sounds', p);
+  if (!fs.existsSync(local)) { missing.push(p); continue; }
+  const size = fs.statSync(local).size;
+  if (size < 512) empty.push(`${p} (${size}B)`); else served.push(p);
 }
-console.log(`  served from the map: ${present}`);
-console.log(`  need War3local.mpq : ${absent.length}  ${absent.slice(0, 4).join(', ')}`);
+console.log(`   ${served.length} served from the map, ${missing.length} need War3local.mpq`);
+check('every sound the map imported has a file on disk', missing.length === 0,
+      missing.slice(0, 4).join(', '));
+// A path that resolves to a zero-length file is the same silence as no file at
+// all, and asserting only that the event fired would not see it.
+check('and none of those files is an empty stub', empty.length === 0, empty.slice(0, 4).join(', '));
+check('at least one is genuinely served locally', served.length > 0, `${served.length}`);
+
+console.log(`\n${pass} passed, ${fails.length} failed`);
+if (fails.length) { for (const f of fails) console.log('  - ' + f); process.exit(1); }

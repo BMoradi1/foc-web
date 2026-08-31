@@ -135,13 +135,11 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
 #gameover h2{font-size:42px;margin:0}
 #hint{position:absolute;right:10px;bottom:10px;font-size:11px;color:var(--dim);
   background:rgba(8,9,13,.7);padding:5px 9px;border-radius:5px}
-#shop{position:absolute;right:10px;top:60px;width:320px;max-height:70vh;overflow:auto;
-  background:rgba(8,9,13,.94);border:1px solid var(--line);border-radius:9px;padding:11px}
-#shop h3{margin:0 0 8px;font-size:13px}
-.item{display:flex;gap:8px;align-items:center;padding:5px;border-radius:5px;cursor:pointer}
-.item:hover{background:#1a1d28}
-.item img{width:30px;height:30px;border-radius:4px;background:#05060a}
-.item .g{margin-left:auto;color:var(--gold);font-size:12px}
+/* A shop's stock now goes into the command card's own cells, so it needs no
+   panel of its own -- the .slot rules below already size and skin them. The
+   price sits in the corner the ability rank uses. */
+#abilities .slot.shopitem .lv{color:var(--gold)}
+#abilities .slot.shopitem.tooldear{filter:grayscale(.7);opacity:.55}
 #disconnected{position:fixed;inset:0;display:grid;place-items:center;
   background:rgba(5,6,10,.9);z-index:60}
 #disconnected .box{text-align:center}

@@ -67,7 +67,7 @@ export function baseOf(ab) { return (ab && (BASE_ALIAS[ab.base] || ab.base)) || 
  */
 export const HANDLED_BASES = new Set([
   'AHtb', 'ANtb', 'AUfn', 'AHtc', 'AOws', 'AUcs', 'AOsh', 'AUim', 'ANcs',
-  'ANbr', 'ANbf', 'AEfk', 'ACtb', 'AOcl', 'AEch', 'AEbl', 'AUin', 'ANfd',
+  'ANbr', 'ANbf', 'AEfk', 'ACtb', 'AOcl', 'AEch', 'AEbl', 'AUin', 'ANfd', 'AEer',
   'AOmi', 'AUls', 'ANpi', 'AEim', 'AIim', 'AHhb', 'AOhw', 'AChw', 'AHdi',
   'ACbh', 'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'ANdr', 'AUdc',
   'AHfs', 'ANin', 'ANsl', 'AUsl', 'ACsw', 'AHbz', 'AEsf', 'ANrf',
@@ -186,7 +186,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
       w.damage(caster, t, slot(d1, 100), { spell: true });
-      if (dur > 0) w.applyBuff(t, { kind: 'stun', until: w.now + dur * 1000 });
+      if (dur > 0) w.applyBuff(t, { kind: 'stun', code: i.buff || null, until: w.now + dur * 1000 });
       return { ok: true };
     }
     // ---- armour on an ally for a while (Frost Armor)
@@ -219,7 +219,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
         const primary = !!o.target && e === o.target;
         const dmg = primary ? slot(d2, slot(d1, 100)) : slot(d1, 50);
         w.damage(caster, e, dmg, { spell: true });
-        if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.4, until: w.now + dur * 1000 });
+        if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.4, code: i.buff || null, until: w.now + dur * 1000 });
       }
       return { ok: true };
     }
@@ -235,8 +235,9 @@ export function execute(w, caster, ab, lvl, o = {}) {
         // Below that threshold neither buff lands: a War Stomp must not fall
         // through to Thunder Clap's slow, which is a different ability.
         if (dur <= 0.1) continue;
-        if (B === 'AOws') w.applyBuff(e, { kind: 'stun', until: w.now + dur * 1000 });
-        else w.applyBuff(e, { kind: 'slow', pct: 0.25, until: w.now + dur * 1000 });
+        const code = i.buff || null;
+        if (B === 'AOws') w.applyBuff(e, { kind: 'stun', code, until: w.now + dur * 1000 });
+        else w.applyBuff(e, { kind: 'slow', pct: 0.25, code, until: w.now + dur * 1000 });
       }
       return { ok: true };
     }
@@ -261,7 +262,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const hit = w.lineDamage(caster, tx, ty, slot(d3, 100), slot(d1, i.range || 800),
                                area || 120, Infinity);
       const air = slot(d4, dur);
-      if (air > 0) for (const e of hit) w.applyBuff(e, { kind: 'stun', until: w.now + air * 1000 });
+      if (air > 0) for (const e of hit) w.applyBuff(e, { kind: 'stun', code: i.buff || null, until: w.now + air * 1000 });
       return { ok: true };
     }
     // ---- Cluster Rockets: a barrage into an area, not a line at all
@@ -293,7 +294,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
         while (da < -Math.PI) da += Math.PI * 2;
         if (Math.abs(da) > half) continue;
         w.damage(caster, e, slot(d1, 80), { spell: true });
-        if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.3, until: w.now + dur * 1000 });
+        if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.3, code: i.buff || null, until: w.now + dur * 1000 });
       }
       return { ok: true };
     }
@@ -380,7 +381,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // ---- Howl of Terror: cut nearby enemies' damage
     case 'ANht': {
       for (const e of enemies(caster.x, caster.y, area || 500))
-        w.applyBuff(e, { kind: 'weaken', pct: Math.abs(slot(d1, 25)) / 100,
+        w.applyBuff(e, { kind: 'weaken', pct: Math.abs(slot(d1, 25)) / 100, code: i.buff || null,
                          until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
@@ -428,7 +429,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       return { ok: true };
     }
     case 'AHdi': case 'ACbh': case 'AHbn': {
-      w.applyBuff(caster, { kind: 'rage', pct: 0.25, until: w.now + Math.max(5, dur) * 1000 });
+      w.applyBuff(caster, { kind: 'rage', pct: 0.25, code: i.buff || null, until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
     // Metamorphosis and its kin genuinely replace the unit: `unit` names the
@@ -444,7 +445,8 @@ export function execute(w, caster, ab, lvl, o = {}) {
     }
     case 'ACro': case 'ANbr': {                // Roar-likes: friendly damage buff
       for (const a of w.alliesInRange(caster, caster.x, caster.y, area || 500))
-        w.applyBuff(a, { kind: 'rage', pct: slot(d1, 25) / 100, until: w.now + Math.max(5, dur) * 1000 });
+        w.applyBuff(a, { kind: 'rage', pct: slot(d1, 25) / 100, code: i.buff || null,
+                        until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
     // (AOsf -- Spirit Wolves -- used to sit in this group, which meant a spell
@@ -472,18 +474,46 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // base on most of the spells built from it (duration 0.01, all data 0) and
     // does the work in its own trigger, so a near-zero duration is the map
     // saying "do nothing" rather than a value to floor upward.
+    // ---- Entangling Roots
+    //
+    // Eer1 is "Damage per Second" and the base's whole point is that the target
+    // cannot move while it burns -- it can still attack, so this is a total
+    // movement slow and not a stun.
+    //
+    // AEer had no case at all and fell to the damage fallback, which cost more
+    // than the roots: the buffs these abilities declare gate the map's own
+    // triggers. 클러치 (A06Q) filters for units carrying B00H and 사폭장송
+    // (A05Q) for B00X, and with nothing able to stamp either code both filters
+    // were permanently empty. tools/ability_audit.mjs has been printing them
+    // under BUFF SEAMS.
+    case 'AEer': {
+      const t = o.target;
+      if (!t) return { ok: false, reason: 'need target' };
+      // Warcraft III carries two durations and picks by what it hit. The rest
+      // of this file takes heroDuration whenever there is one, which shortens
+      // every root on a creep -- 사박궤 holds a hero 2s and a non-hero 10s, and
+      // read the other way both get 2. Noted for the other cases in TODO.txt.
+      const secs = (t.isHero ? i.heroDuration : i.duration) || i.duration
+                || i.heroDuration || 0;
+      if (secs <= 0.1) return { ok: true };          // the map's "do nothing"
+      w.applyBuff(t, { kind: 'slow', pct: 1, code: i.buff || null,
+                       until: w.now + secs * 1000 });
+      if (slot(d1, 0) > 0) w.dotUnit(caster, t, d1, secs, 1);
+      return { ok: true };
+    }
     case 'ANsi': case 'ACsi': {
       let n = 0;
       for (const e of enemies(tx, ty, area || 300)) {
         if (dur <= 0.1) break;
-        w.applyBuff(e, { kind: 'silence', until: w.now + dur * 1000 });
+        w.applyBuff(e, { kind: 'silence', code: i.buff || null, until: w.now + dur * 1000 });
         n++;
       }
       return { ok: true, silenced: n };
     }
     case 'ANsl': case 'AUsl': case 'ACsw': {
       for (const e of enemies(tx, ty, area || 250))
-        w.applyBuff(e, { kind: 'slow', pct: slot(d1, 30) / 100, until: w.now + Math.max(4, dur) * 1000 });
+        w.applyBuff(e, { kind: 'slow', pct: slot(d1, 30) / 100, code: i.buff || null,
+                        until: w.now + Math.max(4, dur) * 1000 });
       return { ok: true };
     }
     default: {

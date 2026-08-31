@@ -26,6 +26,9 @@ const check = (name, ok, detail = '') => {
   else { fails.push(name); console.log(`  FAIL  ${name}${detail ? '  -- ' + detail : ''}`); }
 };
 
+// The five shop building types, two of each, one pair per base.
+const SHOP_TYPES = new Set(['n000', 'n001', 'n00H', 'n00N', 'n013']);
+
 const world = new World();
 const eng = new JassEngine(world);
 eng.load(); eng.boot();
@@ -240,6 +243,78 @@ console.log('\n-- a slot the map set to 0 deals 0, not the engine\'s fallback');
     execute(world, hero, ABILS.A01N, 3, { x: hero.x + 400, y: hero.y });
     check('an ability that DOES declare its damage still deals it',
           Math.abs((hp0 - t.hp) - 3000) < 300, `${Math.round(hp0 - t.hp)}`);
+  }
+}
+
+// ------------------------------------------------- the buffs the map reads
+//
+// war3map.j gates real trigger chains on UnitHasBuffBJ, and four of those codes
+// could never be true because every applyBuff but one passed no `code`:
+// 클러치 (A06Q) filters for B00H, 사폭장송 (A05Q) for B00X, Byakuya's A00T
+// checks B00N, and A059's own trigger checks B00S. tools/ability_audit.mjs
+// reports these under BUFF SEAMS -- but it reads the source, and a seam that
+// reads closed there can still be open on the unit. This checks the unit.
+console.log('\n-- the buff codes the map\'s own triggers read');
+{
+  const SEAMS = [
+    ['A059', 'B00S', 'target', '아이스에이지'],   // AOws, stamps the enemies it stomps
+    ['A03S', 'B00N', 'caster', '섬경 천본앵경엄'], // ANbr, a roar -- buffs self
+    ['A000', 'B00X', 'target', '사박궤'],         // AEer, roots what it names
+    ['A06P', 'B00H', 'target', '베인떼플루르'],
+  ];
+  for (const [id, code, where, name] of SEAMS) {
+    const A = ABILS[id];
+    if (!A) { check(`${id} is in the table`, false); continue; }
+    clearFoes();
+    const t = foe(80, 0);
+    if (!t) { check(`${id} could be aimed`, false); continue; }
+    execute(world, hero, A, 1, { target: t, x: t.x, y: t.y });
+    const onTarget = world.abilityLevel(t, code) > 0;
+    const onCaster = world.abilityLevel(hero, code) > 0;
+    const got = where === 'target' ? onTarget : onCaster;
+    check(`${id} ${name} stamps ${code} on the ${where}`, got,
+          `target ${onTarget}, caster ${onCaster}`);
+    // Clear it off the caster so the next roar's check cannot inherit it.
+    hero.buffs = (hero.buffs || []).filter((b) => b.code !== code);
+  }
+}
+
+// ------------------------------------------------------ shops are not targets
+//
+// The shops are the buildings inside each base, on player 15 -- Neutral
+// Passive. Warcraft III never lets that be an enemy, and neither does
+// world.hostile, so no amount of ordering can damage one. Asserted because it
+// was reported from play as heroes attacking the shop.
+console.log('\n-- the shop buildings cannot be fought');
+{
+  const shops = [...world.units.values()].filter((u) => SHOP_TYPES.has(u.typeKey));
+  check('both bases have their shops standing', shops.length >= 10, `${shops.length}`);
+  const shop = shops[0];
+  if (shop) {
+    check('a shop is Neutral Passive', shop.playerIndex === 15, `player ${shop.playerIndex}`);
+    check('and on a different team from the hero, so team alone would call it an enemy',
+          shop.team !== hero.team, `${shop.team} vs ${hero.team}`);
+    check('yet the engine refuses to make it hostile', world.hostile(hero, shop) === false);
+    // The guarantee that matters: it can never be acquired or splashed.
+    world.moveUnit(hero, shop.x + 60, shop.y);
+    world.binTick = -1; world.rebuildBins();
+    const near = world.enemiesInRange(hero, shop.x, shop.y, 400);
+    check('it is never returned as an enemy in range',
+          !near.includes(shop), `${near.length} enemies near it`);
+    // Ordering the attack -- which is what a right-click used to do -- lands
+    // nothing, because stepAttack goes through hostile() before it swings.
+    const hp0 = shop.hp;
+    world.order(hero, { type: 'attack', target: shop });
+    for (let i = 0; i < 180; i++) { eng.update(1000 / 30); world.step(); }
+    check('ordering an attack on it takes nothing off it over six seconds',
+          shop.hp === hp0, `${hp0} -> ${shop.hp}`);
+    // world.damage itself is deliberately NOT filtered -- the map's own triggers
+    // call UnitDamageTarget on whatever they please and the engine has to obey.
+    // Recorded rather than asserted shut, because filtering it would silently
+    // change what the map can do.
+    world.damage(hero, shop, 5000, {});
+    console.log(`   (a direct damage call is unfiltered by design: ` +
+                `${Math.round(hp0)} -> ${Math.round(shop.hp)})`);
   }
 }
 

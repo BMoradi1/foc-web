@@ -22,18 +22,14 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const TIMEOUT = +(process.env.TEST_TIMEOUT || 600) * 1000;
 const filters = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 
-// Five tests hardcode hero ids H004/E00T and the name "Saber". No such hero
-// exists in this map's 26, so they die during setup before reaching anything
-// they claim to test. They predate this port and are listed in TODO.txt; they
-// are skipped here rather than left to fail, so a red run means a real
-// regression.
-const STALE = {
-  'sound_test.mjs': 'hardcodes H004/E00T -- see TODO.txt HOUSEKEEPING',
-  'spell_test.mjs': 'hardcodes H004/E00T -- see TODO.txt HOUSEKEEPING',
-  'match_test.mjs': 'hardcodes H004/E00T -- see TODO.txt HOUSEKEEPING',
-  'wincond_test.mjs': 'hardcodes H004/E00T -- see TODO.txt HOUSEKEEPING',
-  'victory_test.mjs': 'hardcodes H004/E00T -- see TODO.txt HOUSEKEEPING',
-};
+// Nothing is stale any more. Five tests -- sound, spell, match, wincond,
+// victory -- used to hardcode hero ids H004/E00T and unit N007 and the chat
+// commands '@duel'/'@tome', none of which exist in this map; they died during
+// setup and sat skipped, which cost the suite its whole end-to-end half. They
+// now take their heroes from tools/testheroes.mjs, drive the map's own kill
+// counters, and assert rather than print. Keep this empty: a test that cannot
+// run is a test that should be fixed or deleted.
+const STALE = {};
 
 // Tests that fail because the *port* has a defect they correctly detect, not
 // because the test is broken. These stay in the run and their output is shown,

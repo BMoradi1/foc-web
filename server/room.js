@@ -203,6 +203,15 @@ export class Room {
         // carry DestructableData's selectable flag, and a click may not land on
         // anything else
         const t = W.target(m.targetId);
+        // A shop, a tavern or a picker prop is Neutral Passive, and world.hostile
+        // refuses to make it an enemy -- so an attack order on one could never
+        // land, but it was still accepted and the hero still ran at the building.
+        // Walking there is what Warcraft III does with that click. The client
+        // sends a move for these now; this is the guard for one that does not.
+        if (t && !t.isDest && !W.hostile(u, t)) {
+          W.order(u, { type: 'move', x: t.x, y: t.y });
+          break;
+        }
         if (t && (!t.isDest || t.selectable)) W.order(u, { type: 'attack', target: t });
         break;
       }
