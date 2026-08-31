@@ -642,9 +642,16 @@ GAMEPLAY / INPUT
         0 "Damage" depending on how it is taken. It also needs a per-buff
         damage-over-time tick, an attack-speed buff channel and a slow that
         works on non-heroes, none of which exist. One live carrier.
-      - A01W 맨트라 (AEev, evasion) is still dead: it is the attacker's miss
-        chance rather than the defender's evade, and has no field in common
-        with Ocr4.
+    The plain evasion family went in with it, and the note that used to sit
+    here calling A01W unbuildable was wrong. AbilityMetaData gives Eev1 to
+    exactly AEev, AIev, ACev and ACes and WorldEditStrings reads it "Chance to
+    Evade" -- the same label as Ocr4, one slot earlier. Its declared range is
+    0..10, which does not on its own settle whether 0.25 means a quarter or a
+    quarter of a percent; the map's own tooltip does, because A01W 맨트라
+    carries 0.25 and its ubertip reads "◎피할 확률 25%". So it is a fraction
+    here, like Ocr4. Live carriers: Eneru's god form (25%), Ichigo's 호로화,
+    and Blizzard's own Demon Hunter and creep evasions.
+    The audit's dead list is 4.
 
 [x] Craters did nothing -- Kisame's water prison left the ground flat  (FIXED,
     with one approximated part, marked below and in the code)

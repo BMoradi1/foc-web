@@ -74,6 +74,15 @@ check('the table reads a hellhound', procOf('A032').chance === 20 && procOf('A03
       JSON.stringify(procOf('A032')));
 check('and reads evade off Itachi', procOf('A02W').evade === 0.07, JSON.stringify(procOf('A02W')));
 check('and gives A051 nothing to fire', procOf('A051').chance === 0, JSON.stringify(procOf('A051')));
+// The plain evasion family keeps its chance one slot earlier, and its declared
+// range (0..10) does not settle whether 0.25 is a quarter or a quarter of a
+// percent.  The author's own tooltip does: A01W reads "피할 확률 25%".
+check('Eev1 is an evade chance too', labelOf('Eev1') === 'Chance to Evade', labelOf('Eev1'));
+check('and it belongs to the evasion family',
+      /K"AEev,AIev,ACev,ACes"/.test(blob('Eev1')), 'useSpecific AEev,AIev,ACev,ACes');
+check('Eneru\'s Mantra is a quarter, as its own tooltip says',
+      at('A01W').data1 === 0.25, `${at('A01W').data1}`);
+check('the table reads it', procOf('A01W').evade === 0.25, JSON.stringify(procOf('A01W')));
 check('a unit with none of them is unaffected',
       attackProcs(W, { abilities: new Map() }).chance === 0, 'clean');
 

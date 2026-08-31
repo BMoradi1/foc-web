@@ -535,13 +535,30 @@ export function abilityBonuses(w, u) {
  */
 const PROC_BASES = new Set(['ACct', 'ANdb', 'AOcr']);
 
+/**
+ * The plain evasion family, which keeps its chance in a different slot.
+ * AbilityMetaData gives Eev1 to exactly AEev, AIev, ACev and ACes, and
+ * WorldEditStrings reads it "Chance to Evade" -- the same label as Ocr4, one
+ * field earlier.  Its declared range is 0..10 rather than 0..1, so the range
+ * alone does not settle the unit; the map's own tooltip does.  A01W 맨트라
+ * carries Eev1 0.25 and its ubertip reads "적의 생각을 읽고 공격을 피합니다.
+ * ◎피할 확률 25%", so it is a fraction here, matching Ocr4 rather than the
+ * range's upper bound.
+ */
+const EVADE_BASES = new Set(['AEev', 'AIev', 'ACev', 'ACes']);
+
 export function attackProcs(w, u) {
   const out = { chance: 0, mult: 1, bonus: 0, evade: 0 };
   if (!u || !u.abilities) return out;
   for (const [key, lvl] of u.abilities) {
     if (lvl < 1) continue;
     const ab = ABILS[w.abilKey(key)];
-    if (!ab || !PROC_BASES.has(baseOf(ab))) continue;
+    if (!ab) continue;
+    if (EVADE_BASES.has(baseOf(ab))) {
+      out.evade = Math.max(out.evade, levelInfo(ab, lvl).data1 || 0);
+      continue;
+    }
+    if (!PROC_BASES.has(baseOf(ab))) continue;
     const d = levelInfo(ab, lvl);
     // several of these on one unit is not a case this map produces; taking the
     // strongest is a choice, and the alternative -- rolling each -- would be

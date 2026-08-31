@@ -54,7 +54,7 @@ const ATTR = setOf('ATTR_SKILLS'), AURAS = setOf('AURA_BASES'), ITEMS = setOf('I
 // PROC_BASES is read at attack time rather than through recalc, because every
 // carrier but two is a summon and recalc returns early on non-heroes -- so it
 // is a fourth passive-handling table and has to count as one here.
-const PROCS = setOf('PROC_BASES');
+const PROCS = new Set([...setOf('PROC_BASES'), ...setOf('EVADE_BASES')]);
 
 // ------------------------------------------------------- what the map reaches
 // Every identifier the map script calls, then the transitive closure through
