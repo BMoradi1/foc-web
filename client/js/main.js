@@ -331,6 +331,16 @@ function handleEvent(ev) {
     }
     // the map's script drives its own spell visuals through these
     case 'anim':     view.playUnitAnim(ev.id, ev.name); break;
+    // animation speed: hastes, slows, and the two sites that freeze a unit at 0
+    case 'timeScale': view.setUnitTimeScale(ev.id, ev.s); break;
+    // A scripted camera move, aimed at one player by the map. `player` is unset
+    // when the map called the bare native, which this one never does.
+    case 'panCamera':
+      if (ev.player == null || ev.player === S.slot) view.panTo(ev.x, ev.y, ev.dur);
+      break;
+    // the full-screen wash an ultimate or a duel transition throws
+    case 'cineFilter':    overlay.cine.show(ev); break;
+    case 'cineFilterOff': overlay.cine.clear(); break;
     case 'animIdx':  view.playUnitAnimIndex(ev.id, ev.i); break;
     case 'sfx':      view.spawnEffect(ev, false); break;
     case 'sfxUnit':  view.spawnEffect(ev, true); break;
@@ -808,7 +818,9 @@ function frame() {
   }
   const tInterp = performance.now();
   const me = S.ents.get(S.hero?.id);
-  if (me && followHero) view.focus(me.x, me.y);
+  // a scripted pan owns the camera while it runs, so the hero-follow does not
+  // fight it back to the hero one frame at a time
+  if (!view.stepPan(dt) && me && followHero) view.focus(me.x, me.y);
   if (S.bounds) view.clampCam(S.bounds);
   if (S.phase === Phase.PLAYING) drawUnitUI();
   if (S.phase === Phase.PLAYING && unitPortrait) unitPortrait.step(dt);

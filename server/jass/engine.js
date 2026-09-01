@@ -349,6 +349,9 @@ function soundKey(p) {
 function installNatives(vm, eng) {
   const W = () => eng.world;
   const H = (type, props) => new Handle(type, props);
+  // the cinematic filter being assembled, see DisplayCineFilter
+  const CF = () => (eng.cineFilter || (eng.cineFilter = {
+    tex: '', blend: 0, from: [0, 0, 0, 255], to: [0, 0, 0, 255], dur: 0 }));
 
   /**
    * Warcraft III's Convert* functions return the *same* handle for a given
@@ -594,7 +597,14 @@ function installNatives(vm, eng) {
     SetUnitAnimation: (u, s) => eng.emit({ t: 'anim', id: u && u.id, name: s }),
     SetUnitAnimationByIndex: (u, i) => eng.emit({ t: 'animIdx', id: u && u.id, i }),
     QueueUnitAnimation: () => {},
-    SetUnitTimeScale: () => {}, SetUnitBlendTime: () => {},
+    // Animation speed. Blizzard.j's SetUnitTimeScalePercent divides by 100
+    // before this, so what arrives is already a multiplier: this map asks for
+    // 36 of them between 0 and 2, and two of those are 0 -- a unit frozen mid
+    // animation, which is a visible state and not a no-op.
+    SetUnitTimeScale: (u, s) => {
+      if (u) eng.emit({ t: 'timeScale', id: u.id, s: Math.max(0, +s || 0) });
+    },
+    SetUnitBlendTime: () => {},
     SetUnitScale: (u, x) => { if (u) u.renderScale = x; },
     SetUnitVertexColor: (u, r, g, b, a) => eng.emit({ t: 'tint', id: u && u.id, r, g, b, a }),
     SetUnitFlyHeight: (u, h) => { if (u) u.flyHeight = h; },
@@ -1043,8 +1053,7 @@ function installNatives(vm, eng) {
     NewSoundEnvironment: () => {}, SetAmbientDaySound: () => {}, SetAmbientNightSound: () => {},
     SetSoundVolumeBJ: () => {},
     SetCameraBounds: () => {}, SetCameraPosition: () => {}, SetCameraQuickPosition: () => {},
-    PanCameraTo: () => {}, PanCameraToTimed: () => {}, PanCameraToWithZ: () => {},
-    PanCameraToTimedWithZ: () => {}, SetCameraRotateMode: () => {},
+    SetCameraRotateMode: () => {},
     SetCameraField: () => {}, AdjustCameraField: () => {}, SetCameraTargetController: () => {},
     SetCameraOrientController: () => {}, CameraSetupApply: () => {},
     CameraSetupApplyForceDuration: () => {}, CreateCameraSetup: () => H('camerasetup', {}),
@@ -1064,11 +1073,55 @@ function installNatives(vm, eng) {
       eng.emit({ t: 'camShake', mag: +mag || 0, vel: +vel || 0, vert: !!vert }),
     // A shake is cleared by asking for one of magnitude zero, and this is the
     // other way the map ends one.
+    // Scripted camera moves. The map makes 39 of them and every one goes
+    // through PanCameraToTimedLocForPlayer, whose Blizzard.j body is wrapped in
+    // `if GetLocalPlayer() == whichPlayer`. On a shared authoritative server
+    // there is no local player -- GetLocalPlayer answers Player(0) -- so that
+    // gate would drop 38 of the 39 before the native ever saw them.
+    //
+    // Intercepting the BJ instead keeps the player it was aimed at, and the
+    // client shows the pan only to that one. Natives resolve before JASS
+    // functions (vm.js call()), which is what makes the override take.
+    PanCameraToTimedLocForPlayer: (p, loc, dur) => {
+      if (loc) eng.emit({ t: 'panCamera', player: p && p.index,
+                          x: loc.x, y: loc.y, dur: Math.max(0, +dur || 0) });
+    },
+    PanCameraToTimedLocWithZForPlayer: (p, loc, z, dur) =>
+      N.PanCameraToTimedLocForPlayer(p, loc, dur),
+    // The bare natives, for a caller that does not go through the BJ. Nothing
+    // in this map does, so these are reach rather than measured behaviour.
+    PanCameraToTimed: (x, y, dur) =>
+      eng.emit({ t: 'panCamera', x, y, dur: Math.max(0, +dur || 0) }),
+    PanCameraTo: (x, y) => eng.emit({ t: 'panCamera', x, y, dur: 0 }),
+    PanCameraToTimedWithZ: (x, y, z, dur) => N.PanCameraToTimed(x, y, dur),
+    PanCameraToWithZ: (x, y, z) => N.PanCameraToTimed(x, y, 0),
     ResetToGameCamera: () => eng.emit({ t: 'camShake', mag: 0, vel: 0, vert: false }),
-    SetCineFilterTexture: () => {}, SetCineFilterBlendMode: () => {},
+    // The full-screen filter: a texture tinted from one colour to another over
+    // a duration. Built up over eight setters and then shown, which is why the
+    // state accumulates here and only DisplayCineFilter sends anything -- the
+    // same shape as a text tag, except that the BJs put the display call last
+    // so nothing has to be deferred to the end of the tick.
+    //
+    // The map uses it five times, all through CinematicFadeBJ or
+    // CinematicFilterGenericBJ: three over White_mask, which is a plain white
+    // square and so exactly a flat colour, and two over shaped masks
+    // (DiagonalSlash, and a command-button icon) which the client currently
+    // renders as that flat colour too. The texture path is sent so it can stop
+    // doing that without a protocol change.
+    SetCineFilterTexture: (tex) => { CF().tex = String(tex || ''); },
+    SetCineFilterBlendMode: (m) => { CF().blend = m && m.v != null ? m.v : m; },
     SetCineFilterStartUV: () => {}, SetCineFilterEndUV: () => {},
-    SetCineFilterStartColor: () => {}, SetCineFilterEndColor: () => {},
-    SetCineFilterDuration: () => {}, DisplayCineFilter: () => {},
+    SetCineFilterStartColor: (r, g, b, a) => {
+      CF().from = [trunc(r), trunc(g), trunc(b), trunc(a)]; },
+    SetCineFilterEndColor: (r, g, b, a) => {
+      CF().to = [trunc(r), trunc(g), trunc(b), trunc(a)]; },
+    SetCineFilterDuration: (d) => { CF().dur = Math.max(0, +d || 0); },
+    DisplayCineFilter: (on) => {
+      if (!on) { eng.emit({ t: 'cineFilterOff' }); return; }
+      const f = CF();
+      eng.emit({ t: 'cineFilter', tex: f.tex, blend: f.blend,
+                 from: f.from, to: f.to, dur: f.dur });
+    },
     CinematicModeBJ: () => {}, ShowInterface: () => {},
     EnableUserControl: () => {}, EnableUserUI: () => {},
     EnableOcclusion: () => {}, EnableSelect: () => {}, EnableDragSelect: () => {},

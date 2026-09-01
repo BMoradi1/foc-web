@@ -166,6 +166,44 @@ class TextTags {
 }
 
 /**
+ * Warcraft III's cinematic filter: a full-screen wash that runs from one colour
+ * to another over a duration, which is what the map throws for its ultimates
+ * and its duel transitions.
+ *
+ * Colours arrive 0-255 with alpha already resolved from the BJ's transparency,
+ * so nothing here decides how it looks. It ends by holding the end colour --
+ * DisplayCineFilter(false), which Blizzard.j's FinishCinematicFadeBJ sends, is
+ * what clears it, and a fade-in ends transparent anyway.
+ */
+class CineFilter {
+  constructor() { this.f = null; this.last = performance.now(); }
+
+  show(ev) {
+    this.f = { from: ev.from || [0, 0, 0, 255], to: ev.to || [0, 0, 0, 0],
+               dur: Math.max(0, +ev.dur || 0), t: 0 };
+  }
+  clear() { this.f = null; }
+
+  draw(ctx) {
+    const now = performance.now();
+    const dt = Math.min(0.25, Math.max(0, (now - this.last) / 1000));
+    this.last = now;
+    const f = this.f;
+    if (!f) return;
+    f.t += dt;
+    const k = f.dur > 0 ? Math.min(1, f.t / f.dur) : 1;
+    const c = (i) => Math.round(f.from[i] + (f.to[i] - f.from[i]) * k);
+    const a = c(3) / 255;
+    if (a <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = `rgb(${c(0)},${c(1)},${c(2)})`;
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    ctx.restore();
+  }
+}
+
+/**
  * A frame readout, because the numbers that matter are the ones on the machine
  * complaining.
  *
@@ -240,6 +278,7 @@ export class Overlay {
     this.dpr = Math.min(2, devicePixelRatio || 1);
     this.stats = new Stats();
     this.tags = new TextTags();
+    this.cine = new CineFilter();
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -268,6 +307,9 @@ export class Overlay {
     this.stats.sample();
     // under the stats, over the bars: it is world content, they are a readout
     this.tags.draw(ctx, view);
+    // over the text, under the stats: the filter washes the scene, and the
+    // frame readout is a diagnostic that should stay legible through it
+    this.cine.draw(ctx);
     this.stats.draw(ctx, view, ents);
     if (!show || !show.size) return;
     const w = innerWidth, h = innerHeight;

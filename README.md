@@ -360,6 +360,7 @@ stub-native lists are the honest size of the new map's gap before anyone plays i
 | Attachments | effects hung on the model's own attachment points instead of at the unit's feet |
 | Presentation | Warcraft III's own console frame, minimap, blended terrain, animated water, stepped cliffs; the top strip carries the real resource bar and buttons, and the camera aims at the strip of screen the console leaves visible |
 | Floating text | the map's 48 text tags — the spell name shouted over its caster, the duel's 3-2-1-Fight, "Winner is `<hero>`", the lane signboards standing beside each base — plus the engine's own: the bounty gold over a body, the critical strike's damage, and "miss". Colour, drift, lifetime and fade are read from `UI/MiscData.txt`, the word from `GlobalStrings.fdf`, and the typeface is the game's own Friz Quadrata |
+| Camera and cinematics | the map's 39 scripted camera pans, each shown to the player it was aimed at; animation speed, so a haste or a channel plays at the rate the script asks for and the two units it freezes stay frozen; the full-screen cinematic wash an ultimate throws |
 | Multiplayer | two players in one room, opposing teams, own colours, seeing each other's moves, chat and dropped items |
 
 **Approximated or missing**
@@ -367,13 +368,13 @@ stub-native lists are the honest size of the new map's gap before anyone plays i
 | | |
 |---|---|
 | Dead spells | `tools/ability_audit.mjs` prints the live list — currently 13 abilities with no engine case, no map trigger and no data fallback (Mana Shield's absorption is the classic), plus the buff seams it checks alongside |
-| Stub natives | a native the engine has never heard of is reported; one that exists with an empty body is not, which is how the text tags stayed invisible while every test passed. `tools/stub_audit.mjs` walks the other way: 244 of 515 natives have a stub body, 71 of them reached by this map across 442 call sites, ranked by how much of the map runs into each |
+| Stub natives | a native the engine has never heard of is reported; one that exists with an empty body is not, which is how the text tags stayed invisible while every test passed. `tools/stub_audit.mjs` walks the other way, ranking every empty-bodied native by how much of the map runs into it: 233 of 511 are stubs, 63 of them reached across 336 call sites, down from 71 and 442 as the camera, animation speed and cinematic filter were done |
 | Ramp wedges | `CliffTrans` pieces are drawn as ordinary cliff walls, affecting the 20 cells flanking the two base ramps |
 | `ParticleEmitter1` | parsed, exported, and spawns its pieces, but has never been confirmed to put a pixel on screen |
 | Ribbon colour | a ribbon's colour and alpha over its life are not applied; its visibility track, and an emitter's visibility and emission rate, are |
 | Attack backswing | a swing resolves the moment it starts, though the missile it throws now takes time to arrive |
 | Pathing | A* over the map's real walkability grid, not Warcraft III's flow-field movement |
-| Not implemented | fog of war; the day/night cycle; `SetUnitTimeScale`, so hastes and channels play at one speed; every scripted camera move (`PanCameraToTimed`, 39 of them); the cinematic filters, so an ultimate throws no full-screen flash; scripted music and ambience; `TerrainDeformRipple`, the cosmetic shockwave — the craters it sits beside do work |
+| Not implemented | fog of war; the day/night cycle and its sky and fog tint; scripted music and ambience; `TerrainDeformRipple`, the cosmetic shockwave — the craters it sits beside do work |
 
 **Translation** — this map's text is Korean, and is now also carried in English by an
 LLM-written overlay, `data/translations.ko-en.json`, kept deliberately outside the extraction: every hero title, ability

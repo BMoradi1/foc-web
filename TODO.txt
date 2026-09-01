@@ -873,8 +873,15 @@ GAMEPLAY / INPUT
     Kuchiki, whose six abilities are C Q W E B V, so every slot moves off its
     old position and a regression cannot pass silently.
 
-[ ] SetUnitTimeScale -- 36 calls, currently a no-op
-    Animation speed changes (hastes, slows, channel speeds) do nothing.
+[x] SetUnitTimeScale -- 36 calls, currently a no-op  (FIXED)
+    Blizzard.j's SetUnitTimeScalePercent divides by 100 first, so what the
+    native receives is already a multiplier; this map asks for 36 of them
+    between 0 and 2. The client sets it on the view's AnimationMixer, and holds
+    it per unit id rather than on the view, because a metamorphosis throws the
+    view away and builds another -- a hasted hero that morphs is still hasted.
+    Two of the 36 pass 0, which is a unit frozen mid-animation and a visible
+    state rather than an unset value, so zero is carried through rather than
+    falling back to 1. tools/cosmetic_test.mjs.
 
 [x] Text tags: no floating text renders at all  (FIXED)
     Measured 2026-08-30, and that entry used to understate it as "text does not
@@ -928,18 +935,39 @@ GAMEPLAY / INPUT
     list, and it is empty. A native that exists with an empty body is not: it
     takes the call, returns, and nothing says a word. That is how the text tags
     hid, and this is the rest of that class.
-    244 of the 515 natives in engine.js have a stub body. 71 of them are reached
-    by this map, across 442 call sites. Run the tool for the full table; what
-    follows is what a player would notice, with the false alarms named so nobody
-    spends an evening on them twice.
+    Was 244 of 515 natives stubbed, 71 reached across 442 call sites. After the
+    camera, time scale and cinematic filter below: 233 of 511, 63 reached across
+    336. Run the tool for the full table; what follows is what a player would
+    notice, with the false alarms named so nobody spends an evening on them
+    twice.
 
-    Player-visible, real:
-      PanCameraToTimed         39 sites, 39 separate trigger functions. Every
-                               scripted camera move in the map -- the camera
-                               never goes where the script sends it.
+    DONE since this was written:
+      PanCameraToTimed         39 sites, one per trigger. The map never calls
+                               the native: all 39 go through Blizzard.j's
+                               PanCameraToTimedLocForPlayer, whose body is
+                               wrapped in `if GetLocalPlayer() == whichPlayer`.
+                               There is no local player on a shared server --
+                               GetLocalPlayer answers Player(0) -- so that gate
+                               drops 38 of the 39 before the native is reached,
+                               and implementing the native alone would have
+                               looked done and shown nothing. The engine
+                               overrides the BJ instead, where the player is
+                               still known, and the client shows the pan to that
+                               player only. Works because vm.call() checks
+                               natives before JASS bodies.
       SetUnitTimeScale         36. Its own item above.
-      DisplayCineFilter        41 across the family (1 + 8 SetCineFilter*).
-        + SetCineFilter*       Full-screen flash and fade during ultimates.
+      DisplayCineFilter        5 displays over 41 setter calls. State
+        + SetCineFilter*       accumulates over the setters and DisplayCineFilter
+                               sends it, which the BJs put last so nothing has
+                               to be deferred. Three of the five are over
+                               White_mask, a plain white square and so exactly
+                               the flat colour the client draws; the other two
+                               name a shaped mask (DiagonalSlash, and a
+                               command-button icon) and render as that flat
+                               colour too. The texture path is sent so that can
+                               be fixed without a protocol change.
+
+    Player-visible, still open:
       SetDayNightModels 2,     Atmosphere: sky model and fog tint, set once
         SetTerrainFogEx 2      each per team base.
       music and ambience       SetMapMusic 2, NewSoundEnvironment 2,

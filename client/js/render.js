@@ -916,6 +916,10 @@ export class Renderer {
     view.bornAt = performance.now() / 1000;
     if (gltf.animations.length) {
       view.mixer = new THREE.AnimationMixer(obj);
+      // a scale set before this view existed, or before it was rebuilt by a
+      // metamorphosis, still applies to the unit underneath it
+      const held = this.timeScales?.get(view.id);
+      if (held != null) view.mixer.timeScale = held;
       for (const clip of gltf.animations) {
         const a = view.mixer.clipAction(clip);
         view.actions.set(clip.name.toLowerCase(), a);
@@ -1856,6 +1860,19 @@ export class Renderer {
    * SetUnitAnimation: the script names sequences loosely ("attack", "spell
    * slam"), so fall back to a prefix match the way the game does.
    */
+  /**
+   * Animation speed, as SetUnitTimeScale sets it: 1 is the authored rate, 0
+   * freezes the unit where it stands. Kept per id rather than on the view,
+   * because a metamorphosis throws the view away and builds another, and a
+   * hasted hero that morphs is still hasted.
+   */
+  setUnitTimeScale(id, s) {
+    const scale = Math.max(0, +s || 0);
+    (this.timeScales || (this.timeScales = new Map())).set(id, scale);
+    const v = this.views.get(id);
+    if (v && v.mixer) v.mixer.timeScale = scale;
+  }
+
   playUnitAnim(id, name) {
     const v = this.views.get(id);
     if (!v || !v.mixer || !v.actions.size) return;
@@ -2025,7 +2042,34 @@ export class Renderer {
     else this.camTarget.lerp(t, 0.14);
   }
   panBy(dx, dz) {
+    // taking the camera by hand ends whatever the script was doing with it,
+    // the way dragging in Warcraft III does
+    this.scriptPan = null;
     this.camTarget.x += dx; this.camTarget.z += dz;
+  }
+
+  /**
+   * A scripted camera move: PanCameraToTimed, straight over `dur` seconds.
+   *
+   * Linear, because that is the whole of what the native says -- go here, take
+   * this long. Nothing in MiscData.txt or the map states a curve, and the
+   * [CameraRates] block is about the player's own camera rather than a pan.
+   */
+  panTo(wx, wy, dur) {
+    const to = new THREE.Vector3(toX(wx), this.heightAt(wx, wy), toZ(wy));
+    if (!(dur > 0)) { this.camTarget.copy(to); this.scriptPan = null; return; }
+    this.scriptPan = { from: this.camTarget.clone(), to, t: 0, dur };
+  }
+
+  /** Advance a scripted pan. True while one owns the camera. */
+  stepPan(dt) {
+    const p = this.scriptPan;
+    if (!p) return false;
+    p.t += dt;
+    const k = Math.min(1, p.t / p.dur);
+    this.camTarget.lerpVectors(p.from, p.to, k);
+    if (k >= 1) this.scriptPan = null;
+    return true;
   }
   clampCam(b) {
     if (!b) return;
