@@ -98,6 +98,11 @@ PASSIVE_ART = {a for a, d in FUNC.items()
 # flash, the buff glow -- so skipping it leaves most spells visually silent.
 ART_FUNC = {'casterart': 'caster', 'targetart': 'target', 'specialart': 'special',
             'effectart': 'effect', 'areaeffectart': 'area', 'missileart': 'missile',
+            # `Art` is the command-card icon. It rides along here so it gets the
+            # same treatment as the models: Blizzard's for the base, the map's
+            # override on top. compile_game.py was reading the override alone,
+            # which left 14 of the 130 hero abilities with a blank button.
+            'art': 'icon',
             'lightningeffect': 'lightning', 'animnames': 'anim',
             # how the missile flies, for when it is given travel time
             'missilespeed': 'missileSpeed', 'missilearc': 'missileArc',
@@ -105,6 +110,7 @@ ART_FUNC = {'casterart': 'caster', 'targetart': 'target', 'specialart': 'special
 # the same art, as the map's own w3a overrides name it
 ART_W3A = {'acat': 'caster', 'atat': 'target', 'asat': 'special', 'aeat': 'effect',
            'aaea': 'area', 'amat': 'missile', 'alig': 'lightning', 'aani': 'anim',
+           'aart': 'icon',
            'amsp': 'missileSpeed', 'amac': 'missileArc', 'amho': 'missileHoming'}
 
 

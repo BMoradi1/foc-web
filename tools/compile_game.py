@@ -202,7 +202,12 @@ def ability(aid):
                              clean(lvl_get(m, 'anam', 0, aid)),
                              en_name(clean(lvl_get(m, 'anam', 0, aid)))),
                 descEn=en_desc(clean(lvl_get(m, 'aub1', 1, ''))),
-                icon=find_icon(lvl_get(m, 'aart', 0)),
+                # The map's own icon, else Warcraft III's for the base. Reading
+                # only the map's mods here left 14 hero abilities blank -- Blink,
+                # Mirror Image, Reincarnation and the rest all have an `Art` line
+                # in Units\*AbilityFunc.txt that the map simply does not override.
+                # Same fix the effect models above already got.
+                icon=find_icon(lvl_get(m, 'aart', 0) or _art(gate, 'icon')),
                 hotkey=clean(lvl_get(m, 'ahky', 0, '')), levels=levels,
                 targets=lvl_get(m, 'atar', 1, ''),
                 # Ability art comes from the table, which reads Warcraft III's

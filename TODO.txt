@@ -1019,6 +1019,36 @@ GAMEPLAY / INPUT
     The four ability ones are worth having: this map's heroes carry crit and
     bash widely, and the number is the only feedback that either fired.
 
+[x] Fourteen abilities had a blank button on the command card  (FIXED)
+    Reported from play as "are abilities supposed to have custom icons". They
+    are: the map sets `aart` on 173 of them, two of which point at art shipped
+    inside the .w3x (textures\HeroBuuChocolate.blp, on Buu's A02Z and A02V) and
+    the rest at Blizzard's own BTN/PASBTN buttons.
+    compile_game.py read the icon straight off the map's mods --
+    `find_icon(lvl_get(m, 'aart', 0))` -- so an ability the map does not rename
+    got nothing, even though Warcraft III's icon for it is sitting in
+    Units\*AbilityFunc.txt as `Art=`. 116 of the 130 hero abilities resolved,
+    14 came out blank: Blink for Eneru's 전광 and Goku's 순간이동, Mirror Image
+    for both 분신술, Reincarnation for Orochimaru's revive, Blizzard for
+    Gilgamesh's 보구의 비, and eight more.
+    The comment three lines below that call already described this same fix
+    being made for the effect *models* -- "Reading only the map's mods here saw
+    art for 13 of 130" -- so the models were routed through the table that lays
+    overrides on Blizzard's own art and the icon line was left as it was.
+    Two halves, and the first alone still left three blank:
+      - the ability table now carries `icon` as an art slot (abilities.py,
+        ART_FUNC 'art' and ART_W3A 'aart'), so Blizzard's is there with the
+        map's override on top, and compile_game falls back to it. 14 -> 3.
+      - the last three were named but had never been *extracted*: nothing had
+        ever referenced BTNBlizzard, BTNSilence or PASBTNReincarnation, so they
+        were not in war3_extracted and had no PNG. extract_blizzard.py already
+        harvests every art slot out of data/abilities.json, so adding the slot
+        was enough to pull them; no change was needed there. 3 -> 0.
+    Now 130 of 130, each pointing at a file that is staged and serves.
+    tools/icon_test.mjs, 9 checks -- coverage, that the file exists rather than
+    only being named, the four specific fallbacks, and that Buu keeps the map's
+    own imported art rather than being handed a stock button.
+
 [ ] Fog of war
     Nothing exists. The whole map is visible to everyone.
 
