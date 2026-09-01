@@ -60,6 +60,15 @@ export class JassEngine {
         // is free to reassign it, and this one does, ten times over.
         color: i,
         gold: 0, lumber: 0,
+        // PLAYER_STATE_GIVES_BOUNTY. Warcraft III has this ON for the neutral
+        // players and off for everyone else, which is why Blizzard.j's
+        // ConfigureNeutralVictim bothers to turn it off again for Neutral
+        // Victim ("Neutral Victim does not give bounties") -- you only turn off
+        // what defaults on. Neutral aggressive is player 12, and every one of
+        // this map's 37 creeps belongs to it, so this is the flag that decides
+        // whether killing a creep floats the gold it paid. The map turns it on
+        // for Player(0..7) itself, which is what makes hero kills print too.
+        givesBounty: i === 12,
         // PLAYER_SLOT_STATE_EMPTY. A slot is only PLAYING once somebody is in
         // it -- reporting all twelve as occupied makes the map believe it has a
         // full house, and this one counts slots to decide who duels.
@@ -232,7 +241,52 @@ export class JassEngine {
 
   emit(ev) { this.clientEvents.push(ev); }
   fxSeq = 0;
-  flushClientEvents() { const e = this.clientEvents; this.clientEvents = []; return e; }
+  ttSeq = 0;
+  // The permanent tags, kept so a client that connects after they were made
+  // still gets the scenery. A tag with a lifespan is dropped as soon as it has
+  // been sent -- the client owns the whole of its short life.
+  textTags = new Map();
+  dirtyTags = new Set();
+
+  /** Apply a change to a text tag and mark it for this tick's flush. */
+  touchTag(t, f) { if (t) { f(); this.dirtyTags.add(t); } }
+
+  /**
+   * One event per tag touched this tick, carrying its finished state.
+   *
+   * A tag created and destroyed within the same tick is never sent at all,
+   * rather than sent and immediately retracted.
+   */
+  flushTextTags() {
+    for (const t of this.dirtyTags) {
+      if (t.dead) {
+        this.textTags.delete(t.tt);
+        if (t.sent) this.clientEvents.push({ t: 'texttagEnd', tt: t.tt });
+      } else {
+        t.sent = true;
+        this.clientEvents.push(textTagEvent(t));
+        if (!t.permanent) this.textTags.delete(t.tt);
+      }
+    }
+    this.dirtyTags.clear();
+  }
+
+  /** The live permanent tags, as the events that would have created them. */
+  liveTags() {
+    return [...this.textTags.values()].filter((t) => !t.dead).map(textTagEvent);
+  }
+
+  flushClientEvents() {
+    this.flushTextTags();
+    const e = this.clientEvents; this.clientEvents = []; return e;
+  }
+}
+
+function textTagEvent(t) {
+  return { t: 'texttag', tt: t.tt, s: t.text, x: t.x, y: t.y, z: t.z,
+           h: t.height, c: t.color, vx: t.xvel, vy: t.yvel,
+           life: t.life, fade: t.fade, age: t.age,
+           perm: t.permanent, vis: t.visible && !t.suspended };
 }
 
 function rectHas(r, x, y) { return x >= r.minx && x <= r.maxx && y >= r.miny && y <= r.maxy; }
@@ -362,7 +416,7 @@ function installNatives(vm, eng) {
     OrderId: (s) => strHash(s),
     OrderId2String: (i) => String(i),
     String2OrderIdBJ: (s) => strHash(s),
-    GetObjectName: (id) => W().typeName(id),
+    GetObjectName: (id) => W().objectName(id),
     // the type's own name, not a hero's proper name: this is what
     // GroupEnumUnitsOfType compares against
     UnitId2String: (id) => { const t = W().type(id); return (t && t.name) || ''; },
@@ -906,15 +960,62 @@ function installNatives(vm, eng) {
     DisplayTimedTextToPlayer: (p, x, y, dur, s) =>
       eng.emit({ t: 'text', player: p && p.index, s: resolveTrigstr(s), dur }),
     ClearTextMessages: () => {},
-    CreateTextTag: () => H('texttag', {}),
-    SetTextTagText: (t, s, sz) => { if (t) { t.text = resolveTrigstr(s); } },
-    SetTextTagPos: (t, x, y, z) => { if (t) { t.x = x; t.y = y; } },
-    SetTextTagPosUnit: (t, u, z) => { if (t && u) { t.x = u.x; t.y = u.y; t.unit = u; } },
-    SetTextTagColor: (t, r, g, b, a) => { if (t) t.color = [r, g, b, a]; },
-    SetTextTagVelocity: () => {}, SetTextTagVisibility: () => {},
-    SetTextTagFadepoint: () => {}, SetTextTagLifespan: (t, s) => { if (t) t.life = s; },
-    SetTextTagPermanent: () => {}, SetTextTagAge: () => {}, SetTextTagSuspended: () => {},
-    DestroyTextTag: (t) => { if (t && t.text) eng.emit({ t: 'floattext', s: t.text, x: t.x, y: t.y, color: t.color }); },
+    // ----------------------------------------------------------- text tags
+    // Warcraft III's floating text: the spell-name shouts over a caster, the
+    // duel arena's 3-2-1-Fight, "Winner is <hero>", and the permanent lane and
+    // shop labels. The map makes 48 of them and never calls a native directly
+    // -- every site is the World Editor's own action group, which is
+    // CreateTextTag{Loc,Unit}BJ and then, for 26 of the 48, velocity,
+    // permanent, lifespan and fadepoint in that order.
+    //
+    // So nothing is sent when the tag is created: it would be sent empty. The
+    // tag is marked dirty and flushed with its finished state at the end of the
+    // tick, which is always the same tick -- no site sleeps mid-group.
+    //
+    // The units are Warcraft III's. Blizzard.j converts into the 0.8 x 0.6
+    // screen box the FDF layouts use (tools/fdf.py): TextTagSize2Height is
+    // `size * 0.023 / 10` and TextTagSpeed2Velocity is `speed * 0.071 / 128`.
+    // They are passed on as they arrive and the client divides through by that
+    // box, exactly as tools/uiframe.py does for the console.
+    CreateTextTag: () => {
+      // Warcraft III's defaults: opaque white, still, and permanent. Permanent
+      // is the one that matters -- 22 of the map's 48 tags never get a
+      // lifespan, because they are the scenery labels and are meant to stay.
+      const h = H('texttag', { tt: ++eng.ttSeq, text: '', x: 0, y: 0, z: 0,
+                               height: 0, color: [255, 255, 255, 255],
+                               xvel: 0, yvel: 0, life: 0, fade: 0, age: 0,
+                               permanent: true, visible: true });
+      eng.textTags.set(h.tt, h);
+      eng.dirtyTags.add(h);
+      return h;
+    },
+    SetTextTagText: (t, s, h) => eng.touchTag(t, () => {
+      t.text = resolveTrigstr(s); t.height = +h || 0; }),
+    SetTextTagPos: (t, x, y, z) => eng.touchTag(t, () => {
+      t.x = +x || 0; t.y = +y || 0; t.z = +z || 0; }),
+    // Warcraft III places the tag where the unit stands and leaves it there --
+    // it is a position, not an attachment. Every one of the map's unit tags
+    // also sets a velocity, which is what carries the text off the caster.
+    SetTextTagPosUnit: (t, u, z) => eng.touchTag(t, () => {
+      if (u) { t.x = u.x; t.y = u.y; } t.z = +z || 0; }),
+    SetTextTagColor: (t, r, g, b, a) => eng.touchTag(t, () => {
+      t.color = [trunc(r), trunc(g), trunc(b), trunc(a)]; }),
+    SetTextTagVelocity: (t, xv, yv) => eng.touchTag(t, () => {
+      t.xvel = +xv || 0; t.yvel = +yv || 0; }),
+    // Warcraft III can hide a tag from some players and not others, through
+    // ShowTextTagForceBJ and its GetLocalPlayer test. This map never does --
+    // no ShowTextTagForceBJ, no SetTextTagVisibility -- so visibility here is
+    // one flag for everyone, and a per-player one would be untested guesswork.
+    SetTextTagVisibility: (t, f) => eng.touchTag(t, () => { t.visible = !!f; }),
+    SetTextTagFadepoint: (t, s) => eng.touchTag(t, () => { t.fade = +s || 0; }),
+    SetTextTagLifespan: (t, s) => eng.touchTag(t, () => { t.life = +s || 0; }),
+    SetTextTagPermanent: (t, f) => eng.touchTag(t, () => { t.permanent = !!f; }),
+    SetTextTagAge: (t, s) => eng.touchTag(t, () => { t.age = +s || 0; }),
+    // Suspending hides the tag without ageing it. Nothing in this map suspends
+    // one; it is here so that a tag which is suspended does not simply vanish
+    // from the protocol as though it had been destroyed.
+    SetTextTagSuspended: (t, f) => eng.touchTag(t, () => { t.suspended = !!f; }),
+    DestroyTextTag: (t) => eng.touchTag(t, () => { t.dead = true; }),
     CreateSound: (path, looping, is3d, stopOO, fade1, fade2, eax) =>
       H('sound', { path, looping, volume: 127, pitch: 1 }),
     CreateSoundFilenameWithLabel: (p) => H('sound', { path: p }),

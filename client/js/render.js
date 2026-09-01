@@ -195,7 +195,6 @@ export class Renderer {
     this._frustum = new THREE.Frustum();
     this._fmat = new THREE.Matrix4();
     this._sph = new THREE.Sphere(new THREE.Vector3(), 220);
-    this.floaters = [];
 
     addEventListener('resize', () => this.resize());
     this.resize();
@@ -1452,6 +1451,16 @@ export class Renderer {
    * screen. A bounding box over the bind pose is not exact under skinning but
    * it is the right size, which is all a bar needs.
    */
+  /**
+   * A world point as a vector the caller can project: map x/y on the terrain,
+   * plus a height offset. The vector is reused, so project or read it before
+   * asking for another one.
+   */
+  groundPoint(wx, wy, dz) {
+    return (this._gpt || (this._gpt = new THREE.Vector3()))
+      .set(toX(wx), this.heightAt(wx, wy) + (dz || 0), toZ(wy));
+  }
+
   barAnchor(v) {
     // A view spawns before its glTF arrives, so measuring on the first frame
     // measures nothing. Cache only once there is geometry to measure, or every
@@ -2172,10 +2181,6 @@ export class Renderer {
       }
     }
     return best;
-  }
-
-  addFloater(text, wx, wy, color) {
-    this.floaters.push({ text, x: wx, y: wy, t: 0, color });
   }
 
   render() {

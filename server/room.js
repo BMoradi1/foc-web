@@ -146,7 +146,7 @@ export class Room {
       // them was what filled the room: every finished match left its players
       // behind, and after five of them the slots were gone.
       if (!p.ws) { this.players.delete(p.id); continue; }
-      p.heroId = null; p.ready = false; p.entId = null;
+      p.heroId = null; p.ready = false; p.entId = null; p.tagsSent = false;
     }
   }
 
@@ -412,6 +412,16 @@ export class Room {
         snap.board = this.scriptBoard();
         this.broadcast({ t: Msg.SNAPSHOT, s: snap });
         for (const p of this.players.values()) if (p.ws && p.entId) this.sendHero(p);
+        // The map's permanent text tags -- the lane and shop labels -- are made
+        // once, at init, and broadcast once. They are scenery rather than an
+        // event, so anyone who connects later is caught up on them here; a tag
+        // with a lifespan is long gone and is deliberately not replayed.
+        for (const p of this.players.values()) {
+          if (!p.ws || p.tagsSent) continue;
+          p.tagsSent = true;
+          const tags = this.eng.liveTags();
+          if (tags.length) this.send(p.ws, { t: Msg.EVENT, ev: tags });
+        }
       }
     } catch (e) {
       // one bad tick is a logged error; killing the process kills every room

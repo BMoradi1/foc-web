@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from gamedata import GameData
 
 OUT = 'war3_extracted'
-KEEP = ('.blp', '.tga', '.fdf', '.toc', '.txt')
+KEEP = ('.blp', '.tga', '.fdf', '.toc', '.txt', '.ttf')
 
 TREES = [
     'ui\\console\\',                    # the console bar itself, per race
@@ -46,6 +46,11 @@ TREES = [
     'ui\\minimap\\',                    # minimap frame and unit icons
     'ui\\cursor\\',                     # the mouse pointer
     'replaceabletextures\\selection\\', # SelectionCircle small/med/large
+    # The game's own typefaces. UI\war3skins.txt names one per role and they
+    # are all FRIZQT__.TTF -- including TextTagFont, which is what the floating
+    # text is set in. Drawing that text in a substitute is the difference
+    # between "Warcraft III" and "a web page about Warcraft III".
+    'fonts\\',
 ]
 
 gd = GameData()

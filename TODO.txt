@@ -876,20 +876,120 @@ GAMEPLAY / INPUT
 [ ] SetUnitTimeScale -- 36 calls, currently a no-op
     Animation speed changes (hastes, slows, channel speeds) do nothing.
 
-[ ] Text tags: no floating text renders at all
-    Measured 2026-08-30, and this entry used to understate it as "text does
-    not drift" -- the text never appears. CreateTextTag returns an inert
-    handle (engine.js), nothing serialises a tag to the client, and the
-    client's addFloater/floaters machinery has zero callers. Missing on
-    screen: the engine's own bounty gold "+N" on kills (war3map.j sets
-    GIVES_BOUNTY for all ten players and world.js already pays the gold),
-    the map's 48 scripted tags (spell-name shouts over casters, the duel
-    arena's 3-2-1-Fight countdown, "Winner is <hero>"), and only then the
-    SetTextTagVelocity/Fadepoint/Permanent motion natives (26 calls each,
-    no-ops) -- the drift of text that first has to exist. One feature, not
-    several: a TEXTTAG message in the snapshot path, the client wiring
-    addFloater to it, then the motion natives. Fuller breakdown in
-    AbilityAudit.txt.
+[x] Text tags: no floating text renders at all  (FIXED)
+    Measured 2026-08-30, and that entry used to understate it as "text does not
+    drift" -- the text never appeared. CreateTextTag returned an inert handle,
+    the only native that emitted anything was DestroyTextTag -- backwards, since
+    22 of the map's 48 tags are permanent and are never destroyed -- and the
+    client's addFloater pushed into an array with no reader and no draw code.
+    Now: the natives keep a real tag, a tag touched during a tick is sent once
+    at the end of it with its finished state, and the overlay canvas ages, moves,
+    fades and expires it. Sent once rather than streamed, because the motion and
+    the fade are both functions of age alone.
+    Deferring to the end of the tick is what makes one message enough. Every one
+    of the map's 48 sites is the World Editor's action group -- create, then
+    velocity, permanent, lifespan, fadepoint -- so emitting at creation would
+    have sent 48 empty tags and 26 x 4 corrections.
+    The units are Blizzard.j's and are passed through as it converts them:
+    TextTagSize2Height is size * 0.023 / 10 and TextTagSpeed2Velocity is
+    speed * 0.071 / 128, both into Warcraft III's 0.8 x 0.6 screen box, which
+    the client divides through exactly as tools/uiframe.py does for the console.
+    Found while fixing it, each with its own check:
+      - GetObjectName read its id as a unit type only. Its one call site in the
+        map is GetObjectName(GetSpellAbilityId()), which is never a unit type,
+        so every spell shout in the game read " !!" with no spell in front of
+        it. It now falls back to the ability and item tables: "산혼철조 !!".
+      - The 22 permanent tags are the lane signboards beside each base (two
+        columns of five at x = +/-5088) and the two base markers. They are made
+        once at init and broadcast once, so a client that connects later saw
+        none of them; room.js now replays the live permanent ones on that
+        client's first snapshot. Tags with a lifespan are deliberately not
+        replayed.
+      - Colour codes are honoured rather than stripped, which the rest of the
+        client does to message text. Two of the map's own labels are
+        "|c00ff0000RED|r TEAM" and "|c000000ffBLUE|r TEAM"; stripped, they are
+        two identical white words.
+      - The bounty text is real after all. war3map.j sets
+        PLAYER_STATE_GIVES_BOUNTY true for Player(0..7) -- eight calls, not the
+        ten this entry used to claim -- and the world only stored gold and
+        lumber, so the flag was dropped on the floor. A kill now floats the gold
+        it paid, to the killing player alone.
+    One number here is reasoned rather than read, and is called out in
+    overlay.js: that a tag's height uses the same 0.6-tall box as a frame's.
+    Nothing states it outright. What supports it is that the game's own FDF
+    fonts are declared in that box at 0.009-0.015, so a default tag at 0.023
+    comes out about twice ordinary interface text -- which is what Warcraft III
+    looks like. A retail screenshot would settle it; that constant is the fix.
+    tools/texttag_test.mjs, 25 checks, half of them read pixels back off the
+    overlay canvas rather than asking whether a function was called.
+
+[ ] The stub natives, ranked  (measured 2026-08-31, tools/stub_audit.mjs)
+    A native the engine has never heard of is reported -- boot_test prints the
+    list, and it is empty. A native that exists with an empty body is not: it
+    takes the call, returns, and nothing says a word. That is how the text tags
+    hid, and this is the rest of that class.
+    244 of the 515 natives in engine.js have a stub body. 71 of them are reached
+    by this map, across 442 call sites. Run the tool for the full table; what
+    follows is what a player would notice, with the false alarms named so nobody
+    spends an evening on them twice.
+
+    Player-visible, real:
+      PanCameraToTimed         39 sites, 39 separate trigger functions. Every
+                               scripted camera move in the map -- the camera
+                               never goes where the script sends it.
+      SetUnitTimeScale         36. Its own item above.
+      DisplayCineFilter        41 across the family (1 + 8 SetCineFilter*).
+        + SetCineFilter*       Full-screen flash and fade during ultimates.
+      SetDayNightModels 2,     Atmosphere: sky model and fog tint, set once
+        SetTerrainFogEx 2      each per team base.
+      music and ambience       SetMapMusic 2, NewSoundEnvironment 2,
+                               SetSoundParamsFromLabel 3, VolumeGroupSetVolume
+                               6, SetAmbientDay/NightSound 4. The map sets
+                               music and it never plays.
+      ClearSelection/SelectUnit 4 each, via SelectUnitForPlayerSingle. The
+                               auto-reselect after an event.
+      TerrainDeformRipple      2, via TerrainDeformationRippleBJ. The crater
+                               half of this is done; the ripple is not.
+      cinematic framing        ShowInterface 2, EnableUserControl 6,
+                               EnableUserUI 8, CinematicModeBJ 2.
+
+    Not cosmetic, worth a look on its own:
+      UnitStripHeroLevel       2, via SetHeroLevelBJ. Returns true and does
+                               nothing, so a scripted level *down* does not.
+      SetUnitPathing           1. A unit the map means to make unpathable.
+      SetPlayerHandicapXP      1.
+
+    CHECKED AND NOT A DEFECT -- do not re-investigate:
+      SetPlayerAllianceStateAllyBJ  40 sites, and the highest count in the
+        table, which is why it looks alarming. The outcome is right anyway:
+        config() also calls SetPlayerTeam, isAlly falls back to team equality,
+        and 66 explicit alliances are recorded through the real SetPlayerAlliance
+        during init. Measured after boot: isAlly(0,10) true, isAlly(0,11) false,
+        isAlly(4,11) true -- which is what matters, because players 10 and 11
+        own the two guard towers. Latent only: an alliance that crossed teams
+        would be missed, and this map sets none.
+      SetSoundVolumeBJ  33 sites, and it does drop the volume the map asked
+        for. It costs nothing: 32 of the 33 ask for 100%, which is the default
+        the sound already plays at. Exactly one site asks for 80%.
+      MultiboardReleaseItem 37, RemoveLocation 9  -- handle cleanup, and this
+        port garbage-collects.
+      Quest* 12  -- the quest log is greyed deliberately; see its own item.
+      lobby and meta  -- SetStartLocPrio 24, SetPlayerRacePreference 10,
+        SetPlayerRaceSelectable 10, SetMapName/Description, SetTeams,
+        SetGameSpeed, SetGameDifficulty, GetCameraMargin 18. Correct as no-ops.
+
+[ ] The engine's other floating text: miss, crit, bash, mana burn
+    UI/MiscData.txt carries eight text-tag families and the port now draws one
+    of them. Each is a colour, a velocity, a lifetime and a fade start, in the
+    units the text tag natives already take, and tools/gameplay.py compiles all
+    eight into gameplay.json -- so the data side is done and only the trigger
+    for each is missing:
+      gold, lumber   a harvester delivering; this map has no harvesting
+      bounty         DONE
+      miss           on an attack that misses
+      criticalStrike, shadowStrike, manaBurn, bash   on the ability firing
+    The four ability ones are worth having: this map's heroes carry crit and
+    bash widely, and the number is the only feedback that either fired.
 
 [ ] Fog of war
     Nothing exists. The whole map is visible to everyone.

@@ -77,12 +77,22 @@ for (const k of Object.keys(TYPES)) TYPE_BY_INT.set(id2int(k), TYPES[k]);
 
 // unitstate / playerstate ids from common.j
 const US_LIFE = 0, US_MAX_LIFE = 1, US_MANA = 2, US_MAX_MANA = 3;
-const PS_GOLD = 1, PS_LUMBER = 2;
+const PS_GOLD = 1, PS_LUMBER = 2, PS_GIVES_BOUNTY = 7;
 
 const GP = (() => {
   try { return readJSON('data/gameplay.json'); } catch { return null; }
 })();
 const DEF_ARMOR = GP ? GP.defenseArmor : 0.06;
+// The engine's own floating text, from UI/MiscData.txt via tools/gameplay.py.
+// The fallback is Blizzard's own line for it, so a tree built before that tool
+// was extended still prints the right thing rather than nothing.
+const TEXT_TAGS = (GP && GP.textTags) || {};
+const BOUNTY_TEXT = TEXT_TAGS.bounty
+  || { color: [255, 220, 0, 255], vx: 0, vy: 0.03, life: 3, fade: 2 };
+const MISS_TEXT = TEXT_TAGS.miss
+  || { color: [255, 0, 0, 255], vx: 0, vy: 0.03, life: 3, fade: 1, text: 'miss' };
+const CRIT_TEXT = TEXT_TAGS.criticalStrike
+  || { color: [255, 0, 0, 255], vx: 0, vy: 0.04, life: 5, fade: 2 };
 // Creep leashing, straight from MiscGame.txt.  A unit that strays 'GuardDistance'
 // from where it spawned starts thinking about heading back; if it chases for
 // 'GuardReturnTime' without being attacked it turns around, and past
@@ -323,6 +333,24 @@ export class World {
     return TYPES[id] || TYPE_BY_INT.get(id2int(id)) || null;
   }
   typeName(id) { const t = this.type(id); return t ? (t.properName || t.name || int2id(id)) : ''; }
+
+  /**
+   * Warcraft III's GetObjectName takes any object id, not just a unit type.
+   * Reading it as a unit type alone is why the map's spell shout came out as
+   * " !!": its one call site is GetObjectName(GetSpellAbilityId()), so the id
+   * it is handed is always an ability's and never a unit's.
+   */
+  objectName(id) {
+    const t = this.type(id);
+    if (t) return t.properName || t.name || int2id(id);
+    const key = typeof id === 'number' ? int2id(id) : String(id);
+    // The names come out of the object editor padded to a fixed width
+    const ab = ABILS[key];
+    if (ab && ab.name) return String(ab.name).trim();
+    const it = ITEMS[key];
+    if (it && it.name) return String(it.name).trim();
+    return '';
+  }
   isHeroType(id) { const t = this.type(id); return !!(t && t.isHero); }
 
   randomCreep(level) {
@@ -657,7 +685,25 @@ export class World {
   awardKill(victim, killer) {
     if (killer) {
       const p = this.playerOf(killer);
-      if (p) p.gold += Math.round(victim.bounty || 10 + victim.level * 4);
+      if (p) {
+        const gold = Math.round(victim.bounty || 10 + victim.level * 4);
+        p.gold += gold;
+        // Warcraft III floats the gold it just paid over the body, and shows it
+        // to the killing player alone. It does that only where the victim's
+        // owner gives bounty: neutral aggressive by default, which is every
+        // creep on this map, plus Player(0..7) because the map's init turns it
+        // on for them -- which is what makes a hero kill print its 500 too.
+        //
+        // The tag itself is not ours to design. UI/MiscData.txt carries the
+        // engine's own settings for it -- BountyText Color, Velocity, Lifetime
+        // and FadeStart -- in the units the text tag natives already take, so
+        // they are passed through as the tag's own.
+        const owner = this.playerOf(victim);
+        if (owner && owner.givesBounty && gold > 0) {
+          this.emit({ t: 'bounty', player: p.index, gold, x: victim.x, y: victim.y,
+                      tag: BOUNTY_TEXT });
+        }
+      }
     }
     if (!XP_GRANT_HERO || !XP_GRANT_NORMAL) return;
     if (victim.isBuilding && !BUILDING_KILLS_XP) return;
@@ -1160,12 +1206,16 @@ export class World {
     if (!p) return 0;
     if (st === PS_GOLD) return Math.round(p.gold);
     if (st === PS_LUMBER) return Math.round(p.lumber);
+    if (st === PS_GIVES_BOUNTY) return p.givesBounty ? 1 : 0;
     return 0;
   }
   setPlayerState(p, st, v) {
     if (!p) return;
     if (st === PS_GOLD) p.gold = v;
     else if (st === PS_LUMBER) p.lumber = v;
+    // The map turns this on for players 0-7 in its init, which is what makes
+    // killing one of their units pay -- and print -- a bounty.
+    else if (st === PS_GIVES_BOUNTY) p.givesBounty = !!v;
   }
 
   // ----------------------------------------------------- ability engine glue
@@ -1942,7 +1992,11 @@ export class World {
       // to short-circuit before cleave as well as before the hit itself.
       const def = attackProcs(this, victim);
       if (def.evade > 0 && Math.random() < def.evade) {
-        this.emit({ t: 'miss', id: victim.id });
+        // Shown to whoever swung, the way the bounty is shown to whoever
+        // killed: this is feedback on your own attack. Warcraft III's own
+        // audience for it is not stated anywhere the port can read.
+        this.emit({ t: 'miss', id: victim.id, x: victim.x, y: victim.y,
+                    player: this.playerOf(src)?.index, tag: MISS_TEXT });
         return;
       }
       // ...then the attacker's.  The multiplier goes on the roll rather than on
@@ -1957,7 +2011,11 @@ export class World {
           if (e !== victim) this.damage(src, e, amount * src.cleave, {});
       }
       const dealt = this.damage(src, victim, swing, {});
-      if (crit && dealt > 0) this.emit({ t: 'crit', id: victim.id, n: Math.round(dealt) });
+      if (crit && dealt > 0) {
+        this.emit({ t: 'crit', id: victim.id, n: Math.round(dealt),
+                    x: victim.x, y: victim.y,
+                    player: this.playerOf(src)?.index, tag: CRIT_TEXT });
+      }
       if (src.lifesteal && dealt > 0) this.heal(src, dealt * src.lifesteal);
     };
     if (u.missileSpeed > 0 && this.launchMissile(u, t, {

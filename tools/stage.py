@@ -627,3 +627,17 @@ _json.dump(_meta, open(PUB + '/data/doodadmeta.json', 'w'))
 _vis = [v for v in _meta.values() if v['visible']]
 print('doodad types placed: %d, visible: %d, with a converted model: %d'
       % (len(_meta), len(_vis), sum(1 for v in _vis if v['m'])))
+
+# ---------------------------------------------------------------- fonts
+# Warcraft III sets its floating text in the typeface UI\war3skins.txt names as
+# TextTagFont, which is Friz Quadrata. Substituting a web font changes both the
+# look and the metrics, so the real file is staged and the client @font-faces
+# it. Only the roman is needed: every font role in war3skins.txt names this one
+# file, and the other five in Fonts\ are the CJK faces for localised builds.
+_FONT_SRC = 'war3_extracted/Fonts/FRIZQT__.TTF'
+if os.path.exists(_FONT_SRC):
+    os.makedirs(PUB + '/fonts', exist_ok=True)
+    shutil.copy(_FONT_SRC, PUB + '/fonts/FRIZQT__.TTF')
+    print('font: FRIZQT__.TTF staged (%d bytes)' % os.path.getsize(_FONT_SRC))
+else:
+    print('font: FRIZQT__.TTF missing -- run tools/extract_ui.py')

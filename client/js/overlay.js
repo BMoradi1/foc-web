@@ -21,6 +21,150 @@ function healthColor(frac) {
   return '#d03030';
 }
 
+// A text tag's height and velocity are plain fractions of the viewport.
+//
+// This is the one figure in floating text that is not read from a file, and it
+// was wrong once. The FDF layouts are authored in Warcraft III's 0.8 x 0.6
+// screen box (tools/fdf.py), so the first reading divided through by 0.6 the
+// way tools/uiframe.py does for the console pieces. That makes a default tag
+// 3.8% of screen height and the map's size-14 lane signs 5.4%, and on screen
+// they dwarfed the game -- reported from play, which is the only instrument
+// there is for this.
+//
+// Read as a plain fraction instead, Blizzard.j's TextTagSize2Height puts the
+// default size of 10 at 2.3% of screen height, which is what Warcraft III's
+// floating combat text measures. Two things say the comparison is fair: the
+// camera here shows the same slice of world as the game's own default (2315
+// units against 1650-at-70-degrees' 2311, within 0.2%), so a tag is directly
+// comparable, and every one of the map's own sizes then lands in a sane band --
+// 2.3% for combat text, 3.2% for a lane sign, 4.6% for a base marker.
+//
+// What is still unsettled is why the two spaces differ, since both are called a
+// height. Nothing in the map or the MPQs says outright. If a retail screenshot
+// ever contradicts this, here is the constant.
+/**
+ * Warcraft III's inline colour codes: `|cAARRGGBB` opens a run and `|r` closes
+ * it. Splitting rather than stripping, because for two of the map's own tags
+ * the colour *is* the label -- the base markers read "|c00ff0000RED|r TEAM" and
+ * "|c000000ffBLUE|r TEAM", and stripped they are two identical white words.
+ *
+ * The leading AA is ignored. The map writes 00 there for text it plainly means
+ * to be seen, so reading it as an alpha would erase exactly the labels this
+ * exists to colour; the tag's own SetTextTagColor alpha is the one that counts.
+ */
+function colourRuns(s, base) {
+  const runs = [];
+  const re = /\|c([0-9a-fA-F]{8})|\|r/g;
+  let at = 0, colour = base, m;
+  while ((m = re.exec(s))) {
+    if (m.index > at) runs.push({ text: s.slice(at, m.index), colour });
+    colour = m[1] ? `#${m[1].slice(2)}` : base;
+    at = re.lastIndex;
+  }
+  if (at < s.length) runs.push({ text: s.slice(at), colour });
+  return runs;
+}
+
+/**
+ * Floating text: the map's 48 tags, and nothing else.
+ *
+ * The server sends a tag once, finished, and the client runs the whole of its
+ * life from there. Motion and fade are both functions of age alone, so
+ * streaming them would spend a message a frame restating what one message
+ * already determines.
+ *
+ * These are drawn on the canvas rather than in the scene for the same reason
+ * the health bars are: Warcraft III draws them in world space but as flat text,
+ * always facing the camera and always the same size on screen.
+ */
+class TextTags {
+  constructor() {
+    this.tags = new Map();
+    this.last = performance.now();
+    // A multiplier on every tag's height. The height is the one figure in
+    // floating text that no file in the game carries: war3skins.txt names the
+    // face and MiscData.txt the colours and timings, but nothing states a size.
+    // So this is set by eye against the retail game, and 0.8 is where two
+    // rounds of "still a little big" from play landed it -- default combat text
+    // at 1.8% of screen height, the map's size-14 lane signs at 2.6%, its
+    // size-20 base markers at 3.7%.
+    // Still the knob: FOC.overlay.tags.scale = N in the console, look, keep the
+    // number. 1 is Blizzard.j's TextTagSize2Height untouched.
+    this.scale = 0.8;
+  }
+
+  /** Create or reconfigure a tag. A reconfigured tag keeps the age it has. */
+  set(ev) {
+    const t = this.tags.get(ev.tt) || { age: 0 };
+    Object.assign(t, ev);
+    if (ev.age != null) t.age = ev.age;
+    this.tags.set(ev.tt, t);
+  }
+
+  remove(id) { this.tags.delete(id); }
+  clear() { this.tags.clear(); }
+
+  draw(ctx, view) {
+    const now = performance.now();
+    // A tab that was in the background is not a tag that aged a minute
+    const dt = Math.min(0.25, Math.max(0, (now - this.last) / 1000));
+    this.last = now;
+    if (!this.tags.size) return;
+    const w = innerWidth, h = innerHeight;
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    for (const [id, t] of this.tags) {
+      t.age += dt;
+      // A permanent tag never expires; anything else dies at its lifespan.
+      // That split is the whole of why the lane labels stay and a spell shout
+      // does not: 22 of the map's tags are never given a lifespan at all.
+      if (!t.perm && t.life > 0 && t.age >= t.life) { this.tags.delete(id); continue; }
+      if (!t.vis || !t.s) continue;
+
+      const p = view.groundPoint(t.x, t.y, t.z).project(view.camera);
+      if (p.z > 1) continue;                              // behind the camera
+      // Velocity is per second in the screen box, so it is a screen drift and
+      // not a world one -- the text slides up the display, not up the map.
+      const sx = (p.x * 0.5 + 0.5) * w + t.vx * t.age * w;
+      const sy = (-p.y * 0.5 + 0.5) * h - t.vy * t.age * h;
+      const size = t.h * h * this.scale;
+      if (size < 1 || sx < -w || sx > w * 2 || sy < -size || sy > h + size) continue;
+
+      // Opaque until the fadepoint, then out linearly by the end of the life.
+      let a = (t.c?.[3] ?? 255) / 255;
+      if (!t.perm && t.life > t.fade && t.age > t.fade) {
+        a *= 1 - (t.age - t.fade) / (t.life - t.fade);
+      }
+      if (a <= 0) continue;
+
+      // Friz Quadrata, the face UI\war3skins.txt names as TextTagFont, staged
+      // out of war3.mpq. Not bold: the game sets this text in the roman, and a
+      // synthetic bold is a good part of why the first attempt read as heavy.
+      ctx.font = `${size.toFixed(1)}px "Friz Quadrata", "Trebuchet MS", serif`;
+      const base = `rgb(${t.c?.[0] ?? 255},${t.c?.[1] ?? 255},${t.c?.[2] ?? 255})`;
+      const runs = colourRuns(String(t.s), base);
+      if (!runs.length) continue;
+      // laid out left to right, so the whole string is what gets centred
+      let x = sx - runs.reduce((n, r) => n + ctx.measureText(r.text).width, 0) / 2;
+      const off = Math.max(1, size * 0.05);
+      for (const r of runs) {
+        // Warcraft III draws this text over the terrain with a dark shadow
+        // under it, which is the only thing keeping pale text legible on the
+        // pale ground this map has a lot of
+        ctx.globalAlpha = a * 0.7;
+        ctx.fillStyle = '#000';
+        ctx.fillText(r.text, x + off, sy + off);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = r.colour;
+        ctx.fillText(r.text, x, sy);
+        x += ctx.measureText(r.text).width;
+      }
+    }
+    ctx.restore();
+  }
+}
+
 /**
  * A frame readout, because the numbers that matter are the ones on the machine
  * complaining.
@@ -95,6 +239,7 @@ export class Overlay {
     this.ctx = canvas.getContext('2d');
     this.dpr = Math.min(2, devicePixelRatio || 1);
     this.stats = new Stats();
+    this.tags = new TextTags();
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -121,6 +266,8 @@ export class Overlay {
     const ctx = this.ctx;
     this.clear();
     this.stats.sample();
+    // under the stats, over the bars: it is world content, they are a readout
+    this.tags.draw(ctx, view);
     this.stats.draw(ctx, view, ents);
     if (!show || !show.size) return;
     const w = innerWidth, h = innerHeight;

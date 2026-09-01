@@ -12,7 +12,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
   '.glb': 'model/gltf-binary', '.mp3': 'audio/mpeg', '.bin': 'application/octet-stream',
-  '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ttf': 'font/ttf' };
 
 // The working directory itself is deliberately not served: it also holds the
 // map, the Blizzard archives and the server source, none of which belong on

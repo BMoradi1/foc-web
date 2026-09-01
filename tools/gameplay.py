@@ -1,4 +1,13 @@
-"""Warcraft III gameplay constants for custom games (Custom_V1\\Units\\MiscGame.txt)."""
+"""Warcraft III gameplay constants for custom games (Custom_V1\\Units\\MiscGame.txt),
+plus the engine's own floating-text settings (UI\\MiscData.txt).
+
+The second file is what the engine prints for itself rather than what a map
+prints with a text tag: the bounty gold over a body, the gold and lumber a
+harvester carries in, "miss", and the crit/bash/mana-burn numbers. Each is a
+colour, a velocity, a lifetime and a fade start, in exactly the units
+SetTextTagColor / SetTextTagVelocity / SetTextTagLifespan / SetTextTagFadepoint
+take -- so they can be handed to the same machinery the map's own tags use.
+"""
 import os, sys, json, re
 sys.path.insert(0, os.path.dirname(__file__))
 from gamedata import GameData
@@ -126,9 +135,48 @@ out = dict(
     structureDecayTime=num('StructureDecayTime', 30),
     pawnItemRate=num('PawnItemRate', 0.5),
 )
+# ---------------------------------------------------------------- text tags
+# UI\MiscData.txt, the engine's own text tags. Colours are listed A,R,G,B --
+# alpha first -- while SetTextTagColor takes R,G,B,A, so they are reordered
+# here rather than at the point of use. Velocity is listed x,y and then a third
+# figure that is 100 for every one of the eight, so it separates nothing and is
+# carried through untouched rather than guessed at.
+misc_ui, ui_src = gd.read('UI\\MiscData.txt')
+textTags = {}
+if misc_ui:
+    ui = parse_misc(misc_ui.decode('latin-1'), {})
+    for key in ['Gold', 'Lumber', 'Bounty', 'Miss', 'CriticalStrike',
+                'ShadowStrike', 'ManaBurn', 'Bash']:
+        col = ui.get(key + 'TextColor')
+        vel = ui.get(key + 'TextVelocity')
+        if not col or not vel:
+            continue
+        a, r, g, bl = [int(x) for x in col.split(',')[:4]]
+        v = [float(x) for x in vel.split(',')]
+        textTags[key[0].lower() + key[1:]] = {
+            'color': [r, g, bl, a],
+            'vx': v[0], 'vy': v[1],
+            'life': float(ui.get(key + 'TextLifetime', 0)),
+            'fade': float(ui.get(key + 'TextFadeStart', 0)),
+        }
+    source += ' + UI\\MiscData.txt (%s, %d text tags)' % (ui_src, len(textTags))
+
+# The word the engine prints for a miss is localisable and lives with the rest
+# of the interface strings, so it is read rather than spelled out here.
+gs, gs_src = gd.read('UI\\FrameDef\\GlobalStrings.fdf')
+if gs and 'miss' in textTags:
+    m = re.search(r'^\s*MISS\s+"([^"]*)"', gs.decode('latin-1'), re.M)
+    if m:
+        textTags['miss']['text'] = m.group(1)
+        source += ' + GlobalStrings.fdf (%s)' % gs_src
+out['textTags'] = textTags
+
 os.makedirs('data', exist_ok=True)
 json.dump(out, open('data/gameplay.json', 'w'), indent=1)
 print('gameplay constants from %s' % source)
+for k, v in textTags.items():
+    print('   %-16s rgba=%s vel=%s,%s life=%s fade=%s'
+          % (k, v['color'], v['vx'], v['vy'], v['life'], v['fade']))
 print('  damage table: %d attack types x %d armor types' % (len(table), len(ARMOR_ORDER)))
 for at in ATTACK_TYPES:
     if at in table:

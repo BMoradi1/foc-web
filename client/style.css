@@ -1,3 +1,12 @@
+/* Warcraft III's own typeface, staged out of war3.mpq by tools/stage.py.
+   UI\war3skins.txt names it for every font role the game has, TextTagFont
+   included, so the floating text is set in the face the game sets it in. */
+@font-face {
+  font-family: "Friz Quadrata";
+  src: url("/fonts/FRIZQT__.TTF") format("truetype");
+  font-display: swap;
+}
+
 :root{
   --bg:#08090d; --panel:#12141c; --panel2:#1a1d28; --line:#2b3040;
   --gold:#e8c76a; --red:#e2564d; --blue:#5aa9e6; --green:#63c98a;

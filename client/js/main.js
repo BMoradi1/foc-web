@@ -19,6 +19,28 @@ let heroPreview = null;
 // the top strip's resource readouts, built once the console layout arrives
 let topBar = null;
 let consoleSlots = null;
+// The engine's own floating text -- bounty, miss, crit -- is made here rather
+// than by the map's script, so it needs ids of its own that cannot collide with
+// the engine's numeric text tag handles.
+let bountySeq = 0;
+
+/**
+ * One of the engine's own text tags, over a point in the world.
+ *
+ * Shown only to the player the event names, which for all three of these is the
+ * player who acted: it is feedback on your own kill, your own swing. The height
+ * is the default text tag size of 10 through Blizzard.j's TextTagSize2Height --
+ * MiscData.txt carries every other figure but not a size.
+ */
+function combatText(ev, text) {
+  if (ev.player !== S.slot || !text) return;
+  const t = ev.tag || {};
+  overlay.tags.set({ tt: `fx:${bountySeq++}`, s: text,
+                     x: ev.x, y: ev.y, z: 60, h: 10 * 0.023 / 10,
+                     c: t.color, vx: t.vx, vy: t.vy,
+                     life: t.life, fade: t.fade,
+                     age: 0, perm: false, vis: true });
+}
 ui.onHeroShown = (h) => {
   const cv = document.getElementById('heroSpin');
   if (!cv) return;
@@ -70,6 +92,8 @@ net.on(Msg.WELCOME, (m) => {
 net.on(Msg.STATE, (m) => {
   const was = S.phase;
   S.phase = m.phase;
+  // the map's own slot for this client, which is what server-side events name
+  S.slot = m.players.find((x) => x.id === S.you)?.slot ?? null;
   ui.renderTeams(m.players, S.you, m.phase);
   ui.updateScore(m.board, m.killsToWin);
   // a gate broken before this client joined, or before it reconnected: the
@@ -97,6 +121,9 @@ net.on(Msg.STATE, (m) => {
     if (m.phase === Phase.PLAYING) refitConsole();
     if (m.phase === Phase.LOBBY) {
       S.ready = false;
+      // the map's permanent labels belong to the world that just ended; the
+      // next match makes its own, and the server replays them on the way in
+      overlay.tags.clear();
       document.getElementById('btnReady').textContent = 'Ready';
     }
   }
@@ -253,6 +280,25 @@ function handleEvent(ev) {
     }
     case 'camShake': view.setShake(ev.mag, ev.vel, ev.vert); break;
     case 'terrainDeform': view.deformTerrain(ev); break;
+    // floating text: sent once, finished, and aged out by the overlay
+    case 'texttag': overlay.tags.set(ev); break;
+    case 'texttagEnd': overlay.tags.remove(ev.tt); break;
+    // The engine's own bounty text: the gold a kill just paid, floated over the
+    // body. Warcraft III shows it to the killing player alone, so it is dropped
+    // unless this client did the killing.
+    //
+    // Nothing here is chosen. The colour, drift, lifetime and fade all ride in
+    // on the event from UI/MiscData.txt's BountyText block; the height is the
+    // one figure that file does not carry, and it is the default text tag size
+    // of 10 put through Blizzard.j's own TextTagSize2Height.
+    case 'bounty': combatText(ev, `+${ev.gold}`); break;
+    // The engine's own combat text. The server already found the miss and the
+    // crit -- both were emitted and dropped on the floor here -- so all that
+    // was missing is the number. Their colour, drift, lifetime and fade come
+    // from UI/MiscData.txt and the word "miss" from GlobalStrings.fdf, so
+    // nothing about how they look is chosen here.
+    case 'miss': combatText(ev, ev.tag?.text || 'miss'); break;
+    case 'crit': combatText(ev, String(ev.n)); break;
     // the engine draws these itself rather than playing a model
     case 'lightning': view.spawnBolt(ev); break;
     case 'aoe': spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0xff8844, ev.r); break;
