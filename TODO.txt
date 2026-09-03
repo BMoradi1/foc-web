@@ -1343,8 +1343,24 @@ TESTS AND THE END-TO-END HALF
     registered as '-____' and '-__', which no player can type.
     The trigger plumbing is fine: firing the mangled literal reaches the
     trigger and the map acts on it (tools/wincond_test.mjs asserts this). Only
-    the text is gone. The fix is in extraction, not in server/ or client/, and
-    it means re-running that step of the pipeline.
+    the text is gone.
+
+    CORRECTED 2026-09-03. The old note ended "the fix is in extraction, and it
+    means re-running that step of the pipeline". It does not. The .w3x holds one
+    war3map.j, block 3, and reading it straight out of the archive gives 446098
+    bytes with ZERO above 127 and the same 8209 underscores -- byte for byte the
+    file already on disk, same SHA. tools/extract_final.py writes the block
+    verbatim (open(p,'wb').write(d)) and mangles nothing, and the script
+    decompressed correctly, which the boot proves: a corrupted inflate would not
+    parse as JASS at all. So the stripping was done to the map before we ever
+    saw it, by whatever protected it, and re-extracting cannot bring the text
+    back.
+    That leaves two routes, neither of them extraction: recover each literal by
+    matching its underscore run and surviving punctuation against war3map.wts,
+    which did keep its 151736 high bytes, or write the strings by hand into the
+    translation overlay compile_game.py already has. The chat commands '-____'
+    and '-__' are the part worth doing first either way, because no player can
+    type them and both are game modes.
 
 [ ] Melee produces no sound
     unitSound(u, 'hit') at server/world.js:1904 returns nothing for the
