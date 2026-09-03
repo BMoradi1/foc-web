@@ -64,12 +64,22 @@ export function baseOf(ab) { return (ab && (BASE_ALIAS[ab.base] || ab.base)) || 
  * Chance to Critical Strike as a rage percentage. It is passive and is read at
  * attack time out of PROC_BASES instead, which is where its Ocr1..Ocr4 mean
  * what they say.
+ *
+ * ACbh is absent for the same reason and was the same mistake. AbilityMetaData
+ * names its slots "Chance to Bash", "Damage Multiplier", "Damage Bonus",
+ * "Chance to Miss" and "Never Miss" -- it is Bash, a passive on-attack proc,
+ * and it was sitting in the roar case reading a bash chance as a rage
+ * percentage. Sandaime Hokage's five 강타 ranks are the only carriers on this
+ * map and all five carry passiveArt, so the wrong case never actually ran; it
+ * was in HANDLED_BASES, which is what kept tools/ability_audit.mjs reporting
+ * five abilities green that nothing implemented. It is read at attack time out
+ * of BASH_BASES now.
  */
 export const HANDLED_BASES = new Set([
   'AHtb', 'ANtb', 'AUfn', 'AHtc', 'AOws', 'AUcs', 'AOsh', 'AUim', 'ANcs',
   'ANbr', 'ANbf', 'AEfk', 'ACtb', 'AOcl', 'AEch', 'AEbl', 'AUin', 'ANfd', 'AEer',
   'AOmi', 'AUls', 'ANpi', 'AEim', 'AIim', 'AHhb', 'AOhw', 'AChw', 'AHdi',
-  'ACbh', 'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'ANdr', 'AUdc',
+  'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'ANdr', 'AUdc',
   'AHfs', 'ANin', 'ANsl', 'AUsl', 'ACsw', 'AHbz', 'AEsf', 'ANrf',
   'AOww', 'ANht', 'ANcr', 'ANms', 'ACmf', 'Amls',
 ]);
@@ -164,6 +174,21 @@ function summonFrom(w, caster, i, tx, ty, dur, count) {
 }
 
 /**
+ * Metamorphosis and its kin: the unit becomes the type the ability names.
+ *
+ * Shared by the four bases that do it, which agree on everything the engine
+ * uses -- the form in UnitID, the duration in ahdu -- and disagree about slot 5,
+ * so the caller resolves that and passes the life bonus in.
+ */
+function morphInto(w, caster, i, dur, hpBonus) {
+  const form = i.unit;
+  const secs = i.heroDuration || dur || 45;
+  if (form && w.morph(caster, form, secs, hpBonus)) return { ok: true };
+  w.applyBuff(caster, { kind: 'morph', pct: 0.35, until: w.now + Math.max(15, dur) * 1000 });
+  return { ok: true };
+}
+
+/**
  * Execute an ability's engine behaviour.
  * @param {World} w
  * @param {object} caster
@@ -194,7 +219,8 @@ export function execute(w, caster, ab, lvl, o = {}) {
   //
   // The compiled table keeps the distinction (152 levels omit data1 outright),
   // so `slot` can read it and d1..d4 stay undefined when the map set nothing.
-  const d1 = i.data1, d2 = i.data2, d3 = i.data3, d4 = i.data4, d6 = i.data6;
+  const d1 = i.data1, d2 = i.data2, d3 = i.data3, d4 = i.data4,
+        d5 = i.data5, d6 = i.data6;
   const area = i.area || 0;
   const dur = i.heroDuration || i.duration || 0;
   const enemies = (x, y, r) => w.enemiesInRange(caster, x, y, r);
@@ -256,8 +282,15 @@ export function execute(w, caster, ab, lvl, o = {}) {
         // through to Thunder Clap's slow, which is a different ability.
         if (dur <= 0.1) continue;
         const code = i.buff || null;
-        if (B === 'AOws') w.applyBuff(e, { kind: 'stun', code, until: w.now + dur * 1000 });
-        else w.applyBuff(e, { kind: 'slow', pct: 0.25, code, until: w.now + dur * 1000 });
+        if (B === 'AOws') { w.applyBuff(e, { kind: 'stun', code, until: w.now + dur * 1000 }); continue; }
+        // Htc3 is "Movement Speed Reduction (%)" and Htc4 "Attack Speed
+        // Reduction (%)", both written as fractions -- Blizzard's own Mountain
+        // King carries 0.5 and 0.5, Eneru's 뇌격 0.4 and 0.4. The 0.25 that used
+        // to be here was a constant of ours matching no field on any of them.
+        // War Stomp has neither field: AOws declares only its Damage, which is
+        // why it takes the stun branch above and never reaches this one.
+        w.applyBuff(e, { kind: 'slow', pct: slot(d3, 0.25), atkPct: slot(d4, 0),
+                         code, until: w.now + dur * 1000 });
       }
       return { ok: true };
     }
@@ -426,12 +459,14 @@ export function execute(w, caster, ab, lvl, o = {}) {
       w.summon(caster, i.unit || 'ninf', tx, ty, dur || 60);
       return { ok: true };
     }
-    case 'AOmi': {                             // Mirror Image
+    // Omi1 Number of Images, Omi2 Damage Dealt (%), Omi3 Damage Taken (%).
+    case 'AOmi': {
       const n = Math.max(1, slot(d1, 1));
       for (let k = 0; k < n; k++) {
         const a = (k / n) * Math.PI * 2;
         w.summon(caster, caster.typeKey, caster.x + Math.cos(a) * 120,
-                 caster.y + Math.sin(a) * 120, dur || 30, { image: true });
+                 caster.y + Math.sin(a) * 120, dur || 30,
+                 { image: true, dealt: slot(d2, 0), taken: slot(d3, 2) });
       }
       return { ok: true };
     }
@@ -462,7 +497,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       w.heal(t, slot(d1, 200));
       return { ok: true };
     }
-    case 'AHdi': case 'ACbh': case 'AHbn': {
+    case 'AHdi': case 'AHbn': {
       w.applyBuff(caster, { kind: 'rage', pct: 0.25, code: i.buff || null, until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
@@ -470,12 +505,19 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // form to take. Approximating it with a damage buff left nine heroes' whole
     // transformation -- Full Demon Form, Super Saiyan, Bankai -- as a number
     // going up quietly with nothing to see and no new body to fight in.
-    case 'AHmt': case 'AEme': case 'ACmt': case 'ANcr': {
-      const form = i.unit;
-      const secs = i.heroDuration || dur || 45;
-      if (form && w.morph(caster, form, secs)) return { ok: true };
-      w.applyBuff(caster, { kind: 'morph', pct: 0.35, until: w.now + Math.max(15, dur) * 1000 });
-      return { ok: true };
+    case 'AHmt': case 'ACmt': case 'ANcr': {
+      return morphInto(w, caster, i, dur, 0);
+    }
+    // AEme is split from its three neighbours for one field. Eme5 is "Alternate
+    // Form Hit Point Bonus" -- life the form carries on top of its own unit
+    // type's -- and AbilityMetaData gives that meaning to AEme alone: Chemical
+    // Rage's fifth slot is a "Move Speed Bonus (Info Panel Only)", which is a
+    // different thing entirely and must not be spent as life. Both of this
+    // map's Metamorphoses write 3000 into Eme5 (InuYasha's 요괴화 and Eneru's
+    // 뇌신) and nothing read it, so both forms stood 3000 life short of what the
+    // map says they are.
+    case 'AEme': {
+      return morphInto(w, caster, i, dur, d5 || 0);
     }
     case 'ACro': case 'ANbr': {                // Roar-likes: friendly damage buff
       for (const a of w.alliesInRange(caster, caster.x, caster.y, area || 500))
@@ -820,6 +862,21 @@ export function carriedImmolation(w, u) {
 const PROC_BASES = new Set(['ACct', 'ANdb', 'AOcr']);
 
 /**
+ * Bash: a chance on attack to multiply the damage and stun what was hit.
+ *
+ * AbilityMetaData gives Cbh1..Cbh5 to exactly AHbh and ACbh, and
+ * WorldEditStrings reads them "Chance to Bash", "Damage Multiplier", "Damage
+ * Bonus", "Chance to Miss" and "Never Miss". The stun's length is the ability's
+ * own duration, which is where Warcraft III keeps it and where this map writes
+ * 1 to 3 seconds across Sandaime's five ranks.
+ *
+ * Cbh4 "Chance to Miss" is a penalty the bash imposes on the unit it stunned
+ * and is not read here: all five of this map's ranks carry 0, so there is
+ * nothing to spend and nothing to guess at.
+ */
+const BASH_BASES = new Set(['AHbh', 'ACbh']);
+
+/**
  * The plain evasion family, which keeps its chance in a different slot.
  * AbilityMetaData gives Eev1 to exactly AEev, AIev, ACev and ACes, and
  * WorldEditStrings reads it "Chance to Evade" -- the same label as Ocr4, one
@@ -832,12 +889,21 @@ const PROC_BASES = new Set(['ACct', 'ANdb', 'AOcr']);
 const EVADE_BASES = new Set(['AEev', 'AIev', 'ACev', 'ACes']);
 
 export function attackProcs(w, u) {
-  const out = { chance: 0, mult: 1, bonus: 0, evade: 0 };
+  const out = { chance: 0, mult: 1, bonus: 0, evade: 0, bash: null };
   if (!u || !u.abilities) return out;
   for (const [key, lvl] of u.abilities) {
     if (lvl < 1) continue;
     const ab = ABILS[w.abilKey(key)];
     if (!ab) continue;
+    if (BASH_BASES.has(baseOf(ab))) {
+      const d = levelInfo(ab, lvl);
+      const chance = d.data1 || 0;
+      if (chance > 0 && (!out.bash || chance > out.bash.chance)) {
+        out.bash = { chance, mult: d.data2 || 1, bonus: d.data3 || 0,
+                     stun: d.heroDuration || d.duration || 0 };
+      }
+      continue;
+    }
     if (EVADE_BASES.has(baseOf(ab))) {
       out.evade = Math.max(out.evade, levelInfo(ab, lvl).data1 || 0);
       continue;

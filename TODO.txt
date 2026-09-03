@@ -1055,6 +1055,54 @@ GAMEPLAY / INPUT
       B00V; A06O's payload A06P roots and stamps B00H; and A01O's swords deal
       the 0 the map wrote rather than 60 read out of "Graphic Delay".
 
+[x] Four more from the sweep's MEDIUM queue: a field the engine had a constant
+    for  (FIXED)
+    Found by re-verifying half 1's medium rows against the repaired engine
+    rather than against the notes. Seven of them turned out to be already closed
+    -- A042, A062, A04I, A04N, A04R, A044 and A06J all reported a phantom
+    `d1 || N` default, and a cast of each now deals 0, which is the explicit zero
+    the map wrote. Four were live:
+
+    Bash was filed as a rage buff  (A016..A01A, Sandaime Hokage's five 강타)
+        AbilityMetaData names ACbh's slots "Chance to Bash", "Damage Multiplier",
+        "Damage Bonus", "Chance to Miss" and "Never Miss", and AHbh is the only
+        other base carrying them. It is a passive on-attack proc, and it was
+        sitting in the roar case reading a bash chance as a rage percentage.
+        All five ranks carry passiveArt, so the wrong case never actually ran in
+        play -- the real cost was that ACbh was in HANDLED_BASES, which kept
+        ability_audit reporting five abilities green that nothing implemented.
+        Now read at attack time out of BASH_BASES, like AOcr before it: 20-40%
+        for a x3 hit and a 1-3 second stun, both the ability's own numbers. Cbh4
+        "Chance to Miss" is left alone because all five carry 0.
+        It also lights the `bash` floating-text family, which UI/MiscData.txt has
+        always carried and nothing could fire.
+
+    The alternate form was 3000 life short  (A040 InuYasha, A01Y Eneru)
+        Eme5 is "Alternate Form Hit Point Bonus" and AbilityMetaData gives it to
+        AEme alone -- Chemical Rage's fifth slot is a "Move Speed Bonus (Info
+        Panel Only)", a different thing that must not be spent as life. Both of
+        this map's Metamorphoses write 3000 into it and nothing read it. AEme is
+        split out of the shared morph case for that one field, the way Starfall
+        was split out of Blizzard, so slot_test can hold each to its own meaning.
+
+    Thunder Clap slowed by a constant of ours  (A01P Eneru 뇌격)
+        Htc3 is "Movement Speed Reduction (%)" and Htc4 "Attack Speed Reduction
+        (%)", written as fractions: Blizzard's own Mountain King carries 0.5 and
+        0.5, this map's 뇌격 0.4 and 0.4. The case applied a hardcoded 0.25 that
+        matches no field on any of them, and spent neither field. War Stomp
+        shares the case and declares neither, which is why it takes the stun
+        branch and never reaches this one.
+
+    A mirror image was a fifth of a hero  (A02N Sandaime 그림자 분신)
+        Omi2 is "Damage Dealt (%)" and Omi3 "Damage Taken (%)". Blizzard's Blade
+        Master carries 0 and 2, an image that deals nothing and takes double;
+        this map writes 1 and 1.5. The port gave the image 0.2 of the hero's life
+        instead, a factor that appears in no field of either, and read neither
+        multiplier. Images now keep the hero's own life and carry the two
+        multipliers the ability states.
+
+    tools/carried_test.mjs, 57 checks.
+
 [ ] What the sweep's HIGH rows still leave open
     Three of them are not data-slot defects and are recorded rather than
     guessed at:

@@ -94,6 +94,10 @@ const MISS_TEXT = TEXT_TAGS.miss
   || { color: [255, 0, 0, 255], vx: 0, vy: 0.03, life: 3, fade: 1, text: 'miss' };
 const CRIT_TEXT = TEXT_TAGS.criticalStrike
   || { color: [255, 0, 0, 255], vx: 0, vy: 0.04, life: 5, fade: 2 };
+// UI/MiscData.txt carries a family per kind of floating text and the bash one
+// had nothing to fire it, because nothing implemented Bash.
+const BASH_TEXT = TEXT_TAGS.bash
+  || { color: [255, 0, 0, 255], vx: 0, vy: 0.04, life: 5, fade: 2 };
 // Creep leashing, straight from MiscGame.txt.  A unit that strays 'GuardDistance'
 // from where it spawned starts thinking about heading back; if it chases for
 // 'GuardReturnTime' without being attacked it turns around, and past
@@ -632,7 +636,8 @@ export class World {
     const MANA_PER_INT = GP ? GP.intManaBonus : 15;
     const DEF_PER_AGI = GP ? GP.agiDefenseBonus : 0.14;
     const ATK_PER_STR = GP ? GP.strAttackBonus : 1;
-    u.maxHp = Math.max(1, Math.round((t.hp || 100) + u.strTotal * HP_PER_STR));
+    u.maxHp = Math.max(1, Math.round((t.hp || 100) + u.strTotal * HP_PER_STR
+                                     + ((u.morphed && u.morphed.hpBonus) || 0)));
     u.maxMana = Math.round((t.mana || 0) + u.intTotal * MANA_PER_INT);
     const ib = itemBonuses(u.items);
     const sb = abilityBonuses(this, u);          // passive skills like Attribute Bonus
@@ -670,6 +675,7 @@ export class World {
       if (b.until && b.until <= this.now) continue;
       if (b.kind === 'armor') u.armorTotal += b.armor || 0;
       if (b.kind === 'slow') u.moveSpeed *= 1 - b.pct;
+      if (b.kind === 'slow' && b.atkPct) u.attackSpeedMul *= 1 - b.atkPct;
       if (b.kind === 'rage' || b.kind === 'morph') { u.dmg *= 1 + b.pct; }
       if (b.kind === 'weaken') u.dmg *= 1 - b.pct;
     }
@@ -849,6 +855,9 @@ export class World {
     if (!tgt || !tgt.alive || tgt.invulnerable) return 0;
     if (tgt.isDest) return this.damageDest(src, tgt, amount, opts);
     let dmg = amount;
+    // A unit can carry a multiplier on what it takes -- a mirror image does, out
+    // of the summoning ability's own Omi3 "Damage Taken (%)".
+    if (tgt.damageTakenMul) dmg *= tgt.damageTakenMul;
     if (!opts.raw) {
       // spells use the "spells" row; attacks use the attacker's own attack type
       const at = opts.spell ? 'spells' : (src ? src.atkType : 'normal');
@@ -1298,7 +1307,7 @@ export class World {
    * so entering a form with a larger pool does not heal you for the privilege,
    * and leaving one does not kill you.
    */
-  morph(u, typeKey, seconds) {
+  morph(u, typeKey, seconds, hpBonus = 0) {
     const t = this.type(typeKey);
     if (!u || !t) return false;
     const hpFrac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
@@ -1351,6 +1360,7 @@ export class World {
       granted.push(k);
     }
     u.morphed.until = this.now + Math.max(1, seconds || 0) * 1000;
+    u.morphed.hpBonus = hpBonus || 0;
     this.recalc(u);
     if (!u.isHero) {
       u.maxHp = Math.max(1, t.hp || u.maxHp);
@@ -1391,7 +1401,18 @@ export class World {
     if (!u) return null;
     u.expireAt = this.now + Math.max(1, seconds) * 1000;
     u.summonedBy = owner.id;
-    if (opts.image) { u.maxHp = Math.max(1, u.maxHp * 0.2); u.hp = u.maxHp; }
+    // A mirror image is not a weaker copy: Warcraft III gives it the hero's own
+    // life and states the difference in two fields instead. Omi2 is "Damage
+    // Dealt (%)" and Omi3 "Damage Taken (%)", and Blizzard's own Blade Master
+    // carries 0 and 2 -- an image that deals nothing and takes double. This map
+    // writes 1 and 1.5 on Sandaime's 그림자 분신. The 0.2 life factor that used
+    // to be here appears in no field of either of them.
+    if (opts.image) {
+      u.isImage = true;
+      u.dmg = (u.dmg || 0) * (opts.dealt ?? 0);
+      u.dmgBase = (u.dmgBase || 0) * (opts.dealt ?? 0);
+      u.damageTakenMul = opts.taken ?? 2;
+    }
     return u;
   }
 
@@ -2100,7 +2121,23 @@ export class World {
         for (const e of this.enemiesInRange(src, victim.x, victim.y, 150))
           if (e !== victim) this.damage(src, e, amount * src.cleave, {});
       }
+      // Bash: its own roll, its own multiplier, and it stuns what it hits for
+      // the ability's own duration.  Independent of the crit roll because the
+      // two are different abilities; nothing in this map carries both.
+      let bashed = false;
+      if (atk.bash && Math.random() * 100 < atk.bash.chance) {
+        bashed = true;
+        swing = (swing + atk.bash.bonus) * (atk.bash.mult || 1);
+        if (atk.bash.stun > 0) {
+          this.applyBuff(victim, { kind: 'stun', until: this.now + atk.bash.stun * 1000 });
+        }
+      }
       const dealt = this.damage(src, victim, swing, {});
+      if (bashed && dealt > 0) {
+        this.emit({ t: 'crit', id: victim.id, n: Math.round(dealt),
+                    x: victim.x, y: victim.y,
+                    player: this.playerOf(src)?.index, tag: BASH_TEXT });
+      }
       if (crit && dealt > 0) {
         this.emit({ t: 'crit', id: victim.id, n: Math.round(dealt),
                     x: victim.x, y: victim.y,

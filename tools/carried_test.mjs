@@ -20,7 +20,7 @@
 //   node tools/carried_test.mjs        (no server needed)
 import fs from 'node:fs';
 import path from 'node:path';
-import { ABILS, isPassive, entry as abilEntry, carriedImmolation } from '../server/abilities.js';
+import { ABILS, isPassive, entry as abilEntry, carriedImmolation, execute } from '../server/abilities.js';
 import { World } from '../server/world.js';
 import { JassEngine } from '../server/jass/engine.js';
 import { Room, GAME } from '../server/room.js';
@@ -210,6 +210,122 @@ console.log('\n-- Cloak of Flames burns when a unit carries it as an ability');
       check('and the burn ends with the form', !u.immolation, JSON.stringify(u.immolation));
       u.alive = false;
     }
+  }
+}
+
+// ======================================================= 4. bash and the form
+//
+// Two more the sweep queue turned up, both of them a field nothing read.
+console.log('\n-- Bash is a proc on attack, not a rage buff on the caster');
+{
+  const { attackProcs } = await import('../server/abilities.js');
+  // Sandaime Hokage's five 강타 ranks are the only carriers on this map.
+  const ranks = ['A019', 'A018', 'A017', 'A016', 'A01A'];
+  for (const id of ranks) {
+    const L = (ABILS[id].levels || [])[0];
+    check(`${id} carries a bash chance, a x${L.data2} multiplier and a ${L.duration}s stun`,
+          L.data1 > 0 && L.data2 === 3 && L.duration > 0,
+          `${L.data1}% x${L.data2} for ${L.duration}s`);
+  }
+  check('all five are passive, so no cast path was ever going to reach them',
+        ranks.every((id) => isPassive(ABILS[id])));
+  const u = world.createUnit(P(0), (GAME.heroes[0] || {}).id, -2000, -2000, 0);
+  if (u) {
+    for (const id of ranks) u.abilities.set(
+      (id.charCodeAt(0) << 24) | (id.charCodeAt(1) << 16) | (id.charCodeAt(2) << 8) | id.charCodeAt(3), 1);
+    const p = attackProcs(world, u);
+    // the strongest rank is A01A: 40% for a 3 second stun
+    check('attackProcs reads the strongest rank off the unit',
+          p.bash && p.bash.chance === 40 && p.bash.mult === 3 && p.bash.stun === 3,
+          JSON.stringify(p.bash));
+    check('and it is not spent as a rage buff on the caster',
+          !(u.buffs || []).some((b) => b.kind === 'rage'), JSON.stringify(u.buffs));
+    u.alive = false;
+  }
+  // a unit carrying none of them gets no bash at all
+  const plain = world.createUnit(P(0), (GAME.heroes[1] || GAME.heroes[0]).id, -2400, -2400, 0);
+  if (plain) {
+    check('a hero without Bash has none', !attackProcs(world, plain).bash);
+    plain.alive = false;
+  }
+}
+
+console.log('\n-- Eme5 is life the alternate form carries');
+for (const [id, form, who] of [['A040', 'O004', 'InuYasha 요괴화'], ['A01Y', 'O003', 'Eneru 뇌신']]) {
+  const L = (ABILS[id].levels || [])[0];
+  check(`${id} (${who}) carries a 3000 life bonus in Eme5`, L.data5 === 3000, String(L.data5));
+  const hero = GAME.heroes.find((h) => (h.castable || []).includes(id));
+  if (!hero) { check(`${id}'s hero is on the roster`, false); continue; }
+  const u = world.createUnit(P(0), hero.id, -3000, -3000, 0);
+  if (u) {
+    const before = u.maxHp;
+    execute(world, u, ABILS[id], 1, {});
+    check(`${id} takes the form`, u.morphed && u.typeKey === form, `${u.typeKey}`);
+    check(`${id} adds the 3000 the map wrote on top of the form's own life`,
+          u.maxHp >= before + 3000 || u.maxHp - (world.type(form).hp || 0) >= 3000,
+          `${Math.round(before)} -> ${Math.round(u.maxHp)}`);
+    const inForm = u.maxHp;
+    world.unmorph(u);
+    check(`${id} gives the bonus back with the form`, u.maxHp < inForm,
+          `${Math.round(inForm)} -> ${Math.round(u.maxHp)}`);
+    u.alive = false;
+  }
+}
+
+// ============================ 5. two constants of ours the map had a field for
+console.log('\n-- Thunder Clap slows by its own Htc3, not by a constant');
+{
+  const L = (ABILS.A01P.levels || [])[0];            // 뇌격, Eneru
+  check('A01P carries a 0.4 movement and 0.4 attack reduction',
+        L.data3 === 0.4 && L.data4 === 0.4, `${L.data3} / ${L.data4}`);
+  const caster = world.createUnit(P(0), (GAME.heroes[0] || {}).id, 4000, 4000, 0);
+  const victim = world.createUnit(P(6), 'hpea', 4000, 4000, 0);
+  if (caster && victim) {
+    caster.x = 4000; caster.y = 4000; victim.x = 4100; victim.y = 4000;
+    victim.hp = victim.maxHp = 1e9; victim.hpReg = 0;
+    world.binTick = -1; world.rebuildBins();
+    execute(world, caster, ABILS.A01P, 1, { x: caster.x, y: caster.y });
+    const b = (victim.buffs || []).find((x) => x.kind === 'slow');
+    check('the slow it leaves is the map\'s 0.4, not our 0.25',
+          b && Math.abs(b.pct - 0.4) < 1e-9, b ? String(b.pct) : 'no slow');
+    check('and it carries the attack-speed half of the same pair',
+          b && Math.abs(b.atkPct - 0.4) < 1e-9, b ? String(b.atkPct) : '-');
+    // War Stomp declares neither field, so it must not pick one up
+    const wsL = (ABILS.A044.levels || [])[0];
+    check('War Stomp declares no reduction field at all',
+          wsL.data3 === undefined || wsL.data3 === 0, String(wsL.data3));
+    caster.alive = false; victim.alive = false;
+  }
+}
+
+console.log('\n-- a mirror image is the hero\'s own life, with two multipliers');
+{
+  const L = (ABILS.A02N.levels || [])[0];            // 그림자 분신, Sandaime
+  check('A02N carries Omi2 = 1 dealt and Omi3 = 1.5 taken',
+        L.data2 === 1 && L.data3 === 1.5, `${L.data2} / ${L.data3}`);
+  const hero = GAME.heroes.find((h) => (h.castable || []).includes('A02N'))
+            || GAME.heroes[0];
+  const u = world.createUnit(P(0), hero.id, 5000, 5000, 0);
+  if (u) {
+    const before = [...world.units.values()].filter((x) => x.isImage).length;
+    execute(world, u, ABILS.A02N, 1, { x: u.x, y: u.y });
+    const imgs = [...world.units.values()].filter((x) => x.isImage && x.alive);
+    check('it makes the Omi1 number of images', imgs.length - before === Math.round(L.data1),
+          `${imgs.length - before} of ${L.data1}`);
+    const img = imgs[imgs.length - 1];
+    if (img) {
+      // the 0.2 life factor was ours and appears in no field
+      check('an image keeps the hero\'s own life rather than a fifth of it',
+            img.maxHp > u.maxHp * 0.5, `${Math.round(img.maxHp)} vs the hero's ${Math.round(u.maxHp)}`);
+      check('and it takes the Omi3 multiplier on damage',
+            Math.abs((img.damageTakenMul || 0) - 1.5) < 1e-9, String(img.damageTakenMul));
+      const hp0 = img.hp;
+      world.damage(null, img, 100, { raw: true });
+      check('so 100 raw damage costs it 150', Math.abs((hp0 - img.hp) - 150) < 1,
+            String(Math.round(hp0 - img.hp)));
+      for (const x of imgs) x.alive = false;
+    }
+    u.alive = false;
   }
 }
 
