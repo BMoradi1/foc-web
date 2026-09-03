@@ -318,5 +318,153 @@ console.log('\n-- the shop buildings cannot be fought');
   }
 }
 
+// ------------------------------------------------------------------- Blink
+//
+// Ebl1 "Maximum Range" and Ebl2 "Minimum Range" are the hop; `range` is only
+// how far away the order may be issued, and this map leaves it at Blizzard's
+// 99999 on both blinks.
+console.log('\n-- Blink: Ebl1 is the hop, not the order range');
+for (const [id, hero_] of [['A01U', 'Eneru 전광'], ['A04M', 'Renji 순보']]) {
+  const L = levelInfo(ABILS[id], 1);
+  check(`${id} (${hero_}) carries a 400 maximum and a ${L.data2} minimum against range ${L.range}`,
+        L.data1 === 400 && L.range === 99999, `d1=${L.data1} d2=${L.data2} rng=${L.range}`);
+  hero.x = 0; hero.y = 0;
+  execute(world, hero, ABILS[id], 1, { x: 20000, y: 0 });
+  const hop = Math.hypot(hero.x, hero.y);
+  check(`${id} hops its own 400 and not the whole map`, hop <= 420, `${Math.round(hop)}`);
+  // the minimum is a floor on the hop: a click one pixel away still moves it
+  hero.x = 0; hero.y = 0;
+  execute(world, hero, ABILS[id], 1, { x: 1, y: 0 });
+  const shortHop = Math.hypot(hero.x, hero.y);
+  check(`${id} will not hop shorter than its Ebl2 minimum of ${L.data2}`,
+        shortHop >= L.data2 - 40, `${Math.round(shortHop)} vs ${L.data2}`);
+}
+hero.x = 0; hero.y = 0;
+
+// ------------------------------------------------------------- Flame Strike
+//
+// Six fields, all of them used: Hfs1 every Hfs2 for the shorter duration, then
+// Hfs3 every Hfs4 for the rest, inside the ability's area, capped at Hfs6 per
+// unit.  It used to share Death Coil's case and deal Hfs1 once to one unit.
+console.log('\n-- Flame Strike: a burning circle, not a bolt');
+{
+  const L = levelInfo(ABILS.A04F, 10);           // 달을 뚫는다, Akiha
+  check('A04F rank 10 carries 150 per 0.2s, 100 per 1s, 4.01s inside 10s, cap 3000',
+        L.data1 === 150 && L.data2 === 0.2 && L.data3 === 100 && L.data4 === 1
+          && L.heroDuration === 4.01 && L.duration === 10 && L.data6 === 3000,
+        `${L.data1}/${L.data2}/${L.data3}/${L.data4} ${L.heroDuration}<${L.duration} cap ${L.data6}`);
+  clearFoes();
+  world.burns = [];
+  const inside = foe(100, 0), outside = foe(2000, 0);
+  // a point cast, on bare ground, with no unit under it at all
+  const r = execute(world, hero, ABILS.A04F, 10, { x: hero.x, y: hero.y });
+  check('a click on bare ground is a cast, not "need target"', r.ok === true, r.reason || '');
+  const b = world.burns[0];
+  check('it lights a burn of the ability\'s own area', b && b.radius === L.area,
+        b ? `r=${b.radius} vs ${L.area}` : 'no burn');
+  check('the full phase is the shorter duration, the whole burn the longer',
+        b && Math.abs(b.fullUntil - (world.now + 4010)) < 2
+          && Math.abs(b.until - (world.now + 10000)) < 2,
+        b ? `${(b.fullUntil - world.now)}ms of ${(b.until - world.now)}ms` : '-');
+  if (inside && outside) {
+    const hp0 = inside.hp, out0 = outside.hp;
+    for (let i = 0; i < 30 * 12; i++) { world.now += STEP; world.stepBurns(); }
+    const took = hp0 - inside.hp;
+    // 20 ticks of 150 is the cap exactly; nothing may take more than Hfs6
+    check('a unit standing in it all the way takes the Hfs6 cap, not more',
+          took > 2000 && took <= 3000 + 1, `${Math.round(took)} vs cap 3000`);
+    check('one pulse of Hfs1 is not the whole spell', took > L.data1 * 2,
+          `${Math.round(took)} vs a single ${L.data1}`);
+    check('a unit outside the area takes nothing', outside.hp === out0,
+          `${Math.round(out0 - outside.hp)}`);
+  }
+  world.burns = [];
+}
+
+// -------------------------------------------------------------- Mana Shield
+//
+// Nms1 "Mana per Hit Point", Nms2 "Damage Absorbed (%)".  All three shields in
+// this map carry 100% absorbed at -0.01 mana per point: absorbing pays mana
+// back, which is the author writing "cancels all damage" in the fields.
+console.log('\n-- Mana Shield: damage off mana, at the ability\'s own rate');
+for (const [id, who] of [['A00S', 'Sandaime 토둔-토류벽'], ['A06S', 'Nico Robin 칼렌듈러'],
+                         ['A00P', 'Orochimaru 수둔-수진벽']]) {
+  const L = levelInfo(ABILS[id], 1);
+  check(`${id} (${who}) absorbs 100% at -0.01 mana per hit point`,
+        L.data2 === 1 && L.data1 === -0.01, `pct=${L.data2} rate=${L.data1}`);
+  // Warcraft III's Mana Shield is cast on the caster (retail targs1 = self), so
+  // this is a self-buff even when the map widens the target list.
+  hero.buffs = []; hero.maxMana = 500; hero.mana = 100; hero.armor = 0;
+  execute(world, hero, ABILS[id], 1, {});
+  const live = (hero.buffs || []).find((b) => b.kind === 'manashield' && b.until > world.now);
+  check(`${id} leaves a live mana shield on the caster`, !!live, JSON.stringify(hero.buffs));
+  const hp0 = hero.hp, mana0 = hero.mana;
+  world.damage(null, hero, 1000, { spell: true });
+  check(`${id} takes the damage off nothing while it holds`,
+        hero.hp === hp0, `${Math.round(hp0 - hero.hp)} life lost`);
+  check(`${id}'s negative rate pays mana back rather than spending it`,
+        hero.mana > mana0, `${mana0} -> ${Math.round(hero.mana)}`);
+  // and it is timed: this map gives all three an ahdu rather than the retail
+  // toggle, so it has to end
+  const secs = L.heroDuration || L.duration;
+  check(`${id} lasts the ${secs}s the map gives it and no longer`,
+        live && Math.abs(live.until - (world.now + secs * 1000)) < 2,
+        live ? `${(live.until - world.now) / 1000}s vs ${secs}s` : '-');
+  hero.buffs = [];
+}
+// a positive rate is retail's reading: it spends mana and drops when that runs out
+{
+  clearFoes();
+  const victim = foe(60, 0);
+  if (victim) {
+    victim.maxMana = 50; victim.mana = 50; victim.armor = 0;
+    victim.buffs = [{ kind: 'manashield', pct: 1, manaPerHp: 1, until: world.now + 60_000 }];
+    const hp0 = victim.hp;
+    world.damage(hero, victim, 200, { spell: true });
+    check('a shield that SPENDS mana absorbs only what the mana covers',
+          victim.mana === 0 && Math.round(hp0 - victim.hp) === 150,
+          `mana ${victim.mana}, took ${Math.round(hp0 - victim.hp)} of 200`);
+  }
+}
+
+// --------------------------------------------------------- Aerial Shackles
+console.log('\n-- Aerial Shackles: Mls1 is damage per SECOND, over the duration');
+{
+  const L = levelInfo(ABILS.A04X, 3);            // 고무고무 바람개비, Luffy
+  check('A04X rank 3 carries 900 a second for 20 seconds',
+        L.data1 === 900 && L.duration === 20, `${L.data1} / ${L.duration}s`);
+  clearFoes();
+  world.dots = [];
+  const victim = foe(200, 0);
+  if (victim) {
+    execute(world, hero, ABILS.A04X, 3, { target: victim });
+    const d = (world.dots || [])[0];
+    check('it burns for its per-second figure once a second, not once',
+          d && d.perTick === 900 && Math.abs(d.interval - 1000) < 1,
+          d ? `${d.perTick} every ${d.interval}ms` : 'no dot');
+    check('and for the whole 20 seconds', d && Math.abs(d.until - (world.now + 20_000)) < 2,
+          d ? `${(d.until - world.now) / 1000}s` : '-');
+    check('what it shackles cannot move', (victim.buffs || []).some((b) => b.kind === 'slow' && b.pct === 1),
+          JSON.stringify(victim.buffs));
+  }
+  world.dots = [];
+}
+
+// ------------------------------------------------- a summon count of zero
+//
+// AbilityMetaData's Hwe2 is "Summoned Unit Count", and Rock Lee's 취권 sets it
+// to 0 at every level: the ability keeps the Quilbeast row for its buff and its
+// cooldown, and delivers the spell from the map's own trigger.
+console.log('\n-- a summon the map counted at zero summons nothing');
+for (const id of ['A03R', 'A055']) {
+  const L = levelInfo(ABILS[id], 1);
+  check(`${id} names ${L.unit} and asks for ${L.data1} of them`,
+        L.unit && L.data1 === 0, `${L.unit} x ${L.data1}`);
+  const before = [...world.units.values()].filter((u) => u.alive && u.typeKey === L.unit).length;
+  execute(world, hero, ABILS[id], 1, { x: hero.x + 200, y: hero.y });
+  const after = [...world.units.values()].filter((u) => u.alive && u.typeKey === L.unit).length;
+  check(`${id} puts no ${L.unit} on the field`, after === before, `${before} -> ${after}`);
+}
+
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) { for (const f of fails) console.log('  - ' + f); process.exit(1); }

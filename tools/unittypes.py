@@ -64,6 +64,13 @@ def from_blz(rec):
         # UnitWeapons.slk 'acquire' -- how far a unit looks for a target on its
         # own.  Warcraft III uses this per unit type, not one global leash.
         acquisitionRange=num(rec.get('acquire'), 500),
+        # UnitWeapons.slk 'weapsOn' -- how many of the unit's weapons are turned
+        # on.  Blizzard writes 0 on the 250 rows that have no attack, and the
+        # map writes it on 103 unit types of its own: dummies that inherit their
+        # base's damage and are never meant to swing.  Defaults to 1 rather than
+        # to 0 so a unit type with no weapons row at all keeps the attack it has
+        # always had here; only a table saying 0 ever takes one away.
+        attacksEnabled=int(num(rec.get('weapsOn'), 1)),
     )
 
 W3U_MAP = {                       # w3u modification id -> normalized field
@@ -71,6 +78,7 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'uhpm': 'hp', 'umpm': 'mana', 'umpi': 'manaStart', 'uhpr': 'hpReg', 'umpr': 'manaReg',
  'udef': 'armor', 'udty': 'armorType', 'ua1b': 'dmgBase', 'ua1d': 'dmgDice',
  'ua1s': 'dmgSides', 'ua1c': 'atkCd', 'ua1r': 'atkRange', 'ua1t': 'atkType',
+ 'uaen': 'attacksEnabled',
  'umvs': 'moveSpeed', 'umvr': 'turnRate', 'ucol': 'collision', 'usca': 'scale',
  'ussc': 'selectScale', 'uslz': 'selZ',
  'ushu': 'shadow', 'ushb': 'shadow', 'ushw': 'shadowW', 'ushh': 'shadowH',

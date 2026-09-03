@@ -7,7 +7,8 @@ import { Grid } from './pathing.js';
 import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
-         auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs } from './abilities.js';
+         auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs,
+         carriedImmolation } from './abilities.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const readJSON = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), 'utf8'));
@@ -167,7 +168,7 @@ function binKey(x, y) {
 const REINCARNATE = new Set(['AOre', 'ACrn', 'ANrn']);
 
 const MORPH_FIELDS = ['typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
-  'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'missile',
+  'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'attacksEnabled', 'missile',
   'missileSpeed', 'missileArc', 'missileHoming', 'baseMoveSpeed', 'radius',
   'renderScale', 'hpReg', 'manaReg', 'str', 'strLvl', 'agi', 'agiLvl',
   'intel', 'intLvl'];
@@ -390,6 +391,11 @@ export class World {
       atkType: t ? (t.atkType || 'normal') : 'normal',
       dmgBase: t ? t.dmgBase : 0, dmgDice: t ? t.dmgDice : 1, dmgSides: t ? t.dmgSides : 1,
       atkCd: t ? Math.max(0.2, t.atkCd) : 1.5, atkRange: t ? t.atkRange : 90, atkTimer: 0,
+      // UnitWeapons.slk 'weapsOn' / the map's own 'uaen': how many of the unit
+      // type's weapons are turned on.  Zero means it has no attack at all --
+      // 103 of this map's unit types say so, and every one of them is a dummy
+      // carrying its base's damage that it is never meant to use.
+      attacksEnabled: t ? (t.attacksEnabled ?? 1) : 1,
       // the weapon's missile, if it throws one (Units\*UnitFunc.txt)
       missile: t ? t.missile : null, missileSpeed: t ? t.missileSpeed : 0,
       missileArc: t ? t.missileArc : 0, missileHoming: t ? t.missileHoming : 0,
@@ -646,7 +652,13 @@ export class World {
     u.primaryAttr = prim;
     u.dmg = (t.dmgBase || 0) + primTotal * ATK_PER_STR + ib.damage;
     u.lifesteal = ib.lifesteal; u.cleave = ib.cleave;
-    if (ib.flames) u.immolation = { dps: ib.flames, area: 200 };
+    // A burn can come from a carried item or from an ability the unit holds;
+    // only one this code granted is ever taken away again, so a cast Immolation
+    // survives a recalc and a morph form's burn ends with the form.
+    const carried = carriedImmolation(this, u);
+    if (carried) { u.immolation = carried; u.immolationFromAbility = true; }
+    else if (ib.flames) { u.immolation = { dps: ib.flames, area: 200 }; u.immolationFromAbility = false; }
+    else if (u.immolationFromAbility) { u.immolation = null; u.immolationFromAbility = false; }
     // attack speed: agility plus any item bonus, as Warcraft III stacks them
     const AS_PER_AGI = GP ? GP.agiAttackSpeedBonus : 0.02;
     u.attackSpeedMul = 1 + u.agiTotal * AS_PER_AGI + ib.attackSpeed;
@@ -842,6 +854,24 @@ export class World {
       const at = opts.spell ? 'spells' : (src ? src.atkType : 'normal');
       dmg *= typeBonus(at, tgt.armorType);
       dmg *= armorFactor(tgt.armorTotal ?? tgt.armor ?? 0);
+    }
+    // Mana Shield takes its share off mana instead of life, at the ability's
+    // own Nms1 "Mana per Hit Point" rate, and drops when the mana runs out.
+    // This map's three shields all carry a NEGATIVE rate, so absorbing pays
+    // mana back instead of spending it -- see the ANms case in abilities.js.
+    const shield = (tgt.buffs || []).find((b) => b.kind === 'manashield' && b.until > this.now);
+    if (shield && dmg > 0) {
+      const rate = shield.manaPerHp;
+      let absorbed = dmg * shield.pct;
+      if (rate > 0) {
+        absorbed = Math.min(absorbed, (tgt.mana || 0) / rate);
+        tgt.mana = Math.max(0, (tgt.mana || 0) - absorbed * rate);
+        if (tgt.mana <= 0) shield.until = 0;
+      } else if (rate < 0) {
+        tgt.mana = Math.min(tgt.maxMana || 0, (tgt.mana || 0) - absorbed * rate);
+      }
+      dmg -= absorbed;
+      this.emit({ t: 'absorb', id: tgt.id, amt: Math.round(absorbed) });
     }
     tgt.hp -= dmg;
     tgt.lastAttackedAt = this.now;
@@ -1289,6 +1319,7 @@ export class World {
     u.dmgDice = t.dmgDice || 1;
     u.dmgSides = t.dmgSides || 1;
     u.atkCd = Math.max(0.2, t.atkCd || 1.5);
+    u.attacksEnabled = t.attacksEnabled ?? 1;
     u.atkRange = t.atkRange || 90;
     u.missile = t.missile || null;
     u.missileSpeed = t.missileSpeed || 0;
@@ -1451,6 +1482,52 @@ export class World {
       hit.push(e);
     }
     return hit;
+  }
+
+  /**
+   * Flame Strike's burning ground: `full` damage every `fullEvery` seconds for
+   * the first `fullSeconds`, then `half` every `halfEvery` for the rest of
+   * `seconds`, to everything hostile inside `radius`, with each unit taking at
+   * most `cap` from the one cast.
+   *
+   * The area channel next door cannot do this: it has one damage figure, one
+   * interval and no per-target accounting, and Flame Strike's six fields are
+   * exactly those three things twice over plus the cap.  The circle stays on
+   * the ground it was cast on and keeps burning if the caster dies, which is
+   * what a patch of fire does.
+   */
+  burnGround(caster, x, y, radius, o) {
+    this.burns = this.burns || [];
+    this.burns.push({ caster, x, y, radius,
+                      full: o.full || 0, fullEvery: Math.max(50, (o.fullEvery || 1) * 1000),
+                      half: o.half || 0, halfEvery: Math.max(50, (o.halfEvery || 1) * 1000),
+                      fullUntil: this.now + (o.fullSeconds || 0) * 1000,
+                      until: this.now + (o.seconds || 0) * 1000,
+                      nextAt: this.now,
+                      cap: o.cap > 0 ? o.cap : Infinity,
+                      dealt: new Map() });
+  }
+
+  stepBurns() {
+    if (!this.burns || !this.burns.length) return;
+    for (const b of this.burns) {
+      if (this.now >= b.until || this.now < b.nextAt) continue;
+      const full = this.now < b.fullUntil;
+      b.nextAt = this.now + (full ? b.fullEvery : b.halfEvery);
+      const per = full ? b.full : b.half;
+      if (per <= 0) continue;
+      for (const e of this.enemiesInRange(b.caster, b.x, b.y, b.radius)) {
+        // the cap counts what the spell asked for, which is the unit the
+        // ability's own Hfs1 and Hfs6 are written in -- armour comes off after
+        const had = b.dealt.get(e.id) || 0;
+        if (had >= b.cap) continue;
+        const want = Math.min(per, b.cap - had);
+        b.dealt.set(e.id, had + want);
+        this.damage(b.caster, e, want, { spell: true });
+      }
+      this.emit({ t: 'aoe', x: Math.round(b.x), y: Math.round(b.y), r: Math.round(b.radius) });
+    }
+    this.burns = this.burns.filter((b) => this.now < b.until);
   }
 
   channel(caster, x, y, radius, perWave, waves, interval, followCaster = false) {
@@ -1714,6 +1791,16 @@ export class World {
         u.mana = Math.min(u.maxMana, u.mana + u.maxMana * (u.manaReg || 0.01) * this.dt);
       } else if (u.hpReg) {
         u.hp = Math.min(u.maxHp, u.hp + u.hpReg * this.dt);
+        // Warcraft III kills a unit whose life reaches zero however it got
+        // there, and a NEGATIVE life regeneration is how this map gives a spell
+        // dummy a life span: 102 of its unit types carry one, and 84 of those
+        // have ten life or less, so they are written to bleed out in a couple of
+        // seconds.  Nothing here killed them, so every one of them sat on
+        // negative life for the rest of the match -- the ten 적화포 dummies, the
+        // eighteen around Kisame's water prison, the swords of 하늘의 쇠사슬.
+        // No hero on the roster carries a negative regen, so nothing a player
+        // controls can die this way.
+        if (u.hp <= 0) { this.killUnit(u, null); continue; }
       }
       if (u.paused || this.stunned(u)) continue;
       if (u.immolation) {
@@ -1728,6 +1815,7 @@ export class World {
     this.stepSwarms();
     this.stepDots();
     this.stepChannels();
+    this.stepBurns();
     this.stepFountains();
     this.separate(alive);
     this.checkUnitInRange(alive);
@@ -1745,6 +1833,7 @@ export class World {
    */
   stepAI(u) {
     if (u.controlled || u.isBuilding || u.pickerProp) return;   // players drive their own heroes
+    if (!u.attacksEnabled) return;                              // it has no weapon to acquire with
     if (u.playerIndex === NEUTRAL_PASSIVE) return;              // shops and props never fight
     if (u.returning) { this.stepReturnHome(u); return; }
     if (u.order.type !== 'idle' && u.order.type !== 'attack') return;
@@ -1957,6 +2046,7 @@ export class World {
   }
 
   stepAttack(u) {
+    if (!u.attacksEnabled) return;
     if (u.atkTimer > 0) u.atkTimer -= this.dt;
     if (u.order.type !== 'attack' && u.order.type !== 'attackMove') return;
     let t = this.target(u.order.targetId);

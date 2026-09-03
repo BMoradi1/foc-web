@@ -136,7 +136,13 @@ const CONTRACT = {
   'ACro,ANbr':               { 1: 'Damage Increase (%)' },
   'ANfd':                    { 3: 'Damage' },
   'AEer':                    { 1: 'Damage per Second' },
-  'ANdr,AUdc,AHfs,ANin':     { 1: 'Damage' },
+  'ANms,ACmf':               { 1: 'Mana per Hit Point', 2: 'Damage Absorbed (%)' },
+  'Amls':                    { 1: 'Damage Per Second' },
+  'AEbl':                    { 1: 'Maximum Range', 2: 'Minimum Range' },
+  'AHfs':                    { 1: 'Full Damage Dealt', 2: 'Full Damage Interval',
+                               3: 'Half Damage Dealt', 4: 'Half Damage Interval',
+                               6: 'Maximum Damage' },
+  'ANdr,AUdc,ANin':          { 1: 'Damage' },
   'ANsl,AUsl,ACsw':          { 1: 'Movement Speed Factor' },
 };
 

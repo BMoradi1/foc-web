@@ -829,16 +829,38 @@ GAMEPLAY / INPUT
     tools/monsterball_test.mjs, 23 checks -- 17 through a real capture,
     release, recall and sale, 6 in the browser for the aiming.
 
-[ ] A transformation's active abilities are on the unit but not clickable
-    Fixed below: a metamorphosis now grants its alternate form's ability list,
-    so Ichigo's Bankai really does carry the Black Getsuga (A030) and Eneru's
-    Thunder God form carries its four. The passive half of that works -- the
-    Super Saiyan attribute bonuses land -- but an *active* one has no slot,
-    because sendHero and slotAbility both build the six slots from the hero
-    definition's own castable list rather than from what the unit holds.
-    Five of the sixteen morph forms grant an active ability this way; one of
-    them (O003) grants four, which is more than q/w/e/r/d/f has room for.
-    Entangled with the hotkey item below -- do them together.
+[x] A transformation's active abilities are on the unit but not clickable
+    (FIXED)
+    A metamorphosis already granted its alternate form's ability list, so the
+    passive half worked -- the Super Saiyan attribute bonuses land -- but an
+    ACTIVE one had no slot, because sendHero and slotAbility both built the card
+    from the hero definition's own castable list rather than from what the unit
+    holds. Warcraft III builds the card from the UNIT, and a metamorphosis is a
+    genuine change of unit; room.js now does the same, through one cardSlots()
+    both of them read so the client and the server cannot disagree about what
+    slot N means.
+
+    The old note here was wrong about the count, in the way this file keeps
+    being wrong when a number is read rather than measured. Six of the sixteen
+    forms grant an ability with an order string, not five, and FOUR of those
+    grant one the hero's static list does not already carry:
+      O000 만해        Ichigo          A030  Black Getsuga
+      H01P 기어        Luffy           A04Y  기간트 피스톨, 1000 damage
+      H001 아이스사브르 Haku            A05C  아이스블록 파르티잔
+      Nbst CP9         Rob Lucci       A02D
+    Eneru's O003 and Gaara's O005 grant one each that was already on the card.
+    And "O003 grants four, which is more than q/w/e/r/d/f has room for" was
+    counting its passives: of AInv, A01W (AEev), A020 (AIcf) and A01U, only the
+    blink can be cast. No card gains more than one slot, so six is still enough.
+
+    Appending rather than inserting keeps every existing index where it was.
+    The same route closes the other end of the same gap: a hero's base (uabi)
+    abilities only reached `castable` when the map's script named them in a
+    GetSpellAbilityId comparison, which is a rule about triggers and not about
+    command cards. Exactly one hero is affected and it is a big one -- Majin
+    Buu's 기폭팔 (A00Z), a 5000-damage 500-radius nuke for 10 mana that no
+    trigger mentions, so it had no slot at all.
+    tools/carried_test.mjs.
 
 [x] Hotkeys  (FIXED)
     The map assigns each hero ability its own key in war3map.w3a ('ahky'). The
@@ -929,6 +951,139 @@ GAMEPLAY / INPUT
     looks like. A retail screenshot would settle it; that constant is the fix.
     tools/texttag_test.mjs, 25 checks, half of them read pixels back off the
     overlay canvas rather than asking whether a function was called.
+
+[x] The sweep's open HIGH rows: five spells, and three things under them
+    (FIXED)
+    HeroSweep.TXT's queue, worked top down. Every number below is the map's own,
+    quoted with the field id it comes from; the slot meanings resolve through
+    AbilityMetaData.slk's useSpecific column as usual, and every new case has a
+    CONTRACT entry in tools/slot_test.mjs. tools/spellshape_test.mjs casts them
+    and reads what happened (79 checks) rather than asserting the source.
+
+    Blink -- Ebl1 is the hop, `range` is not  (A01U Eneru, A04M Renji)
+        Ebl1 is "Maximum Range" and Ebl2 "Minimum Range"; the ability's `range`
+        is how far away the ORDER may be issued and is a different number.
+        Blizzard's own Warden settles it: Rng1 99999 against Ebl1 1000 and Ebl2
+        200. This map keeps the 99999 and writes Ebl1 400 on both blinks, so
+        reading the order range as the hop let Eneru and Renji cross the whole
+        map in one jump. The minimum is clamped rather than refused, which is a
+        reading and says so in the code: nothing in the data says what Warcraft
+        III does with a click inside it.
+
+    Flame Strike -- a burning circle, not a bolt  (A04F Akiha, A004 Sandaime)
+        Hfs1 Full Damage Dealt every Hfs2, then Hfs3 every Hfs4, inside aare,
+        capped at Hfs6. It shared Death Coil's case, which reads slot 1 as one
+        damage figure at one unit: 150 of 3000 at rank 10, and a click on bare
+        ground -- which is how the spell is cast -- returned 'need target' and
+        did nothing at all. The two durations are the two phases rather than a
+        hero/creep pair, because the spell targets the ground and there is no
+        unit to be a hero; Blizzard's row reads the same way, HeroDur1 2.67
+        inside Dur1 9.
+        Hfs6 is capped PER TARGET, and that is the one reading here that the
+        data does not settle. What supports it is the author's own arithmetic:
+        Hfs6 is exactly Hfs1 x 20.05 at every level (300 against 15, 3000
+        against 150), and 20.05 is the number of 0.2 s ticks in the 4.01 s full
+        phase. What argues against it is that Blizzard's own row does not follow
+        that rule -- DataF1 90 against a 121 full-phase total. Recorded in the
+        code as a reading, not as a fact.
+
+    Mana Shield -- nothing read it  (A00S Sandaime, A06S Nico Robin, A00P Orochimaru)
+        Nms1 "Mana per Hit Point", Nms2 "Damage Absorbed (%)". No damage path
+        in server/world.js had ever looked at either, so all three did nothing.
+        All three carry Nms2 = 1.0 and Nms1 = -0.01: a NEGATIVE rate, so
+        absorbing pays mana back instead of spending it. That is the author
+        writing "cancels all damage" in the fields, and A00S's own tooltip says
+        exactly that -- 모든 데미지 캔슬. The same code covers Blizzard's
+        reading, which spends 1 mana a point and drops when the mana runs out,
+        because the sign of the rate decides which way the mana moves. Warcraft
+        III makes this a toggle with no duration; this map gives all three an
+        ahdu of 5-10 s, so it is timed here and the toggle-off order is not
+        modelled.
+
+    Aerial Shackles -- Mls1 is per SECOND  (A04X Luffy)
+        300/600/900 a second for 20 seconds, and with no case at all it fell to
+        the damage fallback and spent the per-second figure as a single hit. The
+        buff code is deliberately not stamped: abuf lists two (Bmlc, Bmlt) and
+        nothing in the data says which rides the target. 82 abilities carry a
+        multi-buff list, so guessing an order would have been a rule rather than
+        a fix; the map removes Bmlt from the shackled unit itself and nothing is
+        gated on it.
+
+    A summon counted at zero summons nothing  (A03R Rock Lee, A055 Haku)
+        AbilityMetaData's Hwe2 is "Summoned Unit Count" and both set it to 0 at
+        every level -- the row is kept for its buff and its cooldown and the
+        spell comes from the map's own trigger. summonFrom floored it to one and
+        put a Quilbeast on the field the ability's data forbids. An ABSENT count
+        still means one; only the thirteen bases whose useSpecific list names
+        Hwe2 read slot 1 as a count at all.
+
+    Under those five, three engine-wide things the rows kept circling:
+
+    The dummies that never died -- and it was never RemoveUnit
+        Eight rows reported "dummy units never removed -- no timed life, no
+        RemoveUnit, keep attacking". The map does give them a life span, and not
+        with a timer: 102 of its unit types carry a NEGATIVE life regeneration,
+        84 of them with ten life or less, so they are written to bleed out in a
+        couple of seconds. world.js applied the regen and then never checked the
+        result, so they sat on negative life for the rest of the match. Warcraft
+        III kills a unit whose life reaches zero however it got there. No hero on
+        the roster carries a negative regen, so nothing a player controls can die
+        this way.
+
+    The dummies that should never have been swinging
+        UnitWeapons.slk's `weapsOn` -- the map's own `uaen` -- says how many of a
+        unit type's weapons are turned on, and tools/unittypes.py dropped it.
+        The map sets it to 0 on 103 unit types and 93 of those carry a real
+        damage figure inherited from their base, so every spell dummy in the
+        game stood around auto-attacking with it. None of the 93 is a hero
+        anyone can play. It defaults to 1 rather than 0, so a unit type with no
+        weapons row keeps the attack it has always had: only a table saying 0
+        ever takes one away.
+
+    Cloak of Flames only ever reached the game on an item
+        AIcf's Icfd is "Damage Per Duration" over the ability's own duration in
+        its own area. ITEM_BONUS read it for a carried item and nothing read it
+        for a unit ability, so Eneru's Thunder God form -- 500 damage a second in
+        a 200 radius, A020 on O003 -- burned nobody. It is still passive, which
+        it is: it has no order string and is never cast. Only a burn this code
+        granted is ever taken away again, so a cast Immolation survives a recalc
+        and the form's burn ends with the form.
+
+    Also closed by earlier work, verified rather than assumed:
+      A03P 하늘의 쇠사슬 and A06O 베인떼플루르 -- both were waiting on the AEer
+      case and on ANfd reading Nfd3. A03P now roots for its 10 s and stamps
+      B00V; A06O's payload A06P roots and stamps B00H; and A01O's swords deal
+      the 0 the map wrote rather than 60 read out of "Graphic Delay".
+
+[ ] What the sweep's HIGH rows still leave open
+    Three of them are not data-slot defects and are recorded rather than
+    guessed at:
+
+    A01J 소환술-예토전생 -- the summoned Hokage cannot be commanded
+        The summon itself is right. Two things around it are not: acas = 5.0,
+        the five-second ritual, is never honoured by castAbility, and a player
+        has no way to select or order a unit they summoned, so the revived
+        Hokage's four abilities can never be cast. The second is a control
+        feature rather than a fix.
+
+    castDummy runs the first ability the dummy holds, not the one ordered
+        The map spawns a dummy carrying two abilities and orders it to cast one
+        of them by numeric order id (852171 and the like). world.order treats
+        any numeric order as "cast your one ability" and castDummy takes the
+        first non-passive it finds, so Rock Lee's 취권 fires A057 where the map
+        asked for A046 and buff B011 is never stamped. Resolving it needs
+        Blizzard's order-id -> order-string table, and that table is not in the
+        MPQs: OrderId() here is a string hash of ours, which cannot match a
+        literal id the script passes. Not establishable from the data we have.
+
+    Every spell event fires at once
+        castAbility fires SPELL_CHANNEL, SPELL_CAST, SPELL_EFFECT, SPELL_FINISH
+        and SPELL_ENDCAST back to back in one call. A trigger that arms on
+        EFFECT and disarms on ENDCAST is therefore disarmed before it can run --
+        A04X's spin is the reported case, where both UnitDamageTargetBJ calls
+        multiply by an udg_integer12 that never leaves 0. Fixing it means giving
+        the engine a real cast timeline, which every trigger in the map sits on;
+        it is a redesign rather than a repair and wants its own pass.
 
 [ ] The stub natives, ranked  (measured 2026-08-31, tools/stub_audit.mjs)
     A native the engine has never heard of is reported -- boot_test prints the

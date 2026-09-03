@@ -71,7 +71,7 @@ export const HANDLED_BASES = new Set([
   'AOmi', 'AUls', 'ANpi', 'AEim', 'AIim', 'AHhb', 'AOhw', 'AChw', 'AHdi',
   'ACbh', 'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'ANdr', 'AUdc',
   'AHfs', 'ANin', 'ANsl', 'AUsl', 'ACsw', 'AHbz', 'AEsf', 'ANrf',
-  'AOww', 'ANht', 'ANcr',
+  'AOww', 'ANht', 'ANcr', 'ANms', 'ACmf', 'Amls',
 ]);
 
 /** True when the ability resolves to a named engine behaviour. */
@@ -122,15 +122,35 @@ const slot = (v, dflt) => (v === undefined || v === null ? dflt : v);
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 /**
+ * Bases whose DataA is the summon COUNT.
+ *
+ * AbilityMetaData's Hwe2 ("Summoned Unit Count") names exactly these in its
+ * useSpecific column, and Hwe1 ("Summoned Unit Type") the same list -- so for
+ * these, and only these, slot 1 is a number of units.  Everything else that
+ * reaches summonFrom carries something else in slot 1 and keeps the old reading
+ * of one unit.
+ */
+const SUMMON_COUNT_BASES = new Set(['AHwe', 'AEst', 'ANsg', 'ANsq', 'ANsw', 'ANwm',
+  'AOsw', 'AOwd', 'Anwm', 'ACwe', 'AHpx', 'ACtn', 'ANlm']);
+
+/**
  * The summon every summoning ability describes in its own data.
  *
  * Warcraft III keeps what to create in the ability's UnitID column and how many
  * in DataA, for all of Serpent Ward, Feral Spirit, Locust Swarm, Water Elemental
  * and the rest, so this needs no per-ability case -- only that the extractor
  * actually carry those columns through (see tools/abilities.py).
+ *
+ * A count the map set to ZERO summons nothing.  Rock Lee's 취권 and Haku's A055
+ * are both ANsq with Hwe2 = 0 at every level: the map keeps the Quilbeast row
+ * for its buff and its cooldown and delivers the real spell from its own
+ * trigger, so flooring the count to one put a Quilbeast on the field that the
+ * ability's own data forbids.  An ABSENT count still means one, which is what
+ * the base rows expect.
  */
-function summonFrom(w, caster, i, tx, ty, dur) {
-  const n = Math.max(1, Math.round(i.data1 || 1));
+function summonFrom(w, caster, i, tx, ty, dur, count) {
+  const n = count === undefined ? Math.max(1, Math.round(i.data1 || 1)) : Math.round(count);
+  if (n < 1) return { ok: true, summoned: 0 };
   const spread = Math.max(64, Math.min(i.area || 128, 256));
   let made = 0;
   for (let k = 0; k < n; k++) {
@@ -174,7 +194,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
   //
   // The compiled table keeps the distinction (152 levels omit data1 outright),
   // so `slot` can read it and d1..d4 stay undefined when the map set nothing.
-  const d1 = i.data1, d2 = i.data2, d3 = i.data3, d4 = i.data4;
+  const d1 = i.data1, d2 = i.data2, d3 = i.data3, d4 = i.data4, d6 = i.data6;
   const area = i.area || 0;
   const dur = i.heroDuration || i.duration || 0;
   const enemies = (x, y, r) => w.enemiesInRange(caster, x, y, r);
@@ -323,9 +343,23 @@ export function execute(w, caster, ab, lvl, o = {}) {
       return { ok: true };
     }
     // ---- blink
+    //
+    // Ebl1 is "Maximum Range" and Ebl2 "Minimum Range" (AbilityMetaData, both
+    // useSpecific AEbl and nothing else).  Neither is the ability's `range`,
+    // which is how far away the ORDER may be issued: Blizzard's own Warden
+    // carries Rng1 = 99999 against Ebl1 = 1000 and Ebl2 = 200, and this map
+    // keeps the same 99999 while writing Ebl1 = 400 on both of its blinks.
+    // Reading the order range as the hop let Eneru's 전광 and Renji's 순보
+    // cross the entire map in one jump.
+    //
+    // APPROXIMATION -- the minimum is clamped rather than refused.  The data
+    // names the field and says nothing about what Warcraft III does with a
+    // click inside it, so the hop is held to at least that distance; the other
+    // reading is that the order is rejected outright.
     case 'AEbl': {
-      const max = i.range || 700;
-      const d = Math.min(dist(caster, { x: tx, y: ty }), max);
+      const max = slot(d1, i.range || 700);
+      const min = Math.min(slot(d2, 0), max);
+      const d = Math.min(Math.max(dist(caster, { x: tx, y: ty }), min), max);
       const ang = Math.atan2(ty - caster.y, tx - caster.x);
       const c = w.grid.nearestWalkable(caster.x + Math.cos(ang) * d, caster.y + Math.sin(ang) * d);
       if (!c) return { ok: false, reason: 'blocked' };
@@ -463,7 +497,41 @@ export function execute(w, caster, ab, lvl, o = {}) {
       if (d3 > 0) w.damage(caster, t, d3, { spell: true });
       return { ok: true };
     }
-    case 'ANdr': case 'AUdc': case 'AHfs': case 'ANin': {
+    // ---- Flame Strike: a burning circle on the ground, not a bolt at a unit
+    //
+    // Hfs1 Full Damage Dealt, Hfs2 Full Damage Interval, Hfs3 Half Damage
+    // Dealt, Hfs4 Half Damage Interval, Hfs5 Building Reduction, Hfs6 Maximum
+    // Damage -- AbilityMetaData gives all six to AHfs/ACfs/Abof and to nothing
+    // else.  It used to share the Death Coil case next door, which reads slot 1
+    // as one damage figure at one unit: Akiha's 달을 뚫는다 dealt 150 of its
+    // 3000 in a single pulse, and a click on bare ground -- which is how the
+    // spell is cast -- returned 'need target' and did nothing whatever.
+    //
+    // The two durations are the two phases rather than a hero/creep pair: the
+    // ability targets the ground, so there is no unit to be a hero, and the
+    // shorter of them is how long the full damage lasts.  Blizzard's own row
+    // reads the same way, HeroDur1 2.67 inside Dur1 9.
+    //
+    // Hfs6 is capped PER TARGET, which is the reading this map's own arithmetic
+    // supports: the author set it to exactly Hfs1 x 20.05 at every level (300
+    // against 15, 3000 against 150), and 20.05 is the number of 0.2 s ticks in
+    // the 4.01 s full phase -- so the cap is what one unit takes from standing
+    // in the whole burn.  Recorded as a reading rather than a fact because
+    // Blizzard's retail row does not follow the same rule (DataF1 90 against a
+    // 121 full-phase total), and nothing in the data says which it is.
+    case 'AHfs': {
+      const secs = i.duration || i.heroDuration || 0;
+      if (secs <= 0) return { ok: false, reason: 'no duration in the data' };
+      w.burnGround(caster, tx, ty, area || 200, {
+        full: slot(d1, 0), fullEvery: slot(d2, 1) || 1,
+        half: slot(d3, 0), halfEvery: slot(d4, 1) || 1,
+        fullSeconds: Math.min(i.heroDuration || secs, secs),
+        seconds: secs,
+        cap: d6 > 0 ? d6 : Infinity,
+      });
+      return { ok: true };
+    }
+    case 'ANdr': case 'AUdc': case 'ANin': {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
       w.damage(caster, t, slot(d1, 120), { spell: true });
@@ -501,6 +569,54 @@ export function execute(w, caster, ab, lvl, o = {}) {
       if (slot(d1, 0) > 0) w.dotUnit(caster, t, d1, secs, 1);
       return { ok: true };
     }
+    // ---- Mana Shield: the damage comes off mana instead of life
+    //
+    // Nms1 "Mana per Hit Point" and Nms2 "Damage Absorbed (%)" (AbilityMetaData,
+    // useSpecific ANms/ACmf).  Nothing in server/ read either, so the three
+    // shields on this map -- Sandaime's 토둔-토류벽, Nico Robin's 칼렌듈러 and
+    // Orochimaru's 수둔-수진벽 -- did nothing at all.
+    //
+    // All three carry Nms2 = 1.0 (100% absorbed) and Nms1 = -0.01, a NEGATIVE
+    // rate: absorbing damage pays mana back rather than spending it.  That is
+    // the map writing "cancels all damage" in the ability's own fields, and
+    // A00S's tooltip says exactly that -- 모든 데미지 캔슬.  Retail's row spends
+    // 1 mana per point and runs until the mana is gone, which the same code
+    // covers because the rate decides which way the mana moves.
+    //
+    // Warcraft III makes this a toggle (the order strings are manashieldon and
+    // manashieldoff) with no duration; this map gives all three an ahdu of
+    // 5-10 s, so the shield is timed here and the toggle-off order is not
+    // modelled.
+    case 'ANms': case 'ACmf': {
+      const t = (o.target && !w.hostile(caster, o.target)) ? o.target : caster;
+      const secs = i.heroDuration || i.duration || 0;
+      w.applyBuff(t, { kind: 'manashield', code: i.buff || null,
+                       pct: Math.max(0, Math.min(1, slot(d2, 1))),
+                       manaPerHp: slot(d1, 1),
+                       until: secs > 0 ? w.now + secs * 1000 : Infinity });
+      return { ok: true };
+    }
+    // ---- Aerial Shackles: held in place, and burning while held
+    //
+    // Mls1 is "Damage Per Second" (AbilityMetaData Mls1, useSpecific Amls).
+    // With no case at all Luffy's 고무고무 바람개비 fell through to the damage
+    // fallback and spent its per-second figure as a single hit -- 300 where the
+    // map wrote 300 a second for twenty seconds.
+    //
+    // The buff CODE is deliberately not stamped: abuf lists two (Bmlc, Bmlt)
+    // and nothing in the data says which of them rides the target rather than
+    // the caster.  The map's script removes Bmlt from the shackled unit itself,
+    // so nothing here is gated on it.
+    case 'Amls': {
+      const t = o.target;
+      if (!t) return { ok: false, reason: 'need target' };
+      const secs = (t.isHero ? i.heroDuration : i.duration) || i.duration
+                || i.heroDuration || 0;
+      if (secs <= 0.1) return { ok: true };
+      w.applyBuff(t, { kind: 'slow', pct: 1, until: w.now + secs * 1000 });
+      if (slot(d1, 0) > 0) w.dotUnit(caster, t, d1, secs, 1);
+      return { ok: true };
+    }
     case 'ANsi': case 'ACsi': {
       let n = 0;
       for (const e of enemies(tx, ty, area || 300)) {
@@ -520,7 +636,10 @@ export function execute(w, caster, ab, lvl, o = {}) {
       if (isPassive(ab)) return { ok: false, reason: 'passive' };
       // An ability naming a unit type is a summon, and its own data says what
       // and how many -- no case needed per summoning spell.
-      if (i.unit) return summonFrom(w, caster, i, tx, ty, dur);
+      if (i.unit) {
+        return summonFrom(w, caster, i, tx, ty, dur,
+                          SUMMON_COUNT_BASES.has(B) ? slot(d1, 1) : undefined);
+      }
       // Data-driven fallback: an active ability with a damage value hits what it
       // targets; area if it has one, otherwise the single target.
       if (d1 > 0) {
@@ -646,6 +765,31 @@ export function abilityBonuses(w, u) {
     out.str += d.data3 || 0;
   }
   return out;
+}
+
+/**
+ * The burn a unit carries as an ABILITY rather than as an item.
+ *
+ * AIcf (Cloak of Flames) is passive -- it has no order string and is never
+ * cast -- but it is not silent: Icfd is "Damage Per Duration" (AbilityMetaData,
+ * useSpecific AIcf) over the ability's own duration, inside its own area.  The
+ * same base already reaches the game through ITEM_BONUS when it is carried on
+ * an item, and this is the other half: Eneru's Thunder God form (O003) holds
+ * A020 as a unit ability, 500 damage per 1.0 s in a 200 radius, and the form
+ * burned nobody because only items were ever consulted.
+ */
+export function carriedImmolation(w, u) {
+  if (!u || !u.abilities) return null;
+  for (const [key, lvl] of u.abilities) {
+    if (lvl < 1) continue;
+    const ab = ABILS[w.abilKey(key)];
+    if (!ab || baseOf(ab) !== 'AIcf') continue;
+    const d = levelInfo(ab, lvl);
+    const secs = d.duration || d.heroDuration || 1;
+    const dps = (d.data1 || 0) / (secs > 0 ? secs : 1);
+    if (dps > 0) return { dps, area: d.area || 200 };
+  }
+  return null;
 }
 
 /**

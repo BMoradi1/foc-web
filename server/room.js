@@ -1,6 +1,7 @@
 // Lobby + match lifecycle. The map's own JASS script owns the game rules;
 // this layer only relays player intent into it and streams state out.
 import { World, TYPES, int2id, id2int } from './world.js';
+import { entry as abilEntry, isPassive } from './abilities.js';
 import { JassEngine } from './jass/engine.js';
 import { Phase, Msg, TICK_HZ, SNAP_HZ } from '../shared/const.js';
 import { BUILD } from './build.js';
@@ -13,6 +14,38 @@ const HERO_BY_ID = new Map(GAME.heroes.map((h) => [h.id, h]));
 // icons for whatever a hero can end up carrying
 const ITEM_ICON = new Map(GAME.shops.flatMap((s) => s.items)
   .filter((i) => i.icon).map((i) => [i.id, i.icon]));
+
+/**
+ * Card fields for an ability the hero definition never describes.
+ *
+ * data/game.json carries the abilities a hero can LEARN, so an alternate form's
+ * own -- Luffy's 기간트 피스톨, Haku's 아이스블록 파르티잔, Ichigo's Black
+ * Getsuga -- are not in it: they belong to the form's unit type.  The name, the
+ * level table and the icon all exist in the ability table the engine already
+ * reads, and the icon resolves the way tools/compile_game.py resolves it, by
+ * file name against the converted textures.
+ */
+const TEXTURES = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'assets/textures.json'), 'utf8')); }
+  catch { return {}; }
+})();
+const ICON_BY_NAME = new Map(Object.entries(TEXTURES).map(([k, v]) =>
+  [k.replace(/\\/g, '/').split('/').pop().replace(/\.[^.]*$/, '').toLowerCase(), v]));
+const CARD_CACHE = new Map();
+function cardEntry(aid) {
+  if (CARD_CACHE.has(aid)) return CARD_CACHE.get(aid);
+  const ab = abilEntry(aid);
+  const icon = ab && ab.art && typeof ab.art.icon === 'string'
+    ? ICON_BY_NAME.get(ab.art.icon.replace(/\\/g, '/').split('/').pop().replace(/\.[^.]*$/, '').toLowerCase())
+    : null;
+  const v = ab ? { id: aid, name: ab.name || aid, icon: icon || null,
+                   hotkey: '', levels: ab.levels || [],
+                   maxLvl: (ab.levels || []).length || 1,
+                   reqLevel: ab.reqLevel || 0, levelSkip: ab.levelSkip || 0 }
+              : {};
+  CARD_CACHE.set(aid, v);
+  return v;
+}
 
 // playable slots and their teams, as the map's config() assigns them
 const TEAMS = (GAME.meta.teams || []).filter((t) => t.id < 2);
@@ -291,11 +324,47 @@ export class Room {
     }
   }
 
+  /**
+   * The command card: the hero's own castables, then anything active the unit
+   * is holding right now that is not already on it.
+   *
+   * Warcraft III builds the card from the UNIT rather than from the hero, and a
+   * metamorphosis is a genuine change of unit -- so an alternate form's own
+   * ability list reaches the card the moment the form does.  Reading only the
+   * static list left five of this map's sixteen forms granting an active
+   * ability with no slot to cast it from: Luffy's Gear form carries the 1000
+   * damage 기간트 피스톨, Haku's carries 아이스블록 파르티잔, Eneru's carries
+   * A01Y, and none could ever be fired.
+   *
+   * It closes the same gap at the other end.  A hero's base (uabi) abilities
+   * only reached `castable` when the map's own script named them in a
+   * GetSpellAbilityId comparison, which is a rule about triggers rather than
+   * about command cards: Majin Buu's 기폭팔 is a 5000-damage hero nuke that no
+   * trigger mentions, so it had no slot either.
+   *
+   * Appending rather than inserting keeps every existing slot index where it
+   * was, and both this and sendHero read the list through here so the client
+   * and the server always agree on what slot N means.
+   */
+  cardSlots(p, u) {
+    const hero = HERO_BY_ID.get(p.heroId);
+    const list = [...((hero && (hero.castable || hero.learnable)) || [])];
+    if (!u || !u.abilities) return list;
+    for (const [key] of u.abilities) {
+      const aid = int2id(key);
+      if (list.includes(aid)) continue;
+      const ab = abilEntry(aid);
+      if (!ab || isPassive(ab)) continue;
+      list.push(aid);
+    }
+    return list;
+  }
+
   /** Hotkey slot -> the hero's learnable ability id (as the map defines them). */
   slotAbility(p, u, slot, forLearn = false) {
     const hero = HERO_BY_ID.get(p.heroId);
     if (!hero) return null;
-    const list = hero.castable || hero.learnable || [];
+    const list = this.cardSlots(p, u);
     const id = list[slot];
     // an innate ability cannot be spent skill points on
     if (forLearn && (hero.innate || []).includes(id)) return null;
@@ -434,10 +503,11 @@ export class Room {
     if (!u || !p.ws) return;
     const hero = HERO_BY_ID.get(p.heroId) || {};
     const ph = this.eng.players[p.slot];
-    const slots = hero.castable || hero.learnable || [];
+    const slots = this.cardSlots(p, u);
     const abilities = slots.map((aid, i) => {
       const key = id2int(aid);
-      const ab = (hero.abilities || []).find((a) => a.id === aid) || {};
+      const ab = (hero.abilities || []).find((a) => a.id === aid)
+              || cardEntry(aid);
       const lvl = this.world.abilityLevel(u, key);
       const isInnate = (hero.innate || []).includes(aid);
       const cd = (u.cooldowns && u.cooldowns.get(key)) || 0;
