@@ -242,6 +242,7 @@ export class JassEngine {
   emit(ev) { this.clientEvents.push(ev); }
   fxSeq = 0;
   ttSeq = 0;
+  sndSeq = 0;          // so StopSound can name the sound it is stopping
   // The permanent tags, kept so a client that connects after they were made
   // still gets the scenery. A tag with a lifespan is dropped as soon as it has
   // been sent -- the client owns the whole of its short life.
@@ -1047,7 +1048,7 @@ function installNatives(vm, eng) {
     SetTextTagSuspended: (t, f) => eng.touchTag(t, () => { t.suspended = !!f; }),
     DestroyTextTag: (t) => eng.touchTag(t, () => { t.dead = true; }),
     CreateSound: (path, looping, is3d, stopOO, fade1, fade2, eax) =>
-      H('sound', { path, looping, volume: 127, pitch: 1 }),
+      H('sound', { path, looping, volume: 127, pitch: 1, snd: ++eng.sndSeq }),
     CreateSoundFilenameWithLabel: (p) => H('sound', { path: p }),
     CreateMIDISound: () => H('sound', {}),
     SetSoundDuration: (s, d) => { if (s) s.duration = d; },
@@ -1063,9 +1064,16 @@ function installNatives(vm, eng) {
       eng.emit({ t: 'sound', path: soundKey(s.path),
                  x: s.x, y: s.y, id: s.unit && s.unit.id,
                  vol: (s.volume ?? 127) / 127, pitch: s.pitch ?? 1,
-                 loop: !!s.looping });
+                 loop: !!s.looping, snd: s.snd });
     },
-    StopSound: () => {}, KillSoundWhenDone: () => {},
+    // The map stops its own sounds, and this map's whole score depends on it:
+    // udg_sound41 is HumanX1.mp3, created looping and 4 minutes 44 long, and
+    // StopSoundBJ is what silences it when a team wins so the victory sting can
+    // play. With this a stub the score could never stop.
+    StopSound: (s, killWhenDone, fade) => {
+      if (s && s.snd) eng.emit({ t: 'soundStop', snd: s.snd, fade: !!fade });
+    },
+    KillSoundWhenDone: () => {},
     SetSoundParamsFromLabel: () => {}, RegisterStackedSound: () => {},
     // ---- music.  The map sets it twice and it had never played.
     //
@@ -1074,11 +1082,19 @@ function installNatives(vm, eng) {
     // picks freely from the list and `index` is where a non-random list starts.
     // Warcraft III keeps playing the list after the track ends, which is why
     // the whole list goes to the client rather than one file.
+    // SetMapMusic SETS the list; it does not play over what the map is already
+    // playing. Reported from play as two songs at once, and the map settles it:
+    // it creates HumanX1.mp3 as a LOOPING sound of 4 minutes 44 (udg_sound41),
+    // starts it with PlaySoundBJ when a mode begins and stops it with
+    // StopSoundBJ when a team wins, at which point NightElfVictory plays. That
+    // is a score the map runs itself, through the sound system rather than the
+    // music system, and Blizzard's standard playlist on top of it is a second
+    // stream. The list is still sent, so ResumeMusic and the client have it.
     SetMapMusic: (name, random, index) => {
       const list = /^music$/i.test(String(name || '')) ? musicList()
                                                        : [soundKey(name)].filter(Boolean);
       if (!list.length) return;
-      eng.emit({ t: 'music', list, random: !!random,
+      eng.emit({ t: 'music', set: true, list, random: !!random,
                  index: Math.max(0, Math.min(list.length - 1, index | 0)) });
     },
     PlayMusic: (name) => {

@@ -1242,8 +1242,7 @@ GAMEPLAY / INPUT
                                be fixed without a protocol change.
 
     DONE 2026-09-03, tools/atmosphere_test.mjs (14 checks):
-      SetMapMusic             2 sites, and the map has been silent since the
-                              port began. The argument is the string "Music",
+      SetMapMusic             2 sites. The argument is the string "Music",
                               which is not a row in any of the SoundInfo tables:
                               it is the label for the standard playlist, which
                               Warcraft III keeps in UI\WorldEditData.txt under
@@ -1265,6 +1264,28 @@ GAMEPLAY / INPUT
                               config(), so the first click starts it.
                               PlayMusic, PlayThematicMusic, StopMusic,
                               ResumeMusic and SetMusicVolume came with it.
+
+                              CORRECTED, reported from play the same day as two
+                              songs at once. SetMapMusic SETS the list and does
+                              not start it, because this map runs a score of its
+                              own and does it through the SOUND system rather
+                              than the music system: udg_sound41 is
+                              Sound\Music\mp3Music\HumanX1.mp3, created with
+                              looping true and a duration of 284646 ms, started
+                              with PlaySoundBJ when a mode begins and stopped
+                              with StopSoundBJ when a team wins so that
+                              NightElfVictory (udg_sound40) can play. Blizzard's
+                              standard playlist over that is a second stream.
+                              The list is still sent, so ResumeMusic has it.
+      the score itself        Two things under the same report, both real. A
+        StartSound loop       sound created LOOPING was played once and stopped:
+        + StopSound 8         the client dropped the `loop` the event already
+                              carried, so a 4 minute 44 score ran once and never
+                              came back. And StopSound was a stub, so the map
+                              could not silence it when a team won -- the one
+                              thing its own trigger does at that moment. Sound
+                              handles now carry an id to the client so a stop can
+                              name the sound it is stopping.
       SetTerrainFogEx         2. The map asks for style 0, 3000 to 5000, black.
                               render.js was drawing 0x0b1018 from 4200 to 9000 --
                               a constant of ours where the map has seven fields,

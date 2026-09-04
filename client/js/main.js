@@ -351,6 +351,8 @@ function handleEvent(ev) {
     case 'tint':     view.tintUnit(ev.id, ev.r, ev.g, ev.b, ev.a); break;
     // the map's own SetMapMusic / PlayMusic / StopMusic
     case 'music': {
+      // `set` only records the list -- see SetMapMusic in server/jass/engine.js
+      if (ev.set) { audio.setMusicList(ev.list, ev.random, ev.index); break; }
       if (ev.stop) { audio.stopMusic(ev.fade); break; }
       if (ev.resume) { audio.resumeMusic(); break; }
       if (ev.volume != null) { audio.setMusicVolume(ev.volume); break; }
@@ -364,9 +366,11 @@ function handleEvent(ev) {
       // the map's own PlaySoundBJ / PlaySoundAtPointBJ / PlaySoundOnUnitBJ
       let x = ev.x, y = ev.y;
       if (ev.id != null) { const e2 = S.ents.get(ev.id); if (e2) { x = e2.x; y = e2.y; } }
-      audio.playWorld(ev.path, x, y, ev.vol ?? 1, ev.pitch ?? 1, listener());
+      audio.playWorld(ev.path, x, y, ev.vol ?? 1, ev.pitch ?? 1, listener(), null,
+                      { loop: ev.loop, snd: ev.snd });
       break;
     }
+    case 'soundStop': audio.stopSound(ev.snd, ev.fade); break;
   }
 }
 

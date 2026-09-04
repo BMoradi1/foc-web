@@ -44,6 +44,11 @@ console.log('\n-- SetMapMusic("Music") plays the standard playlist');
         play && play.list.length > 1, play ? `${play.list.length}` : 'none');
   check('and the map asked for it at random, which is what it wrote',
         play && play.random === true, play ? String(play.random) : '-');
+  // Reported from play as two songs at once. SetMapMusic SETS the list; this
+  // map runs its own score through the sound system and Blizzard's playlist on
+  // top of it is a second stream.
+  check('SetMapMusic sets the list rather than starting it',
+        ev.every((e) => e.set === true), JSON.stringify(ev[0] || {}).slice(0, 80));
   // every track has to be a file the archives actually supplied
   const idx = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets/sounds.json'), 'utf8'));
   const served = new Set(Object.values(idx));
@@ -60,6 +65,26 @@ console.log('\n-- SetMapMusic("Music") plays the standard playlist');
   }
   check('the tracks are on disk and are not empty', missing === 0 && empty === 0,
         `${missing} missing, ${empty} empty`);
+}
+
+// ------------------------------------------------- the score the map runs
+console.log('\n-- the map runs its own score, and can stop it');
+{
+  // udg_sound41 is Sound\Music\mp3Music\HumanX1.mp3, created LOOPING at
+  // 4 minutes 44, played when a mode starts and stopped when a team wins.
+  const src = fs.readFileSync(path.join(ROOT, 'extracted/war3map.j'), 'latin1');
+  const at = src.indexOf('HumanX1.mp3');
+  check('the map creates its score as a looping sound', at > 0
+        && /CreateSound\("Sound\\\\Music\\\\mp3Music\\\\HumanX1\.mp3",true/.test(src.slice(at - 60, at + 40)),
+        src.slice(at - 40, at + 30));
+  check('and it stops that sound somewhere', src.includes('StopSoundBJ(udg_sound41'));
+  // every sound handle carries an id, or StopSound has nothing to name
+  const sounds = seen.filter((e) => e.t === 'sound');
+  check('a sound the map starts reaches the client with an id',
+        sounds.length === 0 || sounds.every((e) => e.snd), `${sounds.length} sounds`);
+  const loops = sounds.filter((e) => e.loop);
+  check('and a looping one says so', loops.length === 0 || loops.every((e) => e.snd),
+        `${loops.length} looping`);
 }
 
 // --------------------------------------------------------------------- fog

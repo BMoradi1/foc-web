@@ -29,7 +29,7 @@ export class Audio {
     this.buffers.set(file, p);
     return p;
   }
-  async play(file, gain = 1, rate = 1) {
+  async play(file, gain = 1, rate = 1, loop = false) {
     if (!this.enabled || !file) return;
     this.init();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
@@ -37,6 +37,7 @@ export class Audio {
     if (!buf) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
+    src.loop = loop;
     src.playbackRate.value = rate;
     const g = this.ctx.createGain();
     g.gain.value = gain;
@@ -48,7 +49,8 @@ export class Audio {
    * Play a sound the map's script started, attenuated by distance from the
    * listener the way Warcraft III's 3D sounds are.
    */
-  playWorld(path, x, y, vol = 1, pitch = 1, listener = null, dist = null) {
+  playWorld(path, x, y, vol = 1, pitch = 1, listener = null, dist = null,
+            opts = null) {
     if (!path || this.missing.has(path)) return;
     let gain = Math.max(0, Math.min(1, vol));
     if (listener && typeof x === 'number' && typeof y === 'number') {
@@ -66,7 +68,29 @@ export class Audio {
       if (d > FULL) gain *= Math.max(0, 1 - (d - FULL) / (FADE - FULL));
     }
     if (gain <= 0.01) return;
-    this.play(path, gain, pitch);
+    // A sound the map created as looping keeps going until the map stops it --
+    // this map's whole score is one such, HumanX1.mp3 at 4 minutes 44. It is
+    // kept by the id the server gave it so StopSound can find it again.
+    const id = opts && opts.snd;
+    const loop = !!(opts && opts.loop);
+    if (!loop && !id) { this.play(path, gain, pitch); return; }
+    this.live = this.live || new Map();
+    if (id && this.live.has(id)) return;          // already running
+    this.play(path, gain, pitch, loop).then((src) => {
+      if (!src) return;
+      if (id) {
+        this.live.set(id, src);
+        src.onended = () => { if (this.live.get(id) === src) this.live.delete(id); };
+      }
+    }).catch(() => {});
+  }
+
+  /** StopSound: silence one sound the map started, by the id it was given. */
+  stopSound(id, fade = false) {
+    const src = this.live && this.live.get(id);
+    if (!src) return;
+    this.live.delete(id);
+    try { src.stop(fade ? this.ctx.currentTime + 1.5 : 0); } catch { /* already done */ }
   }
   /**
    * A sound with no place on the map: the advisor in your ear.
@@ -114,6 +138,11 @@ export class Audio {
    * arrives before then is remembered and started by the first click, the same
    * gate the effects mixer sits behind.
    */
+  /** SetMapMusic: remember the list without playing over the map's own score. */
+  setMusicList(list, random = false, index = 0) {
+    if (!Array.isArray(list) || !list.length) return;
+    this.music = { list, random, index: Math.max(0, Math.min(list.length - 1, index | 0)) };
+  }
   playMusic(list, random = false, index = 0) {
     if (!Array.isArray(list) || !list.length) return;
     this.music = { list, random, index: Math.max(0, Math.min(list.length - 1, index | 0)) };
@@ -150,7 +179,10 @@ export class Audio {
       if (k >= 1) { clearInterval(t); el.pause(); el.volume = from; }
     }, 50);
   }
-  resumeMusic() { if (this.musicEl) { const g = this.musicEl.play(); if (g && g.catch) g.catch(() => {}); } }
+  resumeMusic() {
+    if (this.musicEl) { const g = this.musicEl.play(); if (g && g.catch) g.catch(() => {}); return; }
+    if (this.music) this.nextTrack(0);
+  }
   setMusicVolume(v) {
     this.musicVolume = Math.max(0, Math.min(1, v));
     if (this.musicEl) this.musicEl.volume = this.musicVolume;
