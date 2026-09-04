@@ -101,5 +101,66 @@ export class Audio {
     this.play(path, gain, 1);
   }
 
+  /**
+   * The map's music.
+   *
+   * A track at a time out of the list the server sent, moving on when one ends
+   * and looping the list, because that is what Warcraft III does with
+   * SetMapMusic: the call names a list, not a single file.  It is an <audio>
+   * element rather than a decoded buffer -- a five-minute mp3 decodes to tens of
+   * megabytes as raw samples, and this one streams instead.
+   *
+   * It cannot start until the page has been interacted with, so a call that
+   * arrives before then is remembered and started by the first click, the same
+   * gate the effects mixer sits behind.
+   */
+  playMusic(list, random = false, index = 0) {
+    if (!Array.isArray(list) || !list.length) return;
+    this.music = { list, random, index: Math.max(0, Math.min(list.length - 1, index | 0)) };
+    this.nextTrack(0);
+  }
+  nextTrack(step = 1) {
+    const m = this.music;
+    if (!m || !m.list.length) return;
+    if (step) {
+      m.index = m.random ? Math.floor(Math.random() * m.list.length)
+                         : (m.index + step) % m.list.length;
+    }
+    const file = m.list[m.index];
+    if (!file) return;
+    if (!this.musicEl) {
+      this.musicEl = new window.Audio();
+      this.musicEl.addEventListener('ended', () => this.nextTrack(1));
+      // a track the archives did not supply must not stop the list
+      this.musicEl.addEventListener('error', () => this.nextTrack(1));
+    }
+    this.musicEl.src = file.includes('/') ? `/assets/${file}` : `/assets/sounds/${file}`;
+    this.musicEl.volume = this.musicVolume ?? 0.35;
+    const go = this.musicEl.play();
+    if (go && go.catch) go.catch(() => { this.musicPending = true; });
+  }
+  stopMusic(fade = false) {
+    if (!this.musicEl) return;
+    if (!fade) { this.musicEl.pause(); return; }
+    const el = this.musicEl, from = el.volume;
+    let k = 0;
+    const t = setInterval(() => {
+      k += 0.05;
+      el.volume = Math.max(0, from * (1 - k));
+      if (k >= 1) { clearInterval(t); el.pause(); el.volume = from; }
+    }, 50);
+  }
+  resumeMusic() { if (this.musicEl) { const g = this.musicEl.play(); if (g && g.catch) g.catch(() => {}); } }
+  setMusicVolume(v) {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.musicEl) this.musicEl.volume = this.musicVolume;
+  }
+  /** Called on the first real interaction, when a browser will finally allow it. */
+  unblockMusic() {
+    if (!this.musicPending) return;
+    this.musicPending = false;
+    this.resumeMusic();
+  }
+
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
 }

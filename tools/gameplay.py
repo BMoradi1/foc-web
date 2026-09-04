@@ -171,8 +171,30 @@ if gs and 'miss' in textTags:
         source += ' + GlobalStrings.fdf (%s)' % gs_src
 out['textTags'] = textTags
 
+# ---------------------------------------------------------------- the music
+#
+# SetMapMusic("Music", true, 0) is what this map asks for, twice, and nothing
+# played.  "Music" is not a row in any of the SoundInfo tables -- it names the
+# standard playlist, which Warcraft III keeps in UI\WorldEditData.txt under
+# [MusicFiles] and which is what the World Editor's own music dropdown lists.
+# The list is carried here so the engine can resolve the label without reading
+# a UI file at runtime; the paths go through the same sound index every other
+# sound does, so a track the archives did not supply simply is not listed.
+wed, wed_src = gd.read('UI\\WorldEditData.txt')
+music = []
+if wed:
+    txt = wed.decode('latin-1')
+    sect = re.search(r'^\[MusicFiles\]\s*$(.*?)^\[', txt, re.M | re.S)
+    if sect:
+        for line in sect.group(1).splitlines():
+            m = re.match(r'\s*(\d+)\s*=\s*([^,\r\n]+)', line)
+            if m and not line.strip().startswith('//'):
+                music.append(m.group(2).strip())
+out['music'] = music
+
 os.makedirs('data', exist_ok=True)
 json.dump(out, open('data/gameplay.json', 'w'), indent=1)
+print('  music playlist: %d tracks from UI\\WorldEditData.txt [MusicFiles]' % len(music))
 print('gameplay constants from %s' % source)
 for k, v in textTags.items():
     print('   %-16s rgba=%s vel=%s,%s life=%s fade=%s'

@@ -161,6 +161,8 @@ export class Renderer {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0c12);
+    // A starting fog, replaced the moment the map calls SetTerrainFogEx -- this
+    // one asks for black from 3000 to 5000 and got neither until setFog existed.
     this.scene.fog = new THREE.Fog(0x0b1018, 4200, 9000);
 
     this.camera = new THREE.PerspectiveCamera(48, 1, 10, 12000);
@@ -1930,6 +1932,26 @@ export class Renderer {
    * an additive glow written at 0.5 must not be forced to 1 by a tint that
    * only asked for full alpha.
    */
+  /**
+   * SetTerrainFogEx's own fog: style, near and far plane, density and colour.
+   *
+   * Style 0 is Warcraft III's linear fog, which is three.js's Fog; the
+   * exponential styles map to FogExp2, where the density field is the one that
+   * matters and the two distances do not. This map asks for style 0, black,
+   * 3000 to 5000, and the renderer had been drawing 0x0b1018 from 4200 to 9000
+   * because nothing told it otherwise.
+   */
+  setFog(o) {
+    if (!o || o.reset) {
+      this.scene.fog = new THREE.Fog(0x0b1018, 4200, 9000);
+      return;
+    }
+    const [r, g, b] = o.color || [0, 0, 0];
+    const col = (r << 16) | (g << 8) | b;
+    if (o.style > 0 && o.density > 0) this.scene.fog = new THREE.FogExp2(col, o.density / 1000);
+    else this.scene.fog = new THREE.Fog(col, o.start || 0, Math.max((o.start || 0) + 1, o.end || 1));
+  }
+
   tintUnit(id, r, g, b, a) {
     const v = this.views.get(id);
     if (!v) return;

@@ -309,7 +309,26 @@ function loadIndex(files) {
   }
   return {};
 }
-let SOUND_INDEX = null, IMPORT_INDEX = null;
+let SOUND_INDEX = null, IMPORT_INDEX = null, MUSIC_LIST = null;
+/**
+ * The standard music playlist, UI\WorldEditData.txt's [MusicFiles].
+ *
+ * SetMapMusic("Music", ...) does not name a row in any SoundInfo table: "Music"
+ * is the label for that list, which is what the World Editor's own music
+ * dropdown shows.  tools/gameplay.py carries it into data/gameplay.json so this
+ * needs no UI file at runtime.  Every path goes through the same sound index
+ * every other sound uses, so a track the archives did not supply drops out
+ * rather than reaching the client as a 404.
+ */
+function musicList() {
+  if (MUSIC_LIST) return MUSIC_LIST;
+  const gp = loadIndex(['data/gameplay.json', 'public/data/gameplay.json']);
+  const idx = soundIndex();
+  MUSIC_LIST = (gp.music || [])
+    .map((p) => idx[String(p).replace(/\\/g, '/').toLowerCase()])
+    .filter(Boolean);
+  return MUSIC_LIST;
+}
 function soundIndex() {
   if (!SOUND_INDEX) SOUND_INDEX = loadIndex(['assets/sounds.json', 'public/assets/sounds.json']);
   return SOUND_INDEX;
@@ -465,7 +484,8 @@ function installNatives(vm, eng) {
     GetPlayerScore: (p, s) => W().score(p, s && s.v),
     GetPlayerStructureCount: () => 0,
     GetPlayerUnitCount: (p) => W().unitsOfPlayer(p).length,
-    SetPlayerHandicap: () => {}, SetPlayerHandicapXP: () => {},
+    SetPlayerHandicap: () => {},
+    SetPlayerHandicapXP: (p, f) => W().setHandicapXP(p, f),
     SetPlayerTechResearched: (p, tech, lv) => { if (p) p.techs.set(tech, lv); },
     GetPlayerTechResearched: (p, tech, spec) => !!(p && (p.techs.get(tech) || 0) > 0),
     GetPlayerTechCount: (p, tech) => (p ? p.techs.get(tech) || 0 : 0),
@@ -638,7 +658,7 @@ function installNatives(vm, eng) {
     SetHeroStr: (u, v, perm) => { if (u) { u.str = v; W().recalc(u); } },
     SetHeroAgi: (u, v, perm) => { if (u) { u.agi = v; W().recalc(u); } },
     SetHeroInt: (u, v, perm) => { if (u) { u.intel = v; W().recalc(u); } },
-    UnitStripHeroLevel: (u, n) => true,
+    UnitStripHeroLevel: (u, n) => W().stripHeroLevel(u, n),
     GetHeroSkillPoints: (u) => (u ? u.skillPoints : 0),
     UnitModifySkillPoints: (u, n) => { if (u) u.skillPoints += trunc(n); return true; },
     SelectHeroSkill: (u, id) => W().learnSkill(u, id),
@@ -660,7 +680,7 @@ function installNatives(vm, eng) {
     IssueInstantPointOrder: () => true, IssueInstantTargetOrder: () => true,
     IssueTargetOrder: (u, s, t) => W().order(u, { type: s, target: t }),
     IssueTargetOrderById: (u, id, t) => W().order(u, { type: id, target: t }),
-    SetUnitPathing: () => {},
+    SetUnitPathing: (u, flag) => { if (u) u.pathingOff = !flag; },
     SetUnitAcquireRange: (u, r) => { if (u) u.acquireRange = r; },
     SetUnitColor: (u, c) => { if (u) u.color = c && c.v; },
     // waygates teleport units between arena sections in this map
@@ -1047,8 +1067,31 @@ function installNatives(vm, eng) {
     },
     StopSound: () => {}, KillSoundWhenDone: () => {},
     SetSoundParamsFromLabel: () => {}, RegisterStackedSound: () => {},
-    SetMapMusic: () => {}, PlayMusic: () => {}, PlayThematicMusic: () => {},
-    StopMusic: () => {}, ResumeMusic: () => {}, SetMusicVolume: () => {},
+    // ---- music.  The map sets it twice and it had never played.
+    //
+    // SetMapMusic(name, random, index): `name` is either the "Music" label,
+    // which means the standard playlist, or a path to one track.  `random`
+    // picks freely from the list and `index` is where a non-random list starts.
+    // Warcraft III keeps playing the list after the track ends, which is why
+    // the whole list goes to the client rather than one file.
+    SetMapMusic: (name, random, index) => {
+      const list = /^music$/i.test(String(name || '')) ? musicList()
+                                                       : [soundKey(name)].filter(Boolean);
+      if (!list.length) return;
+      eng.emit({ t: 'music', list, random: !!random,
+                 index: Math.max(0, Math.min(list.length - 1, index | 0)) });
+    },
+    PlayMusic: (name) => {
+      const f = soundKey(name);
+      if (f) eng.emit({ t: 'music', list: [f], random: false, index: 0 });
+    },
+    PlayThematicMusic: (name) => {
+      const f = soundKey(name);
+      if (f) eng.emit({ t: 'music', list: [f], random: false, index: 0 });
+    },
+    StopMusic: (fade) => eng.emit({ t: 'music', stop: true, fade: !!fade }),
+    ResumeMusic: () => eng.emit({ t: 'music', resume: true }),
+    SetMusicVolume: (v) => eng.emit({ t: 'music', volume: Math.max(0, Math.min(1, (v || 0) / 100)) }),
     VolumeGroupSetVolume: () => {}, VolumeGroupReset: () => {},
     NewSoundEnvironment: () => {}, SetAmbientDaySound: () => {}, SetAmbientNightSound: () => {},
     SetSoundVolumeBJ: () => {},
@@ -1128,7 +1171,20 @@ function installNatives(vm, eng) {
     ForceUIKey: () => {}, ForceUICancel: () => {},
     ClearSelection: () => {}, SelectUnit: () => {},
     SetUnitSelectionScale: () => {},
-    SetDayNightModels: () => {}, SetTerrainFogEx: () => {}, ResetTerrainFog: () => {},
+    SetDayNightModels: () => {},
+    // SetTerrainFogEx(style, zstart, zend, density, r, g, b).  The client had a
+    // fog of its own -- 0x0b1018 from 4200 to 9000 -- and this map asks for
+    // black from 3000 to 5000, so the constant was both the wrong colour and
+    // the wrong distance.  Style and density are carried but not yet drawn:
+    // style picks linear against exponential falloff, which three.js has, and
+    // density only applies to the exponential ones.
+    SetTerrainFogEx: (style, zstart, zend, density, r, g, b) => eng.emit({
+      t: 'fog', style: style | 0, start: +zstart || 0, end: +zend || 0,
+      density: +density || 0,
+      color: [Math.round((+r || 0) * 255), Math.round((+g || 0) * 255),
+              Math.round((+b || 0) * 255)],
+    }),
+    ResetTerrainFog: () => eng.emit({ t: 'fog', reset: true }),
     SetSkyModel: () => {}, SetTimeOfDay: () => {}, GetTimeOfDay: () => 12,
     SetTimeOfDayScale: () => {}, GetTimeOfDayScale: () => 1,
     SuspendTimeOfDay: () => {},

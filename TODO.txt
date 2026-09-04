@@ -1210,10 +1210,10 @@ GAMEPLAY / INPUT
     takes the call, returns, and nothing says a word. That is how the text tags
     hid, and this is the rest of that class.
     Was 244 of 515 natives stubbed, 71 reached across 442 call sites. After the
-    camera, time scale and cinematic filter below: 233 of 511, 63 reached across
-    336. Run the tool for the full table; what follows is what a player would
-    notice, with the false alarms named so nobody spends an evening on them
-    twice.
+    camera, time scale and cinematic filter below: 233 of 511, 63 across 336.
+    After the music, the fog and the three below: 222 of 509, 58 across 328. Run
+    the tool for the full table; what follows is what a player would notice, with
+    the false alarms named so nobody spends an evening on them twice.
 
     DONE since this was written:
       PanCameraToTimed         39 sites, one per trigger. The map never calls
@@ -1241,13 +1241,47 @@ GAMEPLAY / INPUT
                                colour too. The texture path is sent so that can
                                be fixed without a protocol change.
 
+    DONE 2026-09-03, tools/atmosphere_test.mjs (14 checks):
+      SetMapMusic             2 sites, and the map has been silent since the
+                              port began. The argument is the string "Music",
+                              which is not a row in any of the SoundInfo tables:
+                              it is the label for the standard playlist, which
+                              Warcraft III keeps in UI\WorldEditData.txt under
+                              [MusicFiles] and which is what the World Editor's
+                              own music dropdown lists. tools/gameplay.py
+                              carries those 43 paths into gameplay.json; all 43
+                              resolve through the same sound index every other
+                              sound uses, and all 43 are already converted and
+                              served -- the conversion had been producing them
+                              all along with nothing to ask for them.
+                              The whole list goes to the client rather than one
+                              file, because the call names a list: `random` picks
+                              freely from it and the client moves on when a track
+                              ends. It streams through an <audio> element rather
+                              than the effects mixer's decoded buffers, since a
+                              five-minute mp3 decodes to tens of megabytes of raw
+                              samples. A browser will not make noise before the
+                              page is touched and the map sets its music inside
+                              config(), so the first click starts it.
+                              PlayMusic, PlayThematicMusic, StopMusic,
+                              ResumeMusic and SetMusicVolume came with it.
+      SetTerrainFogEx         2. The map asks for style 0, 3000 to 5000, black.
+                              render.js was drawing 0x0b1018 from 4200 to 9000 --
+                              a constant of ours where the map has seven fields,
+                              the same class as Thunder Clap's slow. Style and
+                              density are carried but not yet drawn: style picks
+                              linear against exponential falloff, and density
+                              only applies to the exponential ones.
+
     Player-visible, still open:
-      SetDayNightModels 2,     Atmosphere: sky model and fog tint, set once
-        SetTerrainFogEx 2      each per team base.
-      music and ambience       SetMapMusic 2, NewSoundEnvironment 2,
-                               SetSoundParamsFromLabel 3, VolumeGroupSetVolume
-                               6, SetAmbientDay/NightSound 4. The map sets
-                               music and it never plays.
+      SetDayNightModels 2      the sky and day/night light models, set once per
+                               team base. The fog half of this pair is done.
+      ambience                 NewSoundEnvironment 2, SetSoundParamsFromLabel 3,
+                               VolumeGroupSetVolume 6, SetAmbientDay/NightSound
+                               4. CityScapeDay and CityScapeNight are not rows in
+                               AmbienceSounds.slk, so the labels resolve
+                               somewhere else and that is the first thing to
+                               establish.
       ClearSelection/SelectUnit 4 each, via SelectUnitForPlayerSingle. The
                                auto-reselect after an event.
       TerrainDeformRipple      2, via TerrainDeformationRippleBJ. The crater
@@ -1255,11 +1289,19 @@ GAMEPLAY / INPUT
       cinematic framing        ShowInterface 2, EnableUserControl 6,
                                EnableUserUI 8, CinematicModeBJ 2.
 
-    Not cosmetic, worth a look on its own:
-      UnitStripHeroLevel       2, via SetHeroLevelBJ. Returns true and does
-                               nothing, so a scripted level *down* does not.
-      SetUnitPathing           1. A unit the map means to make unpathable.
-      SetPlayerHandicapXP      1.
+    Not cosmetic, and all three DONE 2026-09-03:
+      UnitStripHeroLevel       2, via SetHeroLevelBJ, which calls it whenever the
+                               level asked for is LOWER than the one the hero
+                               has. It returned true and did nothing. It is not
+                               setHeroLevel in reverse: going up grants a skill
+                               point and refills life and mana, and Warcraft III
+                               strips the level without healing anyone, so only
+                               the skill points come back off.
+      SetUnitPathing           1. The unit now leaves collision entirely, which
+                               is how a map parks something others must walk
+                               through.
+      SetPlayerHandicapXP      1. Scales what a hero of that player gains,
+                               alongside the ExperienceMod items already there.
 
     CHECKED AND NOT A DEFECT -- do not re-investigate:
       SetPlayerAllianceStateAllyBJ  40 sites, and the highest count in the

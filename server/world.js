@@ -743,8 +743,11 @@ export class World {
 
   addXp(u, amt) {
     if (!u || !u.isHero) return;
-    // ExperienceMod items (tomes of retraining and the like) scale what is gained
-    u.xp += amt * (u.xpMul || 1);
+    // ExperienceMod items (tomes of retraining and the like) scale what is
+    // gained, and so does the player's own experience handicap
+    const ph = this.playerOf(u);
+    const hx = this.handicapXP && ph ? this.handicapXP.get(ph.index) : undefined;
+    u.xp += amt * (u.xpMul || 1) * (hx === undefined ? 1 : hx);
     this.checkLevel(u);
   }
   checkLevel(u) {
@@ -761,6 +764,39 @@ export class World {
     u.hp = u.maxHp; u.mana = u.maxMana;
     this.emit({ t: 'levelup', id: u.id, lvl: u.level });
     this.fireUnitEvent('EVENT_PLAYER_HERO_LEVEL', { unit: u, player: this.playerOf(u) });
+  }
+
+  /**
+   * Take levels back off a hero.
+   *
+   * Blizzard.j's SetHeroLevelBJ calls this when the level it is asked for is
+   * LOWER than the one the hero has, and the native returned true and did
+   * nothing -- so a scripted level down did not happen. It is not setHeroLevel
+   * in reverse: going up grants a skill point and refills life and mana, and
+   * none of that is given back here beyond the skill points themselves, because
+   * Warcraft III strips the level without healing anyone.
+   */
+  stripHeroLevel(u, n) {
+    if (!u || !u.isHero) return false;
+    const want = Math.max(1, (u.level || 1) - Math.max(0, trunc(n)));
+    if (want === u.level) return false;
+    const lost = u.level - want;
+    u.level = want;
+    u.xp = 0;
+    u.skillPoints = Math.max(0, (u.skillPoints || 0) - lost);
+    this.recalc(u);
+    u.hp = Math.min(u.hp, u.maxHp);
+    u.mana = Math.min(u.mana, u.maxMana);
+    this.emit({ t: 'levelup', id: u.id, lvl: u.level });
+    return true;
+  }
+
+  /** A player's experience handicap, as SetPlayerHandicapXP sets it. */
+  setHandicapXP(playerHandle, f) {
+    this.handicapXP = this.handicapXP || new Map();
+    const idx = playerHandle && (playerHandle.index ?? playerHandle);
+    if (idx == null) return;
+    this.handicapXP.set(idx, Math.max(0, +f || 0));
   }
 
   addAbility(u, abilId) {
@@ -2157,10 +2193,12 @@ export class World {
   separate(list) {
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
-      if (a.isBuilding) continue;
+      // SetUnitPathing(u, false) takes a unit out of collision entirely, which
+      // is how a map parks something where units must be able to walk through it
+      if (a.isBuilding || a.pathingOff) continue;
       for (let j = i + 1; j < list.length; j++) {
         const b = list[j];
-        if (b.isBuilding) continue;
+        if (b.isBuilding || b.pathingOff) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
         const need = a.radius + b.radius;
         const d2 = dx * dx + dy * dy;

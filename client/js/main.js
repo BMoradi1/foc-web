@@ -349,6 +349,17 @@ function handleEvent(ev) {
     case 'missile':    view.spawnMissile(ev); break;
     case 'missileEnd': view.endMissile(ev.fx); break;
     case 'tint':     view.tintUnit(ev.id, ev.r, ev.g, ev.b, ev.a); break;
+    // the map's own SetMapMusic / PlayMusic / StopMusic
+    case 'music': {
+      if (ev.stop) { audio.stopMusic(ev.fade); break; }
+      if (ev.resume) { audio.resumeMusic(); break; }
+      if (ev.volume != null) { audio.setMusicVolume(ev.volume); break; }
+      audio.playMusic(ev.list, ev.random, ev.index);
+      break;
+    }
+    // SetTerrainFogEx: the map's own fog colour and distances, in place of the
+    // ones the renderer used to pick for itself
+    case 'fog': view.setFog(ev); break;
     case 'sound': {
       // the map's own PlaySoundBJ / PlaySoundAtPointBJ / PlaySoundOnUnitBJ
       let x = ev.x, y = ev.y;
@@ -894,8 +905,12 @@ function escapeHtml(s) {
 const savedName = localStorage.getItem('focs.name') || `Player${Math.floor(Math.random() * 900 + 100)}`;
 document.getElementById('pname').value = savedName;
 document.getElementById('pname').onchange = (e) => localStorage.setItem('focs.name', e.target.value);
-addEventListener('pointerdown', () => audio.init(), { once: true });
-addEventListener('keydown', () => audio.init(), { once: true });
+// A browser will not let a page make noise before it has been touched, and the
+// map sets its music in config(), long before that -- so the first interaction
+// starts both the effects mixer and whatever music was already asked for.
+const wake = () => { audio.init(); audio.unblockMusic(); };
+addEventListener('pointerdown', wake, { once: true });
+addEventListener('keydown', wake, { once: true });
 /**
  * The two canvases the console owns are sized in pixels once, when the art
  * first lands. Everything else in the frame is laid out in percentages and
