@@ -254,7 +254,7 @@ export class JassEngine {
   /** The events that put a fresh client's world into the state the map set. */
   atmosphereEvents() {
     const a = this.atmosphere;
-    return [a.daynight, a.fog, a.music, a.tod].filter(Boolean);
+    return [a.daynight, a.fog, a.music, a.ambient, a.tod].filter(Boolean);
   }
   // The permanent tags, kept so a client that connects after they were made
   // still gets the scenery. A tag with a lifespan is dropped as soon as it has
@@ -323,7 +323,19 @@ function loadIndex(files) {
   }
   return {};
 }
-let SOUND_INDEX = null, IMPORT_INDEX = null, MUSIC_LIST = null;
+let SOUND_INDEX = null, IMPORT_INDEX = null, MUSIC_LIST = null, AMBIENCE = null;
+/**
+ * The ambient themes, rendered by tools/ambience.py.
+ *
+ * SetAmbientDaySound("CityScapeDay") names a row in MIDISounds.slk rather than
+ * in AmbienceSounds.slk, and that row is a MIDI score plus the DLS instrument
+ * bank it is played on -- which is why nothing here could play it until the
+ * pipeline learned to render the pair once, with the game's own bank.
+ */
+function ambience() {
+  if (!AMBIENCE) AMBIENCE = loadIndex(['data/ambience.json', 'public/data/ambience.json']);
+  return AMBIENCE;
+}
 /**
  * The standard music playlist, UI\WorldEditData.txt's [MusicFiles].
  *
@@ -381,6 +393,18 @@ function soundKey(p) {
 // ============================================================ native bindings
 function installNatives(vm, eng) {
   const W = () => eng.world;
+  /**
+   * The day or night ambient theme. Both are remembered on the engine so a
+   * client joining later gets them, and so the pair is there for the moment the
+   * clock is allowed to turn.
+   */
+  const setAmbient = (which, label) => {
+    const row = ambience()[String(label || '')];
+    const a = (eng.atmosphere.ambient || (eng.atmosphere.ambient = { t: 'ambient' }));
+    a[which] = row ? { file: row.file, volume: row.volume, label } : null;
+    a.hour = eng.todHour === undefined ? 12 : eng.todHour;
+    eng.emit({ ...a });
+  };
   const H = (type, props) => new Handle(type, props);
   // the cinematic filter being assembled, see DisplayCineFilter
   const CF = () => (eng.cineFilter || (eng.cineFilter = {
@@ -1088,6 +1112,12 @@ function installNatives(vm, eng) {
     },
     KillSoundWhenDone: () => {},
     SetSoundParamsFromLabel: () => {}, RegisterStackedSound: () => {},
+    // ---- ambience and music
+    //
+    // Warcraft III crossfades between the day theme and the night theme as the
+    // clock turns. The clock does not turn here (see SetTimeOfDay), so the
+    // theme for the hour it is fixed at is the one that plays; both are sent so
+    // the client has them when it does turn.
     // ---- music.  The map sets it twice and it had never played.
     //
     // SetMapMusic(name, random, index): `name` is either the "Music" label,
@@ -1124,7 +1154,12 @@ function installNatives(vm, eng) {
     ResumeMusic: () => eng.emit({ t: 'music', resume: true }),
     SetMusicVolume: (v) => eng.emit({ t: 'music', volume: Math.max(0, Math.min(1, (v || 0) / 100)) }),
     VolumeGroupSetVolume: () => {}, VolumeGroupReset: () => {},
-    NewSoundEnvironment: () => {}, SetAmbientDaySound: () => {}, SetAmbientNightSound: () => {},
+    // NewSoundEnvironment names the EAX reverb preset the themes are played
+    // through. There is no reverb model here, so it stays a no-op rather than
+    // pretending.
+    NewSoundEnvironment: () => {},
+    SetAmbientDaySound: (label) => setAmbient('day', label),
+    SetAmbientNightSound: (label) => setAmbient('night', label),
     SetSoundVolumeBJ: () => {},
     SetCameraBounds: () => {}, SetCameraPosition: () => {}, SetCameraQuickPosition: () => {},
     SetCameraRotateMode: () => {},

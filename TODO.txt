@@ -1336,24 +1336,49 @@ GAMEPLAY / INPUT
                               the way the permanent text tags are, and are now
                               replayed alongside them.
 
-    NOT PORTABLE -- established 2026-09-03, do not spend an evening on it:
-      the ambient themes      SetAmbientDaySound("CityScapeDay") and
-        SetAmbientNightSound  SetAmbientNightSound("CityScapeNight"), 2 sites
-                              each. The labels are not rows in
-                              AmbienceSounds.slk. They are rows in
+      the ambient themes      DONE, and the note that said it could not be done
+        SetAmbientDaySound    was wrong twice. Worth writing down how, because
+        SetAmbientNightSound  both mistakes are the same mistake.
+                              The labels are not rows in AmbienceSounds.slk, and
+                              that much was right: they are rows in
                               UI\SoundInfo\MIDISounds.slk, whose columns are
-                              MIDIFileName and DLSFileName: CityScapeDay.mid
+                              MIDIFileName and DLSFileName -- CityScapeDay.mid
                               against CityScape.dls, under Sound\Ambient\
-                              CityScape. Warcraft III renders those through a
-                              DirectMusic soundbank, which a browser cannot do --
-                              and the question does not even arise here, because
-                              the archives contain no .mid and no .dls at all.
-                              `find war3_extracted -iname '*.mid' -o -iname
-                              '*.dls'` returns nothing, and the converted sound
-                              index has zero .mid entries of 6192. There is
-                              nothing to play and nothing to convert.
+                              CityScape.
+                              The first error was to conclude the files were
+                              absent. `find war3_extracted -iname '*.mid'`
+                              returns nothing, and that was read as "the archives
+                              do not have them". war3_extracted/ is what our
+                              extractor PULLED OUT, not what the archives hold;
+                              the listfile has all fifteen .mid and their banks,
+                              and gd.read() returns them: CityScapeDay.mid is
+                              19708 bytes of MThd out of war3.mpq, CityScape.dls
+                              1219608 bytes of RIFF.
+                              The second error was to conclude a browser cannot
+                              play MIDI, which is true and beside the point: the
+                              pipeline transcodes everything else already, and
+                              MIDI plus a bank is just another thing to render
+                              once. fluidsynth 2.x loads a DLS directly, so
+                              tools/ambience.py extracts the pair, renders it and
+                              encodes it to ogg like every other sound -- 4:28 of
+                              real audio for the day theme, 4:30 for the night.
+                              The labels come from the map's own script rather
+                              than from a list here, so this stays map-agnostic.
+                              Two things named rather than hidden. FluidSynth's
+                              rendering is not DirectMusic's, so it is the map's
+                              own score on the map's own instruments but not bit
+                              for bit what the game produces. And the render uses
+                              -g 1.0: FluidSynth's default gain is 0.2, a
+                              synthesiser setting rather than a figure from the
+                              game, and it puts the day theme's peak at -28.6 dB
+                              against -14.6 at unity, with no clipping either way.
+                              The row's own Volume of 80/127 is what the client
+                              plays it at. Day and night both go to the client
+                              and the hour picks between them, so the crossfade
+                              is there for whenever the clock is allowed to turn.
                               NewSoundEnvironment("Default") is the EAX reverb
-                              preset that goes with them and is the same story.
+                              preset that goes with them and stays a no-op: there
+                              is no reverb model here to set.
 
     Player-visible, still open:
       ClearSelection/SelectUnit 4 each, via SelectUnitForPlayerSingle. The

@@ -12,6 +12,8 @@ os.makedirs(PUB + '/data', exist_ok=True)
 shutil.copy('data/game.json', PUB + '/data/game.json')
 # the engine's own hero-death warning; the client picks the row, since which
 # one plays depends on who is listening
+if os.path.exists('data/ambience.json'):
+    shutil.copy('data/ambience.json', PUB + '/data/ambience.json')
 if os.path.exists('data/daynight.json'):
     shutil.copy('data/daynight.json', PUB + '/data/daynight.json')
 if os.path.exists('data/uisounds.json'):

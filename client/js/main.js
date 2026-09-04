@@ -364,7 +364,10 @@ function handleEvent(ev) {
     case 'fog': view.setFog(ev); break;
     // SetDayNightModels: the map's own sun and ambient colours, hour by hour
     case 'daynight': view.setDayNight(dayNightCurves, ev); break;
-    case 'tod': view.setTimeOfDay(ev.hour); break;
+    case 'tod': view.setTimeOfDay(ev.hour); audio.setAmbientHour(ev.hour); break;
+    // SetAmbientDaySound / SetAmbientNightSound, rendered from the game's own
+    // MIDI and instrument bank by tools/ambience.py
+    case 'ambient': audio.setAmbient(ev.day, ev.night, ev.hour); break;
     case 'sound': {
       // the map's own PlaySoundBJ / PlaySoundAtPointBJ / PlaySoundOnUnitBJ
       let x = ev.x, y = ev.y;

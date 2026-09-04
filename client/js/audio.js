@@ -138,6 +138,42 @@ export class Audio {
    * arrives before then is remembered and started by the first click, the same
    * gate the effects mixer sits behind.
    */
+  /**
+   * The ambient theme: a bed under everything, looping, at the volume its own
+   * MIDISounds row states. Warcraft III crossfades day into night as the clock
+   * turns; the hour picks which one here, and changing it swaps the bed.
+   *
+   * An <audio> element again rather than a decoded buffer -- these are four and
+   * a half minutes each.
+   */
+  setAmbient(day, night, hour = 12) {
+    this.ambient = { day, night };
+    this.ambientHour = hour;
+    this.applyAmbient();
+  }
+  setAmbientHour(hour) { this.ambientHour = hour; this.applyAmbient(); }
+  applyAmbient() {
+    const a = this.ambient;
+    if (!a) return;
+    const h = this.ambientHour ?? 12;
+    // Warcraft III's own dawn and dusk, which is where the day/night light
+    // curve turns as well
+    const isDay = h >= 6 && h < 18;
+    const want = (isDay ? a.day : a.night) || a.day || a.night;
+    if (!want || !want.file) return;
+    if (this.ambientPlaying === want.file) return;
+    this.ambientPlaying = want.file;
+    if (!this.ambientEl) {
+      this.ambientEl = new window.Audio();
+      this.ambientEl.loop = true;
+      this.ambientEl.addEventListener('error', () => { this.ambientPlaying = null; });
+    }
+    this.ambientEl.src = `/assets/${want.file}`;
+    this.ambientEl.volume = Math.max(0, Math.min(1, (want.volume ?? 0.6) * this.volume));
+    const go = this.ambientEl.play();
+    if (go && go.catch) go.catch(() => { this.ambientPending = true; });
+  }
+
   /** SetMapMusic: remember the list without playing over the map's own score. */
   setMusicList(list, random = false, index = 0) {
     if (!Array.isArray(list) || !list.length) return;
@@ -189,6 +225,11 @@ export class Audio {
   }
   /** Called on the first real interaction, when a browser will finally allow it. */
   unblockMusic() {
+    if (this.ambientPending) {
+      this.ambientPending = false;
+      const g = this.ambientEl && this.ambientEl.play();
+      if (g && g.catch) g.catch(() => {});
+    }
     if (!this.musicPending) return;
     this.musicPending = false;
     this.resumeMusic();

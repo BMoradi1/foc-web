@@ -17,6 +17,8 @@ $PY tools/terrain.py
 $PY tools/jass_fmt.py
 # the day/night light curves, out of Warcraft III's own DNC models
 $PY tools/daynight.py
+# the ambient themes: MIDI + DLS out of the archives, rendered once to ogg
+$PY tools/ambience.py
 
 echo "== 3. Warcraft III archives (patch > expansion > base)"
 $PY tools/gamedata.py

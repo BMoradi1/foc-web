@@ -148,6 +148,34 @@ console.log('\n-- SetDayNightModels lights the world from the map\'s own model')
   nat.get('SetTimeOfDayScale')(1);
 }
 
+// ---------------------------------------------------------- the ambience
+console.log('\n-- the ambient themes, rendered from the game\'s own MIDI and bank');
+{
+  const tbl = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/ambience.json'), 'utf8'));
+  // the day theme is set first and the night one second, so each call sends the
+  // state so far and the last one carries both
+  const evs = seen.filter((e) => e.t === 'ambient');
+  const ev = evs[evs.length - 1];
+  check('the map names a day and a night theme', !!(ev && ev.day && ev.night),
+        `${evs.length} events, last ${JSON.stringify(ev || {}).slice(0, 70)}`);
+  check('and both were rendered', Object.keys(tbl).length === 2, Object.keys(tbl).join(','));
+  // the row is a MIDI score and a DLS bank, which is why nothing could play it
+  for (const [label, row] of Object.entries(tbl)) {
+    check(`${label} came from a MIDI and a bank in the archives`,
+          /\.mid \(/.test(row.source) && /\.dls \(/.test(row.source), row.source);
+    const f = path.join(ROOT, 'assets', row.file);
+    const pub = path.join(ROOT, 'public/assets', row.file);
+    const hit = fs.existsSync(pub) ? pub : fs.existsSync(f) ? f : null;
+    check(`${label} is on disk and is not a stub`, hit && fs.statSync(hit).size > 500_000,
+          hit ? `${(fs.statSync(hit).size / 1e6).toFixed(1)} MB` : 'missing');
+    check(`${label} carries its row's own volume`, Math.abs(row.volume - 80 / 127) < 0.01,
+          String(row.volume));
+  }
+  check('the theme the client is told to play is one of them',
+        !!(ev && ev.day && ev.night && tbl[ev.day.label] && tbl[ev.night.label]),
+        ev && ev.day && ev.night ? `${ev.day.label} / ${ev.night.label}` : '-');
+}
+
 // ------------------------------------------------ a client that joins late
 console.log('\n-- the standing atmosphere is replayed to a client that joins late');
 {
@@ -156,6 +184,7 @@ console.log('\n-- the standing atmosphere is replayed to a client that joins lat
   check('it carries the fog', kinds.has('fog'), [...kinds].join(','));
   check('it carries the music list', kinds.has('music'), [...kinds].join(','));
   check('it carries the day/night models', kinds.has('daynight'), [...kinds].join(','));
+  check('it carries the ambient themes', kinds.has('ambient'), [...kinds].join(','));
   check('and none of it is a one-shot event', ev.every((e) => e && e.t),
         String(ev.length));
 }
