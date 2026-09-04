@@ -1280,8 +1280,15 @@ GAMEPLAY / INPUT
         SetPlayerRaceSelectable 10, SetMapName/Description, SetTeams,
         SetGameSpeed, SetGameDifficulty, GetCameraMargin 18. Correct as no-ops.
 
-[ ] The engine's other floating text: miss, crit, bash, mana burn
-    UI/MiscData.txt carries eight text-tag families and the port now draws one
+[ ] The engine's other floating text: shadow strike and mana burn
+    CORRECTED 2026-09-03: the title said "miss, crit, bash, mana burn" and three
+    of those four now fire. `grep` for the tag constants in server/world.js
+    returns BOUNTY_TEXT, MISS_TEXT, CRIT_TEXT and BASH_TEXT, two references
+    each -- bash arrived with the Bash proc, which had nothing to fire it while
+    nothing implemented Bash. Two families are left, shadowStrike and manaBurn,
+    and neither ability is implemented, so this is a "when there is something to
+    announce" item rather than a gap in what draws.
+    UI/MiscData.txt carries eight text-tag families and the port now draws four
     of them. Each is a colour, a velocity, a lifetime and a fade start, in the
     units the text tag natives already take, and tools/gameplay.py compiles all
     eight into gameplay.json -- so the data side is done and only the trigger
