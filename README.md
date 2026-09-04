@@ -58,6 +58,12 @@ It does **not** contain, and cannot legally redistribute, any of the following:
 So this repository is the *machinery*: point it at your own copy of the game and the map, run the
 build, and it produces a playable port. Nothing here is useful without them.
 
+**Licence** — [MIT](LICENSE), and it covers the machinery only: `tools/`, `server/`, `client/`,
+`shared/` and the documentation. It does not extend to Blizzard's data and art, or to the map,
+for the reason above — neither is mine to license and neither is in this repository. `LICENSE`
+says the same at more length, including the small quotations of the map's own text that appear in
+source comments to explain what a piece of code is looking at.
+
 ## Quick start
 
 ```bash

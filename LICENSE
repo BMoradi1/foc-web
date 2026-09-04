@@ -1,0 +1,49 @@
+MIT License
+
+Copyright (c) 2026 Bijan Moradi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+WHAT THIS LICENCE COVERS
+------------------------
+
+The MIT terms above apply to the original work in this repository: the
+extraction and conversion pipeline in tools/, the JASS interpreter and
+simulation in server/, the renderer and interface in client/, the shared
+definitions in shared/, and the documentation.
+
+They do not, and cannot, apply to anything else, because none of it is mine
+to give and none of it is here:
+
+  * Warcraft III's data, art and audio are Blizzard Entertainment's. The
+    archives are not included. The pipeline reads them from your own retail
+    installation and everything it derives from them is regenerated locally.
+
+  * "Fight of Characters 7.7b E" is its own author's work. The .w3x is not
+    included, and neither is anything extracted from it: the script, the
+    object data, the imported models and sounds.
+
+  * Small quotations of the map's text appear in source comments, and in
+    server/chatalias.js, where they identify which command a trigger
+    registers. They are there to explain the code rather than to reproduce
+    the map.
+
+Point this at your own copy of the game and the map and it will build a
+playable port. Nothing here is useful, or lawful to distribute, without them.

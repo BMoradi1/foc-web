@@ -2060,7 +2060,23 @@ HOUSEKEEPING
 ------------
 [x] Five tests are stale, not one  (FIXED -- see TESTS AND THE END-TO-END HALF)
 
-[ ] No licence on the repo.
+[x] No licence on the repo.  (FIXED)
+    MIT, and the reasoning is worth keeping because copyleft was the tempting
+    alternative and the argument against it here is specific rather than
+    general. GPLv3's usual weakness for a hosted game -- that running a service
+    is not distributing -- barely applies, since the client is shipped to every
+    player's browser and that IS distribution; AGPLv3 would close even that gap.
+    What settles it is that neither buys protection against a risk that exists:
+    nobody can run this commercially whatever the licence says, because running
+    it at all needs Blizzard's archives and the map author's file. So copyleft
+    would add friction for the readers this repository is actually for, and
+    would guard a door that copyright on other people's material already holds
+    shut. Nothing in the dependency tree constrained the choice either way --
+    three and ws are MIT, puppeteer-core is Apache 2.0.
+    LICENSE carries a scope section naming what the terms do NOT cover, the
+    README links it beside the "source only" section that already said the same
+    thing about the assets, and package.json declares it so tooling stops
+    reading the project as unlicensed.
 
 NOT BUGS -- recorded so they are not re-investigated
 -----------------------------------------------------
