@@ -222,6 +222,121 @@ check('a locust dummy has no mesh', out.dummyExists && out.dummyHasMesh === 0,
 check('and cannot be clicked', out.pickedDummy === null,
       out.pickedDummy === null ? '' : `picked ${out.pickedDummy}`);
 
+// --------------------------------------------------- the emitter flags
+//
+// Three flags every emitter carries and none was read. Checked on the real
+// materials in the scene, because a uniform that is computed and never bound is
+// exactly what a data-only check would wave through.
+const emit = await page.evaluate(async () => {
+  const view = window.view;
+  const THREE = window.THREE;
+  // An aura rather than a one-shot: a model whose only sequence is Birth ends
+  // itself the moment that animation finishes, which is a fine way to watch an
+  // effect vanish before the check reads it. This one loops, and the map marks
+  // some of its emitters unfogged, so both branches are present.
+  await view.spawnEffect({ fx: 'emitfog', path: 'war3mapImported\\SandAura.mdx',
+                           x: 0, y: 0, ttl: 600 });
+  await new Promise((r) => setTimeout(r, 200));
+  // The bench page renders on demand and never runs the frame loop, so the
+  // emitters have to be stepped by hand: that is where an emitter picks up the
+  // scene's current fog, which is the whole point of the check below.
+  for (const e of view.effects.values()) {
+    const ctx = view.animCtxOf(e);
+    for (const p of (e.emitters || [])) p.update(1 / 30, ctx);
+  }
+  const mats = [];
+  view.scene.traverse((o) => {
+    if (o.userData && o.userData.w3emitter && o.material && o.material.uniforms) mats.push(o.material);
+  });
+  if (!mats.length) return { none: true };
+  const u = mats[0].uniforms;
+  // and one that the model itself marks unfogged, if this effect has one
+  const unfogged = mats.find((m) => m.uniforms.fogged.value === 0);
+  const fogged = mats.find((m) => m.uniforms.fogged.value === 1);
+  return {
+    count: mats.length,
+    fogOn: mats.every((m) => m.fog === true),
+    hasFogUniforms: !!(u.fogColor && u.fogNear && u.fogFar),
+    // three.js only refreshes these for a material with fog on, so a non-zero
+    // far plane proves the renderer is feeding them
+    fogFar: fogged ? fogged.uniforms.fogFar.value : null,
+    sceneFogFar: view.scene.fog ? view.scene.fog.far : null,
+    anyUnfogged: !!unfogged,
+    additiveFlagsMatch: mats.every((m) =>
+      (m.uniforms.additive.value === 1) === (m.blending === THREE.AdditiveBlending)),
+  };
+});
+check('an emitter-only effect builds emitters at all', !emit.none && emit.count > 0,
+      emit.none ? 'none built' : `${emit.count}`);
+if (!emit.none) {
+  check('every emitter material has fog switched on', emit.fogOn === true, String(emit.fogOn));
+  check('and carries the three uniforms three.js feeds', emit.hasFogUniforms === true);
+  check('the renderer really feeds them the scene\'s own fog',
+        emit.fogFar !== null && emit.sceneFogFar !== null
+        && Math.abs(emit.fogFar - emit.sceneFogFar) < 1,
+        `${emit.fogFar} vs scene ${emit.sceneFogFar}`);
+  check('the additive uniform agrees with the blend mode', emit.additiveFlagsMatch === true);
+}
+
+const sorted = await page.evaluate(async () => {
+  const view = window.view;
+  // 14 models carry a BLENDED point emitter that asks to be sorted, which is the
+  // only combination where draw order changes the picture -- addition is
+  // commutative, so the 186 additive ones look the same either way and are
+  // deliberately left unsorted.
+  await view.spawnEffect({ fx: 'emitsort', path: 'Units\\Human\\WaterElemental\\WaterElemental.mdl',
+                           x: 400, y: 400, ttl: 600 });
+  await new Promise((r) => setTimeout(r, 200));
+  // The emitter's rate is scoped to the sequence being played, and a unit model
+  // spawned as an effect is not playing the one that turns this emitter on. The
+  // sort is what is under test, not the emission rule, so the particles are put
+  // there by hand and then one update sorts them.
+  for (const e of view.effects.values()) {
+    const ctx = view.animCtxOf(e);
+    for (const p of (e.emitters || [])) {
+      if (!p.sortFarZ) continue;
+      for (let k = 0; k < 12; k++) p.spawn();
+      p.update(1 / 30, ctx);
+    }
+  }
+  const out = { checked: 0, indexed: 0, ordered: 0, skipped: 0 };
+  const cams = [];
+  view.scene.traverse((o) => {
+    if (o.userData && o.userData.w3emitter && o.geometry && o.material.uniforms) cams.push(o);
+  });
+  for (const o of cams) {
+    // only the blended point emitters that ask for it get an index buffer
+    const wants = o.geometry.index && o.type === 'Points';
+    if (!wants) continue;
+    out.checked++;
+    out.indexed++;
+    const g = o.geometry, pos = g.attributes.position.array;
+    const n = g.drawRange.count;
+    if (n < 2) { out.skipped++; out.indexed--; out.checked--; continue; }
+    const cam = view.camera;
+    const inv = new window.THREE.Matrix4().copy(o.matrixWorld).invert();
+    const c = new window.THREE.Vector3().setFromMatrixPosition(cam.matrixWorld).applyMatrix4(inv);
+    let monotonic = true;
+    let prev = Infinity;
+    for (let i = 0; i < n; i++) {
+      const j = g.index.array[i];
+      const dx = pos[j * 3] - c.x, dy = pos[j * 3 + 1] - c.y, dz = pos[j * 3 + 2] - c.z;
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d > prev + 1e-3) { monotonic = false; break; }
+      prev = d;
+    }
+    if (monotonic) out.ordered++;
+  }
+  return out;
+});
+// this effect may carry no blended sorted emitter at all; the check is that
+// when one is indexed, its indices really are far to near
+check('a blended emitter that asks to be sorted gets an index buffer',
+      sorted.indexed > 0, `${sorted.indexed} indexed`);
+check('and its indices really run far to near',
+      sorted.indexed > 0 && sorted.ordered === sorted.indexed,
+      `${sorted.ordered} of ${sorted.indexed} in order`);
+
 // ---------------------------------------------------- the day/night light
 //
 // The renderer's own three constants were lighting the world. Read the sun and

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildEmitters } from './particles.js';
+import { buildEmitters, setSortCamera } from './particles.js';
 import { buildRibbons } from './ribbons.js';
 import { LightPool, buildLights, stepLights } from './lights.js';
 import { buildSprays } from './sprays.js';
@@ -166,6 +166,8 @@ export class Renderer {
     this.scene.fog = new THREE.Fog(0x0b1018, 4200, 9000);
 
     this.camera = new THREE.PerspectiveCamera(48, 1, 10, 12000);
+    // the emitters need somewhere to measure depth from, and the scene's fog
+    setSortCamera(this.camera, this.scene);
     this.camTarget = new THREE.Vector3(0, 0, 0);
     this.camDist = 2600;
     this.camPitch = 1.02;          // radians from horizontal

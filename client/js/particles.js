@@ -16,7 +16,35 @@
  */
 import * as THREE from 'three';
 
-const VERT = `
+// Warcraft III fogs a particle like anything else unless the emitter carries
+// the Unfogged flag: 152 of this map's 2493 emitters do, 2341 do not, and
+// nothing here was fogged at all. That stopped mattering while the world's fog
+// was a soft blue starting at 4200 and started mattering the day it became the
+// map's own black starting at 3000, with distant effects sitting bright against
+// a black horizon.
+//
+// An additive emitter cannot mix toward the fog colour the way an opaque
+// surface does -- adding grey to a bright spark brightens it -- so it fades
+// toward nothing instead, which is the same thing whenever the fog is black and
+// the right thing when it is not.
+const FOG_PARS_V = `
+uniform float fogNear;
+uniform float fogFar;
+varying float vFogK;
+`;
+const FOG_PARS_F = `
+uniform vec3 fogColor;
+uniform float fogged;
+uniform float additive;
+varying float vFogK;
+`;
+const FOG_APPLY = `
+  float k = vFogK * fogged;
+  if (additive > 0.5) gl_FragColor.rgb *= 1.0 - k;
+  else gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, k);
+`;
+
+const VERT = FOG_PARS_V + `
 attribute float psize;
 attribute float palpha;
 attribute vec3 pcolor;
@@ -27,11 +55,12 @@ varying vec2 vCell;
 void main() {
   vAlpha = palpha; vColor = pcolor; vCell = pcell;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vFogK = smoothstep(fogNear, fogFar, -mv.z);
   gl_PointSize = psize * (300.0 / max(1.0, -mv.z));
   gl_Position = projectionMatrix * mv;
 }`;
 
-const FRAG = `
+const FRAG = FOG_PARS_F + `
 uniform sampler2D map;
 uniform vec2 grid;
 varying float vAlpha;
@@ -43,6 +72,7 @@ void main() {
   uv.y = 1.0 - uv.y;                       // glTF images are top-down
   vec4 t = texture2D(map, uv);
   gl_FragColor = vec4(t.rgb * vColor, t.a * vAlpha);
+` + FOG_APPLY + `
   if (gl_FragColor.a < 0.01) discard;
 }`;
 
@@ -51,7 +81,7 @@ void main() {
 // emitters get real geometry -- 510 of this map's emitters are tail-only and a
 // further 177 are head-and-tail, and every one of them used to draw as a round
 // billboard. Sparks, debris trails and missile exhaust are all in that set.
-const TAIL_VERT = `
+const TAIL_VERT = FOG_PARS_V + `
 attribute vec3 pvel;
 attribute vec2 corner;      // x: 0 at the head, 1 at the tail; y: -1..1 across
 attribute float psize;
@@ -67,6 +97,7 @@ void main() {
   vAlpha = palpha; vColor = pcolor; vCell = pcell;
   vQuad = vec2(corner.x, corner.y * 0.5 + 0.5);
   vec4 head = modelViewMatrix * vec4(position, 1.0);
+  vFogK = smoothstep(fogNear, fogFar, -head.z);
   vec3 vel = (modelViewMatrix * vec4(pvel, 0.0)).xyz;
   // a motionless particle has no direction to stretch along; stand it upright
   vec3 dir = length(vel) > 1e-4 ? normalize(vel) : vec3(0.0, 1.0, 0.0);
@@ -78,7 +109,7 @@ void main() {
   gl_Position = projectionMatrix * vec4(p, 1.0);
 }`;
 
-const TAIL_FRAG = `
+const TAIL_FRAG = FOG_PARS_F + `
 uniform sampler2D map;
 uniform vec2 grid;
 varying float vAlpha;
@@ -91,8 +122,30 @@ void main() {
   uv.y = 1.0 - uv.y;
   vec4 t = texture2D(map, uv);
   gl_FragColor = vec4(t.rgb * vColor, t.a * vAlpha);
+` + FOG_APPLY + `
   if (gl_FragColor.a < 0.01) discard;
 }`;
+
+/**
+ * The camera, for the emitters that ask to be drawn far to near.
+ *
+ * Set once by the renderer rather than threaded through every update() call:
+ * the emitter context is about which sequence is playing, and the camera is not
+ * part of that.
+ */
+let SORT_CAMERA = null, FOG_SCENE = null;
+/**
+ * The camera to sort against and the scene to read the fog from.
+ *
+ * The fog has to be read here rather than left to three.js: the renderer only
+ * refreshes fogColor, fogNear and fogFar for the material types it ships, and a
+ * raw ShaderMaterial is not one of them, so `fog: true` alone leaves the
+ * uniforms at whatever they were built with. Copying them each frame also means
+ * an emitter follows a SetTerrainFogEx that arrives after it was created.
+ */
+export function setSortCamera(cam, scene) { SORT_CAMERA = cam; FOG_SCENE = scene || FOG_SCENE; }
+const _camLocal = new THREE.Vector3();
+const _inv = new THREE.Matrix4();
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const ZERO = new THREE.Vector3();
@@ -223,12 +276,39 @@ class Emitter {
         map: { value: texture },
         grid: { value: new THREE.Vector2(def.cols, def.rows) },
         tailLen: { value: Math.max(0, def.tailLength || 0) },
+        // three.js refreshes these three itself for any material with fog on,
+        // so the emitter follows whatever SetTerrainFogEx last asked for
+        fogColor: { value: new THREE.Color() },
+        fogNear: { value: 1 },
+        fogFar: { value: 1e6 },
+        fogged: { value: def.unfogged ? 0 : 1 },
+        additive: { value: additive ? 1 : 0 },
       },
       vertexShader: this.tail ? TAIL_VERT : VERT,
       fragmentShader: this.tail ? TAIL_FRAG : FRAG,
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      fog: true,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
+    // SortPrimsFarZ: draw the far particles first so a nearer one lands on top.
+    //
+    // It only changes the picture where blending is order-dependent. Addition is
+    // commutative, so the 186 additive emitters carrying this flag look
+    // identical either way and pay nothing for it; the 32 blended point
+    // emitters are what this is for. The two blended TAIL emitters are left
+    // alone: their geometry is already indexed as quads and reordering it is a
+    // different job for a pair of models.
+    //
+    // Only the index buffer is reordered, never the attributes, so the slot
+    // pool that spawn() and update() share is untouched.
+    this.sortFarZ = !!def.sortFarZ && !additive && !this.tail;
+    if (this.sortFarZ) {
+      this.order = new Uint32Array(this.cap);
+      for (let i = 0; i < this.cap; i++) this.order[i] = i;
+      geo.setIndex(new THREE.BufferAttribute(this.order, 1));
+      this._keys = new Float32Array(this.cap);
+      this._idx = new Array(this.cap);
+    }
     this.points = this.tail ? new THREE.Mesh(geo, this.mat) : new THREE.Points(geo, this.mat);
     this.points.frustumCulled = false;
     // tail emitters are Meshes, not Points; tag both so a count of live
@@ -290,6 +370,16 @@ class Emitter {
       while (budget-- > 0) this.spawn();
     }
     this.wasOn = on;
+    // Linear fog only. The exponential styles carry a density rather than two
+    // planes, and this map asks for style 0; an emitter under one of those is
+    // left unfogged rather than fogged by a number that does not apply.
+    const fog = FOG_SCENE && FOG_SCENE.fog;
+    if (fog && fog.near !== undefined) {
+      const u = this.mat.uniforms;
+      u.fogColor.value.copy(fog.color);
+      u.fogNear.value = fog.near;
+      u.fogFar.value = fog.far;
+    }
     const pos = this.geo.attributes.position.array;
     const col = this.geo.attributes.pcolor.array;
     const alp = this.geo.attributes.palpha.array;
@@ -318,11 +408,34 @@ class Emitter {
         if (pv) { pv[v * 3] = vx; pv[v * 3 + 1] = vy; pv[v * 3 + 2] = vz; }
       }
     }
+    if (this.sortFarZ && this.n > 1) this.sortByDepth();
     // a point list draws vertices; a streak draws two triangles per particle
     this.geo.setDrawRange(0, this.tail ? this.n * 6 : this.n);
     const names = ['position', 'pcolor', 'palpha', 'psize', 'pcell'];
     if (this.tail) names.push('pvel');
     for (const a of names) this.geo.attributes[a].needsUpdate = true;
+  }
+
+  /** Far particles first, by distance from the camera in the emitter's own space. */
+  sortByDepth() {
+    const cam = SORT_CAMERA;
+    if (!cam) return;
+    this.points.updateWorldMatrix(true, false);
+    _inv.copy(this.points.matrixWorld).invert();
+    _camLocal.setFromMatrixPosition(cam.matrixWorld).applyMatrix4(_inv);
+    const pos = this.geo.attributes.position.array;
+    const keys = this._keys, idx = this._idx;
+    for (let i = 0; i < this.n; i++) {
+      const dx = pos[i * 3] - _camLocal.x;
+      const dy = pos[i * 3 + 1] - _camLocal.y;
+      const dz = pos[i * 3 + 2] - _camLocal.z;
+      keys[i] = dx * dx + dy * dy + dz * dz;
+      idx[i] = i;
+    }
+    const live = idx.slice(0, this.n);
+    live.sort((a, b) => keys[b] - keys[a]);          // farthest first
+    for (let i = 0; i < this.n; i++) this.order[i] = live[i];
+    this.geo.index.needsUpdate = true;
   }
 
   dispose() { this.geo.dispose(); this.mat.dispose(); }

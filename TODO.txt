@@ -117,6 +117,60 @@ EFFECTS (cont.)
     which is upscaling, not detail. Whether that is worth it is a judgement
     call and wants a look at the real thing first.
 
+[x] Two emitter flags nothing read, and one that is not established  (FIXED)
+    Asked the same way the unread ability fields were asked: which of the
+    fields tools/mdx2gltf.py exports does the renderer never read? Across the
+    1105 converted models, four particle flags and one light field came back.
+
+    Unfogged -- and the fog itself      2493 emitters carry the flag, 152 set it,
+        and not one particle was fogged at all, because the emitter shaders are
+        raw ShaderMaterials with no fog in them. That cost nothing while the
+        world's fog was a soft blue starting at 4200. It started costing the day
+        the fog became the map's own black starting at 3000: distant effects sat
+        bright against a black horizon. Now the 2341 that do not set the flag
+        fade into it and the 152 that do are left alone.
+        Two things worth writing down. An additive emitter cannot mix toward the
+        fog colour the way an opaque surface does -- adding grey to a spark
+        brightens it -- so it fades toward nothing instead, which is the same
+        thing whenever the fog is black. And three.js only refreshes fogColor,
+        fogNear and fogFar for the material types it ships, so `fog: true` alone
+        leaves a ShaderMaterial's uniforms wherever they were built; they are
+        copied from the scene each frame instead, which also means an emitter
+        follows a SetTerrainFogEx that arrives after it was created.
+        Only linear fog. The exponential styles carry a density rather than two
+        planes and this map asks for style 0.
+
+    SortPrimsFarZ                       220 emitters set it, and it only changes
+        the picture where blending is order-dependent: addition is commutative,
+        so the 186 additive ones look identical sorted or not and are left
+        alone, paying nothing. That leaves 32 blended point emitters, which now
+        get an index buffer sorted far to near each frame. Only the index is
+        reordered, never the attributes, so the slot pool spawn() and update()
+        share is untouched. The two blended TAIL emitters are left as they were:
+        their geometry is already indexed as quads and reordering it is a
+        different job for two models.
+
+    LineEmitter -- NOT established, 385 emitters in 128 models
+        The obvious reading is that the emitter is a line rather than a plane,
+        and the models say otherwise: of the 385 that set the flag, only 39 have
+        a zero width and 66 a zero length, against 558 and 555 of the 2108 that
+        do not set it. The footprint is if anything LESS degenerate on the line
+        emitters, and most carry equal non-zero width and length. So the flag is
+        about the emission direction rather than the shape, its meaning lives in
+        the game engine rather than in any file here, and it is left unread
+        rather than guessed at.
+
+    XYQuad                              carried by every emitter and set by NONE
+        of the 2493, so there is nothing to implement.
+
+    attStart on an omni light           116 lights carry an attenuation start
+        that nothing reads, so a light falls off from its centre instead of from
+        the edge of its bright core. Small, and not done.
+
+    tools/render_test.mjs, 26 checks, four of them new here -- read off the real
+    materials and the real index buffer in a browser, because a uniform that is
+    computed and never bound is exactly what a data-only check would pass.
+
 [ ] Ramp transitions: the CliffTrans wedges are never placed
     Also reported from play -- the transition art at a cliff edge is absent.
     CliffTypes.slk gives every cliff type a *second* model directory --
