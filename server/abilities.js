@@ -45,6 +45,12 @@ const BASE_ALIAS = {
   // it "Illidan - Channel".  Unused by this map, so the alias was only ever a
   // trap waiting for a port that does use it.
   ACcl: 'AOcl',
+  // ACt2's four slots are Damage, Extra Damage To Target, Movement Speed
+  // Reduction and Attack Speed Reduction -- Thunder Clap's set, in Thunder
+  // Clap's order. With no case of its own it fell to the damage fallback, which
+  // spends slot 1 and cannot see the other three: Sandaime's five 내려치기 ranks
+  // carry a 0.2 to 1.0 movement and attack reduction that nothing applied.
+  ACt2: 'AHtc',
   Afod: 'AUdc', AUfd: 'AUdc',
   ACfn: 'AUfn', ACdc: 'AUdc', ACtc: 'AHtc',
   ANbf2: 'ANbf',
@@ -81,7 +87,7 @@ export const HANDLED_BASES = new Set([
   'AOmi', 'AUls', 'ANpi', 'AEim', 'AIim', 'AHhb', 'AOhw', 'AChw', 'AHdi',
   'AHbn', 'AHmt', 'AEme', 'ACmt', 'ACro', 'ANdr', 'AUdc',
   'AHfs', 'ANin', 'ANsl', 'AUsl', 'ACsw', 'AHbz', 'AEsf', 'ANrf',
-  'AOww', 'ANht', 'ANcr', 'ANms', 'ACmf', 'Amls',
+  'AOww', 'ANht', 'ANcr', 'ANms', 'ACmf', 'Amls', 'ANst',
 ]);
 
 /** True when the ability resolves to a named engine behaviour. */
@@ -336,7 +342,19 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // with the roar case below.  Running it here pointed a hostile cone at
     // Rob Lucci's 『철괴』 and Byakuya's 섬경 천본앵경엄.
     case 'ANbf': {
-      const len = i.range || 500, half = 0.45;
+      // Nbf2 Max Damage, Nbf3 Distance, Nbf4 Final Area -- the same four
+      // Carrion Swarm carries, and the cone was reading none of them. `range` is
+      // how far the order may be issued, not how far the breath reaches: Ichigo's
+      // 검은 월아천충 is a 600 cone ordered at 800, and InuYasha's 폭류파 an 800
+      // cone ordered at 900.
+      //
+      // The spread comes from the same two fields rather than from a constant:
+      // a cone `len` long ending `d4` wide subtends atan(d4/len), which is 34
+      // degrees for Ichigo against the flat 26 this used for everything.
+      const len = slot(d3, i.range || 500);
+      const half = slot(d4, 0) > 0 ? Math.atan2(d4, len) : 0.45;
+      const cap = slot(d2, 0) > 0 ? d2 : Infinity;
+      let spent = 0;
       const ang = Math.atan2(ty - caster.y, tx - caster.x);
       for (const e of w.allUnits()) {
         if (!w.hostile(caster, e)) continue;
@@ -346,9 +364,35 @@ export function execute(w, caster, ab, lvl, o = {}) {
         while (da > Math.PI) da -= Math.PI * 2;
         while (da < -Math.PI) da += Math.PI * 2;
         if (Math.abs(da) > half) continue;
-        w.damage(caster, e, slot(d1, 80), { spell: true });
+        if (spent >= cap) break;
+        const hit = Math.min(slot(d1, 80), cap - spent);
+        spent += hit;
+        w.damage(caster, e, hit, { spell: true });
+        // Nbf5 is a Damage Per Second the breath leaves behind; only Itachi's
+        // 화둔-호화구의 술 carries one on this map.
+        if (slot(d5, 0) > 0 && dur > 0) w.dotUnit(caster, e, d5, dur, 1);
         if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.3, code: i.buff || null, until: w.now + dur * 1000 });
       }
+      return { ok: true };
+    }
+    // ---- Stampede: beasts pouring through a spot for the ability's duration
+    //
+    // Nst1 Beasts Per Second, Nst2 Beast Collision Radius, Nst3 Damage Amount,
+    // Nst4 Damage Radius, Nst5 Damage Delay.  With no case it fell to the damage
+    // fallback, which spends slot 1 -- so Gaara's 유사폭류, a ten-second
+    // bombardment, dealt its FIVE BEASTS PER SECOND as five damage, once, and
+    // Kisame's 수둔-대 폭포술 dealt two.  The 25 and the 1000 they actually carry
+    // are in slot 3 and were read by nothing.
+    //
+    // Nst2 is the beasts' own collision radius, which matters only if the beasts
+    // are drawn as units; the map's own art does that and the engine's damage
+    // does not need it.
+    case 'ANst': {
+      const perSec = Math.max(0.1, slot(d1, 1));
+      const secs = i.duration || i.heroDuration || 0;
+      if (secs <= 0) return { ok: false, reason: 'no duration in the data' };
+      w.channel(caster, tx, ty, slot(d4, area || 200), slot(d3, 0),
+                Math.max(1, Math.round(perSec * secs)), 1 / perSec);
       return { ok: true };
     }
     // ---- caster AoE nuke (Fan of Knives, Cluster Rockets, Cyclone-likes)
@@ -453,10 +497,14 @@ export function execute(w, caster, ab, lvl, o = {}) {
       return { ok: true };
     }
     // ---- summons
-    case 'AUin': {                             // Inferno: summon + impact damage
+    // Inferno: Uin1 Damage, Uin2 Duration, Uin3 Impact Delay.  The summon's life
+    // is Uin2, not the ability's own Dur field -- five abilities here carry one
+    // and it was read by nothing, so every infernal on the map lived the 60
+    // seconds of our fallback instead of the 0.01 to 5 the map wrote.
+    case 'AUin': {
       for (const e of enemies(tx, ty, area || 200)) w.damage(caster, e, slot(d1, 50), { spell: true });
       // the map can re-skin what Inferno drops; its own UnitID says which
-      w.summon(caster, i.unit || 'ninf', tx, ty, dur || 60);
+      w.summon(caster, i.unit || 'ninf', tx, ty, slot(d2, dur || 60));
       return { ok: true };
     }
     // Omi1 Number of Images, Omi2 Damage Dealt (%), Omi3 Damage Taken (%).
@@ -519,10 +567,16 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'AEme': {
       return morphInto(w, caster, i, dur, d5 || 0);
     }
-    case 'ACro': case 'ANbr': {                // Roar-likes: friendly damage buff
+    // Roa1 Damage Increase, Roa2 Defense Increase, Roa3 Life Regeneration Rate.
+    // Only the first was read, so Byakuya's 섬경 천본앵경엄 handed out its 1000
+    // damage and dropped the 100 armour and 150 life a second beside it, and Rob
+    // Lucci's 『철괴』 -- which carries a zero damage increase and a hundred
+    // points of armour -- did nothing at all.
+    case 'ACro': case 'ANbr': {
       for (const a of w.alliesInRange(caster, caster.x, caster.y, area || 500))
         w.applyBuff(a, { kind: 'rage', pct: slot(d1, 25) / 100, code: i.buff || null,
-                        until: w.now + Math.max(5, dur) * 1000 });
+                         armor: slot(d2, 0), regen: slot(d3, 0),
+                         until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
     }
     // (AOsf -- Spirit Wolves -- used to sit in this group, which meant a spell

@@ -329,5 +329,92 @@ console.log('\n-- a mirror image is the hero\'s own life, with two multipliers')
   }
 }
 
+// ============================== 6. fields tools/unread_test.mjs found unread
+console.log('\n-- fields the map filled in that nothing was reading');
+{
+  const hero = world.createUnit(P(0), (GAME.heroes[0] || {}).id, 8000, 8000, 0);
+  const foe = (dx, dy) => {
+    const u = world.createUnit(P(6), 'hpea', 8000 + dx, 8000 + dy, 0);
+    if (!u) return null;
+    u.x = 8000 + dx; u.y = 8000 + dy; u.hp = u.maxHp = 1e9; u.armor = 0; u.hpReg = 0;
+    world.binTick = -1; world.rebuildBins();
+    return u;
+  };
+  if (hero) {
+    hero.x = 8000; hero.y = 8000;
+    // ACt2 is Thunder Clap's field set: 내려치기 carries damage AND two reductions
+    {
+      const L = (ABILS.A01B.levels || [])[0];
+      const t = foe(100, 0);
+      world.channels = [];
+      const hp0 = t ? t.hp : 0;
+      execute(world, hero, ABILS.A01B, 1, { x: hero.x, y: hero.y });
+      check('A01B 내려치기 deals its own 400, not the fallback\'s guess',
+            t && Math.abs((hp0 - t.hp) - L.data1) < 1, t ? String(Math.round(hp0 - t.hp)) : '-');
+      const b = t && (t.buffs || []).find((x) => x.kind === 'slow');
+      check('and it applies the 0.4 movement and 0.4 attack reduction it declares',
+            b && Math.abs(b.pct - 0.4) < 1e-9 && Math.abs(b.atkPct - 0.4) < 1e-9,
+            b ? `${b.pct} / ${b.atkPct}` : 'no slow');
+      if (t) t.alive = false;
+    }
+    // ANbf: the cone is Nbf3 long, not the order range
+    {
+      const L = (ABILS.A030.levels || [])[0];   // 검은 월아천충, Ichigo
+      check('A030 is a 600 cone ordered at 800', L.data3 === 600 && L.range === 800,
+            `${L.data3} vs ${L.range}`);
+      const near = foe(400, 0), far = foe(750, 0);
+      const n0 = near ? near.hp : 0, f0 = far ? far.hp : 0;
+      execute(world, hero, ABILS.A030, 1, { x: hero.x + 600, y: hero.y });
+      check('a unit inside Nbf3 is burned', near && near.hp < n0,
+            near ? String(Math.round(n0 - near.hp)) : '-');
+      check('a unit past Nbf3 but inside the order range is not',
+            far && far.hp === f0, far ? String(Math.round(f0 - far.hp)) : '-');
+      if (near) near.alive = false;
+      if (far) far.alive = false;
+    }
+    // ANst: Stampede's damage is Nst3, and Nst1 is how many arrive a second
+    {
+      const L = (ABILS.A03T.levels || [])[0];   // 유사폭류, Gaara
+      check('A03T carries 5 beasts a second and 25 damage over 10s',
+            L.data1 === 5 && L.data3 === 25 && L.duration === 10,
+            `${L.data1} / ${L.data3} / ${L.duration}`);
+      world.channels = [];
+      execute(world, hero, ABILS.A03T, 1, { x: hero.x + 200, y: hero.y });
+      const c = world.channels[0];
+      check('it queues 50 waves of 25, not one hit of 5',
+            c && c.left === 50 && c.perWave === 25, c ? `${c.left} x ${c.perWave}` : 'no channel');
+      check('and each lands in the Nst4 radius', c && c.radius === L.data4,
+            c ? `${c.radius} vs ${L.data4}` : '-');
+      world.channels = [];
+    }
+    // ANbr: Battle Roar's armour and regeneration, not just its damage
+    {
+      const L = (ABILS.A00C.levels || [])[0];   // 『철괴』, Rob Lucci
+      check('A00C carries a zero damage increase and 100 armour',
+            L.data1 === 0 && L.data2 === 100, `${L.data1} / ${L.data2}`);
+      hero.buffs = [];
+      const armor0 = hero.armorTotal;
+      execute(world, hero, ABILS.A00C, 1, {});
+      world.recalc(hero);
+      check('the roar that only grants armour now grants it',
+            hero.armorTotal >= armor0 + 100, `${Math.round(armor0)} -> ${Math.round(hero.armorTotal)}`);
+      hero.buffs = []; world.recalc(hero);
+    }
+    // AUin: the summon lives Uin2, not our 60
+    {
+      const L = (ABILS.A06K.levels || [])[0];   // 만해: 비비왕 사미환, Renji
+      check('A06K gives its summon a 3 second life in Uin2', L.data2 === 3, String(L.data2));
+      execute(world, hero, ABILS.A06K, 1, { x: hero.x + 200, y: hero.y });
+      const made = [...world.units.values()].filter((u) => u.alive && u.summonedBy === hero.id);
+      const s = made[made.length - 1];
+      check('and the summon expires on that, not on a minute of ours',
+            s && Math.abs((s.expireAt - world.now) - 3000) < 40,
+            s ? `${Math.round((s.expireAt - world.now) / 1000)}s` : 'nothing summoned');
+      for (const u of made) u.alive = false;
+    }
+    hero.alive = false;
+  }
+}
+
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) { for (const f of fails) console.log('  - ' + f); process.exit(1); }

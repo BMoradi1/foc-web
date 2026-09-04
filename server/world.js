@@ -673,7 +673,11 @@ export class World {
     u.xpMul = 1 + (ib.xpMul || 0) / 100;      // ExperienceMod items, as a percent
     for (const b of (u.buffs || [])) {
       if (b.until && b.until <= this.now) continue;
-      if (b.kind === 'armor') u.armorTotal += b.armor || 0;
+      // armour and life regeneration ride whichever buff carries them: an
+      // armour buff is the obvious one, and Battle Roar's Roa2/Roa3 put both on
+      // a rage buff.
+      u.armorTotal += b.armor || 0;
+      u.hpReg += b.regen || 0;
       if (b.kind === 'slow') u.moveSpeed *= 1 - b.pct;
       if (b.kind === 'slow' && b.atkPct) u.attackSpeedMul *= 1 - b.atkPct;
       if (b.kind === 'rage' || b.kind === 'morph') { u.dmg *= 1 + b.pct; }

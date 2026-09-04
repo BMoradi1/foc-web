@@ -1103,6 +1103,77 @@ GAMEPLAY / INPUT
 
     tools/carried_test.mjs, 57 checks.
 
+[x] Ask the other question: which fields does the engine never read?
+    (tools/unread_test.mjs)
+    slot_test asks whether a slot the engine READS means what the engine thinks.
+    This asks the question that has cost more -- a field the map filled in that
+    NOTHING reads. Every defect fixed on 2026-09-03 had that shape: Eme5's 3000
+    life, Htc3's slow, Omi2 and Omi3, Nms1 and Nms2. None was visible to any
+    check we had: ability_audit asks whether a case EXISTS, slot_test asks
+    whether the slots a case reads are named right, and a player sees the spell
+    go off either way.
+
+    It is worth saying why this is a test and not another sweep. Sweep 1 spent
+    about 5M subagent tokens to cover 13 of 26 heroes and hit a spend limit
+    before the other 13; this covers all 26 for nothing, and unlike a written
+    note it re-derives its answer from the map every run, so it cannot go stale.
+    Agents are worth spending on what it cannot see -- whether a map trigger
+    delivers a payload -- and one or two heroes at a time.
+
+    It found 53 abilities a player can reach declaring a field nothing read.
+    Six were worth fixing and are:
+
+      ACt2 -> AHtc     Sandaime's five 내려치기 ranks carry Thunder Clap's four
+                       slots in Thunder Clap's order -- Damage, Extra Damage To
+                       Target, Movement Speed Reduction, Attack Speed Reduction.
+                       With no case they fell to the damage fallback, which
+                       spends slot 1 and cannot see the other three, so a 0.2 to
+                       1.0 movement and attack reduction went unapplied at every
+                       rank.
+      ANbf             Breath of Fire carries Carrion Swarm's own four: Nbf2 Max
+                       Damage, Nbf3 Distance, Nbf4 Final Area. The cone read
+                       none of them, taking its length from the ORDER range and
+                       its spread from a flat 0.45 radians. Ichigo's 검은
+                       월아천충 is a 600 cone ordered at 800 and reached 800;
+                       InuYasha's 폭류파 is 800 ordered at 900. The spread now
+                       comes from the same two fields -- a cone `len` long
+                       ending `d4` wide subtends atan(d4/len), 34 degrees for
+                       Ichigo against the 26 this used for everything -- and
+                       Itachi's Nbf5 burn is dealt.
+      ANst             Stampede had no case at all, so Gaara's 유사폭류, a
+                       ten-second bombardment, dealt its FIVE BEASTS PER SECOND
+                       as five damage once, and Kisame's 수둔-대 폭포술 dealt
+                       two. The 25 and the 1000 they carry are in Nst3 and were
+                       read by nothing. Now Nst1 x the duration waves of Nst3 in
+                       the Nst4 radius.
+      ANbr / ACro      Roa2 Defense Increase and Roa3 Life Regeneration Rate
+                       were dropped. Byakuya's 섬경 천본앵경엄 handed out its
+                       1000 damage and not the 100 armour and 150 life a second
+                       beside it, and Rob Lucci's 『철괴』 -- zero damage
+                       increase, a hundred points of armour -- did nothing at
+                       all.
+      AUin             Uin2 is the summon's life and five abilities carry one,
+                       so every infernal lived the 60 seconds of our fallback
+                       instead of the 0.01 to 5 the map wrote.
+
+    The other 61 unread fields are written down one by one in
+    tools/unread_accepted.json with a reason each, the way slot_test's ACCEPTED
+    works: the test fails on anything not on that list, and the count only goes
+    down. Most are honest non-numbers -- Morphing Flags is a bit-flag, Graphic
+    Delay and Animation Delay are presentation, a Damage Interval of 0.001 is
+    below one tick at 30 Hz, and four Max Damage caps are set above any total
+    their spell can reach. The ones that are real gaps say so: Slow Poison has
+    no on-attack hook, Frenzy is unimplemented, windwalk is not modelled so
+    Alucard's backstab has nothing to trigger on, and Silence's "Attacks
+    Prevented" needs an attack-block buff the port does not have.
+
+    One is left deliberately unread. Apig's "Damage per Interval" names no
+    interval field of its own, and the immolation case next door reads the same
+    label as damage per SECOND. Across the 50 to 100 petals Byakuya releases,
+    200 a second and 200 over the ability's ten seconds are different spells by a
+    factor of ten, and nothing in the data settles which. Recorded rather than
+    guessed at.
+
 [ ] What the sweep's HIGH rows still leave open
     Three of them are not data-slot defects and are recorded rather than
     guessed at:
