@@ -80,11 +80,12 @@ The retail archives (`War3Patch.mpq`, `War3x.mpq`, `war3.mpq`, and the `*local` 
 have them) go next to the `.w3x`. They are read in Warcraft III's own priority order by
 `tools/gamedata.py`.
 
-Besides Python, the pipeline shells out to three things and fails loudly without them:
+Besides Python, the pipeline shells out to four things and fails loudly without them:
 
 | | |
 |---|---|
 | **ffmpeg**, built with libvorbis | 6 192 sounds → Ogg. Check with `ffmpeg -encoders \| grep vorbis` — an ffmpeg without it converts nothing. |
+| **fluidsynth 2.x** | the ambient themes are not clips: they are a MIDI score plus the DLS instrument bank it is played on, rendered once here. Without it they stay silent and nothing else is affected. |
 | **Node 20.11+** | the trigger prober, the portrait bake and every test |
 | **Chromium** | step 8 renders each hero's own model for the lobby. `CHROME=/path/to/chrome` if it is not on one of the usual paths (`tools/chrome.mjs` lists them). |
 
@@ -361,20 +362,23 @@ stub-native lists are the honest size of the new map's gap before anyone plays i
 | Presentation | Warcraft III's own console frame, minimap, blended terrain, animated water, stepped cliffs; the top strip carries the real resource bar and buttons, and the camera aims at the strip of screen the console leaves visible |
 | Floating text | the map's 48 text tags — the spell name shouted over its caster, the duel's 3-2-1-Fight, "Winner is `<hero>`", the lane signboards standing beside each base — plus the engine's own: the bounty gold over a body, the critical strike's damage, and "miss". Colour, drift, lifetime and fade are read from `UI/MiscData.txt`, the word from `GlobalStrings.fdf`, and the typeface is the game's own Friz Quadrata |
 | Camera and cinematics | the map's 39 scripted camera pans, each shown to the player it was aimed at; animation speed, so a haste or a channel plays at the rate the script asks for and the two units it freezes stay frozen; the full-screen cinematic wash an ultimate throws |
+| Music and ambience | the map's own score, a looping four-minute track it starts when a mode begins and stops itself when a team wins; and the ambient theme under it, which is not a clip at all — Warcraft III keeps it as a MIDI score plus the DLS instrument bank it is played on, so the pipeline renders the pair once with the game's own bank and ships ogg |
+| Day and night | the sun and ambient colours come from the two `DNC` models the map names, whose single light is animated across a sequence that *is* the day: warm at midnight, white from about 06:00 to 17:20. The fog is the map's own too — black from 3000 to 5000, where the renderer had been drawing its own blue from 4200 |
 | Multiplayer | two players in one room, opposing teams, own colours, seeing each other's moves, chat and dropped items |
 
 **Approximated or missing**
 
 | | |
 |---|---|
-| Dead spells | `tools/ability_audit.mjs` prints the live list — currently 13 abilities with no engine case, no map trigger and no data fallback (Mana Shield's absorption is the classic), plus the buff seams it checks alongside |
-| Stub natives | a native the engine has never heard of is reported; one that exists with an empty body is not, which is how the text tags stayed invisible while every test passed. `tools/stub_audit.mjs` walks the other way, ranking every empty-bodied native by how much of the map runs into it: 233 of 511 are stubs, 63 of them reached across 336 call sites, down from 71 and 442 as the camera, animation speed and cinematic filter were done |
+| Dead spells | `tools/ability_audit.mjs` prints the live list — currently 4 abilities with no engine case, no map trigger and no data fallback, all of them passives on summons, and the buff seams it checks alongside are down to none. A second check asks the harder question: `tools/unread_test.mjs` compares the slots each case reads against the slots the ability *declares*, over the whole roster, and every field the map filled in that nothing reads is either fixed or written down with a reason in `tools/unread_accepted.json` |
+| Stub natives | a native the engine has never heard of is reported; one that exists with an empty body is not, which is how the text tags stayed invisible while every test passed. `tools/stub_audit.mjs` walks the other way, ranking every empty-bodied native by how much of the map runs into it: 214 of 506 are stubs, 54 of them reached across 314 call sites, down from 244 and 442 as the camera, animation speed, cinematic filter, music, ambience and day/night light were done |
 | Ramp wedges | `CliffTrans` pieces are drawn as ordinary cliff walls, affecting the 20 cells flanking the two base ramps |
 | `ParticleEmitter1` | parsed, exported, and spawns its pieces, but has never been confirmed to put a pixel on screen |
 | Ribbon colour | a ribbon's colour and alpha over its life are not applied; its visibility track, and an emitter's visibility and emission rate, are |
 | Attack backswing | a swing resolves the moment it starts, though the missile it throws now takes time to arrive |
 | Pathing | A* over the map's real walkability grid, not Warcraft III's flow-field movement |
-| Not implemented | fog of war; the day/night cycle and its sky and fog tint; scripted music and ambience; `TerrainDeformRipple`, the cosmetic shockwave — the craters it sits beside do work |
+| The day/night clock | the light is the map's own, but the hour does not advance. How long a full day takes is in none of the files the archives supply, and the map never touches the clock, so the hour stays where a melee map starts rather than moving on a period invented here |
+| Not implemented | fog of war; the sky model that goes with the day/night light; `TerrainDeformRipple`, the cosmetic shockwave — the craters it sits beside do work |
 
 **Translation** — this map's text is Korean, and is now also carried in English by an
 LLM-written overlay, `data/translations.ko-en.json`, kept deliberately outside the extraction: every hero title, ability
