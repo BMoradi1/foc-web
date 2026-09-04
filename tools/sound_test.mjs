@@ -27,12 +27,26 @@ const check = (name, ok, detail = '') => {
 
 const w = new World(); const e = new JassEngine(w);
 e.load(); e.boot();
-const tick = (s) => { for (let i = 0; i < Math.round(s * 30); i++) { e.update(1000 / 30); w.step(); } };
+// The two queues are not the same queue, and this file was reading the wrong
+// one for melee. A sound the map's SCRIPT starts goes through the StartSound
+// native onto the engine's list; a sound the SIMULATION makes -- a weapon
+// landing -- is emitted by the world and comes back from w.step(). Reading only
+// the engine's is how "thirty seconds of swinging is silent" got written down.
+const worldEvents = [];
+const tick = (s) => {
+  for (let i = 0; i < Math.round(s * 30); i++) {
+    e.update(1000 / 30);
+    const ev = w.step();
+    if (ev && ev.length) worldEvents.push(...ev);
+  }
+};
 tick(2);
 
 const { caster, target } = testHeroes();
 const A = w.sellUnit(w.tavernFor(caster.id), e.players[0], caster.id);
-const B = w.sellUnit(w.tavernFor(target.id), e.players[5], target.id);
+// Player 6, not 5: this map allies 0-5 against 6-11, so a target on player 5 is
+// a TEAMMATE and the melee below was two heroes politely not hitting each other.
+const B = w.sellUnit(w.tavernFor(target.id), e.players[6], target.id);
 check('both heroes are seated', !!A && !!B, `${caster.id} / ${target.id}`);
 for (const a of caster.learnable) { w.addAbility(A, id2int(a)); w.setAbilityLevel(A, id2int(a), 3); }
 A.mana = A.maxMana = 9999;
@@ -72,12 +86,28 @@ check('at least one spell plays a sound the map imported', withSound.length > 0,
 // recorded in TODO.txt rather than failed here.
 console.log('\n-- the files behind the names');
 e.clientEvents.length = 0;
+worldEvents.length = 0;
 A.order = { type: 'attack', targetId: B.id };
 B.order = { type: 'attack', targetId: A.id };
 B.hp = B.maxHp = 5_000_000;
 tick(30);
-const melee = e.flushClientEvents().filter((x) => x.t === 'sound');
-console.log(`   melee over 30s: ${melee.length} sound events`);
+const melee = worldEvents.filter((x) => x.t === 'sound');
+const swings = worldEvents.filter((x) => x.t === 'attack').length;
+console.log(`   melee over 30s: ${swings} swings, ${melee.length} sound events`);
+// Warcraft III picks the impact from the ATTACKER's combat sound and the
+// material of what it hit -- MetalHeavyChopFlesh, WoodHeavyBashFlesh. The map
+// sets that field (ucs1) on 42 of its unit types and the extractor was reading
+// ua1w, the weapon's BEHAVIOUR, over the top of it, which left 16 of the 26
+// heroes with "normal" where a sound name belongs and no row to find.
+// Other things die within earshot while this runs -- a creep somewhere on the
+// map is a sound event too -- so the check is that the impacts are there and
+// are most of what is heard, not that nothing else makes a noise.
+const impacts = melee.filter((m) => /units\/combat\//.test(m.path));
+check('two heroes trading blows are not silent', impacts.length > 0,
+      `${impacts.length} impacts over ${swings} swings`);
+check('and the impact is a combat sound, not a voice line',
+      impacts.length > melee.length / 2,
+      `${impacts.length} of ${melee.length} sounds`);
 
 const uniq = [...new Set([...heard.flatMap(([, , p]) => p), ...melee.map((s) => s.path)])];
 // Guard against the shape of failure this file is named for: if nothing was

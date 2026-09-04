@@ -9,6 +9,7 @@ import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
          auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs,
          carriedImmolation } from './abilities.js';
+import { chatFor } from './chatalias.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const readJSON = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), 'utf8'));
@@ -1758,10 +1759,18 @@ export class World {
              range: L.range || 0, area: L.area || 0, name: a.name };
   }
 
-  /** Chat reaches the map's own mode/command triggers. */
+  /**
+   * Chat reaches the map's own mode/command triggers.
+   *
+   * A command whose Korean the map's protection destroyed is translated back to
+   * the literal the script actually registered, so a player can type the
+   * command the map documents rather than the run of underscores it survives
+   * as. See server/chatalias.js for which, and for the evidence.
+   */
   chat(playerHandle, text) {
     if (!this.jass) return;
-    this.jass.fire('chat', { player: playerHandle, chat: text, chatMatched: text });
+    const t = chatFor(text);
+    this.jass.fire('chat', { player: playerHandle, chat: t, chatMatched: t });
   }
 
   // ------------------------------------------------------------ JASS events

@@ -93,7 +93,17 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'ubdg': 'isBuilding', 'usid': 'sight', 'uacq': 'acquisitionRange', 'ufoo': 'food', 'umvh': 'flyHeight',
  'ua1m': 'missile', 'ua1z': 'missileSpeed', 'uma1': 'missileArc',
  'usnd': 'soundSet', 'utip': 'tip', 'utub': 'ubertip',
- 'usei': 'sellItems', 'useu': 'sellUnits', 'ua1g': 'atkTargetsAllowed', 'ua1w': 'weaponType', 'uabi': 'abilities',
+ 'usei': 'sellItems', 'useu': 'sellUnits', 'ua1g': 'atkTargetsAllowed', 'uabi': 'abilities',
+ # Two different fields, and this map writes both. UnitMetaData.slk settles
+ # which is which: ua1w is `weapTp1`, type weaponType -- normal / missile /
+ # artillery, how the weapon behaves -- and ucs1 is `weapType1`, type
+ # combatSound, which is the impact the game plays when the attack lands.
+ # Reading ua1w as the sound overwrote what the base unit inherited with the
+ # word "normal", and 'normalFlesh' is not a row in UnitCombatSounds.slk, so
+ # every hero the map touched fell silent on contact. The map sets a real
+ # combat sound on 42 of its unit types: WoodHeavyBash on 16, MetalHeavyChop
+ # on 11, MetalHeavySlice on 4.
+ 'ucs1': 'weaponType', 'ua1w': 'weaponKind',
  # Required Animation Names.  Only the *.UnitFunc.txt side of this was read, so
  # a map that set the field itself lost it -- which is how Ichigo's Bankai form
  # went unnoticed: O000 is the same ichigo3.mdl asking for "alternateex", and
@@ -170,7 +180,8 @@ def apply_mods(t, mods):
         if f in ('abilities', 'heroAbilities', 'sellItems', 'sellUnits'):
             t[f] = [x.strip() for x in str(v).split(',') if x.strip() and x.strip() != '_']
         elif f in ('name', 'properName', 'suffix', 'model', 'icon', 'race', 'armorType', 'primary',
-                   'atkType', 'missile', 'soundSet', 'tip', 'ubertip', 'weaponType', 'uberSplat',
+                   'atkType', 'missile', 'soundSet', 'tip', 'ubertip', 'weaponType', 'weaponKind',
+                   'uberSplat',
                    'animProps',
                    'atkTargetsAllowed'):
             t[f] = v

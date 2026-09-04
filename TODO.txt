@@ -1678,7 +1678,8 @@ TESTS AND THE END-TO-END HALF
         which the first cast then reports as millions of damage. Top the target
         up to its own maximum between casts instead.
 
-[ ] The script's every non-ASCII byte was replaced with '_'
+[~] The script's every non-ASCII byte was replaced with '_'  (COMMANDS
+    RECOVERED, MESSAGES NOT)
     extracted/war3map.j contains ZERO bytes above 127 across 446098 bytes, and
     8209 underscores. extracted/war3map.wts, from the same map, contains
     151736. So it is the .j specifically: the string table kept its Korean and
@@ -1702,21 +1703,67 @@ TESTS AND THE END-TO-END HALF
     parse as JASS at all. So the stripping was done to the map before we ever
     saw it, by whatever protected it, and re-extracting cannot bring the text
     back.
-    That leaves two routes, neither of them extraction: recover each literal by
-    matching its underscore run and surviving punctuation against war3map.wts,
-    which did keep its 151736 high bytes, or write the strings by hand into the
-    translation overlay compile_game.py already has. The chat commands '-____'
-    and '-__' are the part worth doing first either way, because no player can
-    type them and both are game modes.
+    RESOLVED IN PART 2026-09-03. The commands are recovered; the messages are
+    not, and now there is a measurement saying why rather than a plan.
 
-[ ] Melee produces no sound
-    unitSound(u, 'hit') at server/world.js:1904 returns nothing for the
-    heroes, so thirty seconds of two heroes attacking each other emits 0 sound
-    events. Spell sounds are fine -- 3 of 5 of the test hero's spells play an
-    imported mp3, and every file they name is on disk and non-empty.
-    Not yet established whether the map supplies soundsets for its custom hero
-    models at all, so this is recorded rather than diagnosed.
-    tools/sound_test.mjs measures it and deliberately does not fail on it.
+    The commands. The old note said "no player can type them", which is wrong --
+    `-__` is three ASCII characters and anyone can type it; the problem is that
+    nobody would ever guess to. They are recoverable because the map documents
+    them in its OWN quest text, which lives in war3map.wts and kept its Korean.
+    STRING 9563 lists four commands, and the protection replaced one underscore
+    per CHARACTER rather than per byte, which the counts prove: `-__` is two and
+    `-____` is four. That alone names '-조합', the only two-character command.
+    Three candidates remain for the four-character one and what the trigger DOES
+    decides it: `-____` is registered to Player(0) alone and its action destroys
+    the duel's timer dialog, re-enables the triggers the duel switched off and
+    unpauses everything, against a quest line reading "if RED types -듀얼제거,
+    the duel is removed". `-__` displays TRIGSTR_8680, the item combination
+    list, against "type -조합 and the combination list appears".
+    server/chatalias.js carries the two with that evidence, and world.chat
+    translates a typed command back to the literal the script registered. The
+    mangled forms still work for anyone who knows them. It is in source rather
+    than in data/, which is gitignored and regenerated.
+    The other two commands the quest text lists are not registered by this
+    version of the script at all.
+
+    The messages are gone. The obvious recovery is to match each destroyed
+    literal's skeleton -- every character above ASCII as one underscore, all
+    punctuation and colour codes kept -- against the string table, which did keep
+    its Korean. Measured: of the 20 destroyed literals, 3 have ANY string in the
+    table with the same skeleton and 0 have exactly one. The table holds object
+    data and quest text, not the messages a trigger prints, so there is nothing
+    in the archives to recover them from. Someone who has the text would have to
+    supply it. tools/chat_test.mjs asserts all of the above, including that the
+    skeleton match still recovers none, so the day it does the test says so.
+
+[x] Melee produces no sound  (FIXED)
+    Two separate faults, and the note above had both of them wrong. It guessed
+    the map might not supply soundsets for its custom heroes; it does, and the
+    real causes were elsewhere.
+
+    THE DATA. Warcraft III takes a weapon's impact from the ATTACKER's combat
+    sound and the material of what it hit -- MetalHeavyChopFlesh,
+    WoodHeavyBashFlesh -- out of UI\SoundInfo\UnitCombatSounds.slk.
+    UnitMetaData.slk settles which w3u field carries it: ucs1 is `weapType1`,
+    type combatSound. tools/unittypes.py was mapping ua1w instead, which is
+    `weapTp1`, type weaponType -- normal / missile / artillery, how the weapon
+    BEHAVES. So the map's own combat sound was overwritten by the word "normal",
+    and there is no 'normalFlesh' row to find.
+    The map sets a real combat sound on 42 of its unit types: WoodHeavyBash on
+    16, MetalHeavyChop on 11, MetalHeavySlice on 4, MetalHeavyBash on 2. Reading
+    the right field takes the heroes with no impact sound from 16 of 26 to 3,
+    and the three that remain carry '_' in both the map and the base, which is
+    Warcraft III's way of saying a unit has no impact sound.
+
+    THE TEST. It could never have seen this either way. A sound the map's SCRIPT
+    starts goes through the StartSound native onto the ENGINE's event list; a
+    sound the SIMULATION makes -- a weapon landing -- is emitted by the world and
+    comes back from w.step(). sound_test read only the engine's, so "thirty
+    seconds of swinging is silent" was measured on a queue those events never
+    reach. It reads the right one now and asserts on it rather than reporting:
+    133 swings and 110 impacts over thirty seconds, all of them from
+    sounds/units/combat/. Its two heroes were also on players 0 and 5, which
+    this map allies together.
 
 ABILITY DATA SLOTS
 ------------------
