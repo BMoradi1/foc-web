@@ -180,10 +180,16 @@ export class Renderer {
     this.splatField = null;        // ground splats, see splats.js
     this.bolts = [];               // lightning in flight, see lightning.js
 
-    this.scene.add(new THREE.HemisphereLight(0xa9c2e8, 0x2a2620, 1.15));
+    // A starting light, replaced the moment the map calls SetDayNightModels:
+    // the two DNC models it names carry the real sun and ambient colours, hour
+    // by hour, and these three numbers are ours.
+    this.hemi = new THREE.HemisphereLight(0xa9c2e8, 0x2a2620, 1.15);
+    this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xfff0d8, 1.15);
     sun.position.set(-800, 1600, 900);
     this.scene.add(sun);
+    this.sun = sun;
+    this.dncHour = 12;
 
     this.loader = new GLTFLoader();
     this.loader.setResourcePath('/assets/');   // glTF image URIs are asset-root relative
@@ -1941,6 +1947,53 @@ export class Renderer {
    * 3000 to 5000, and the renderer had been drawing 0x0b1018 from 4200 to 9000
    * because nothing told it otherwise.
    */
+  /**
+   * The day/night light, from the model SetDayNightModels named.
+   *
+   * `curves` is data/daynight.json: KLAC as the sun's colour and KLBC as the
+   * ambient, keyed by hour across the model's own sequence, with the light's
+   * own intensities beside them. Only the colours move -- the light's rotation
+   * is one static key in the model and the axis convention that would turn it
+   * into a world direction is not stated there, so the sun keeps the position
+   * it already had.
+   */
+  setDayNight(curves, ev) {
+    this.dncCurves = curves || this.dncCurves;
+    if (ev) {
+      this.dncTerrain = ev.terrain || this.dncTerrain;
+      this.dncUnit = ev.unit || this.dncUnit;
+      if (ev.hour != null) this.dncHour = ev.hour;
+    }
+    this.applyDayNight();
+  }
+  setTimeOfDay(hour) { this.dncHour = hour; this.applyDayNight(); }
+  applyDayNight() {
+    const c = this.dncCurves && this.dncCurves[this.dncTerrain];
+    if (!c || !this.sun) return;
+    const at = (keys) => {
+      if (!keys || !keys.length) return null;
+      const h = Math.max(0, Math.min(24, this.dncHour ?? 12));
+      let a = keys[0], b = keys[keys.length - 1];
+      for (let i = 0; i < keys.length - 1; i++) {
+        if (h >= keys[i][0] && h <= keys[i + 1][0]) { a = keys[i]; b = keys[i + 1]; break; }
+      }
+      const span = b[0] - a[0];
+      const k = span > 0 ? (h - a[0]) / span : 0;
+      return [a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k];
+    };
+    const sunCol = at(c.color);
+    if (sunCol) { this.sun.color.setRGB(sunCol[0], sunCol[1], sunCol[2]); this.sun.intensity = c.intensity ?? 1.3; }
+    // the unit model carries its own ambient strength; the terrain one lights
+    // the ground, and the hemisphere here stands in for both
+    const amb = at(c.ambient);
+    if (amb && this.hemi) {
+      this.hemi.color.setRGB(amb[0], amb[1], amb[2]);
+      const uc = this.dncCurves[this.dncUnit];
+      this.hemi.intensity = (c.ambIntensity ?? 0.2) + ((uc && uc.ambIntensity) || 0);
+      this.hemi.groundColor.setRGB(amb[0] * 0.35, amb[1] * 0.35, amb[2] * 0.3);
+    }
+  }
+
   setFog(o) {
     if (!o || o.reset) {
       this.scene.fog = new THREE.Fog(0x0b1018, 4200, 9000);

@@ -243,6 +243,19 @@ export class JassEngine {
   fxSeq = 0;
   ttSeq = 0;
   sndSeq = 0;          // so StopSound can name the sound it is stopping
+  /**
+   * The world's standing look and sound: the fog, the music list, the day/night
+   * models and the hour.  All four are set once during config() and main(), so
+   * a client that connects after that -- a reconnect, or a second window --
+   * would never hear about them.  They are scenery in exactly the way the
+   * permanent text tags are, and are replayed the same way.
+   */
+  atmosphere = {};
+  /** The events that put a fresh client's world into the state the map set. */
+  atmosphereEvents() {
+    const a = this.atmosphere;
+    return [a.daynight, a.fog, a.music, a.tod].filter(Boolean);
+  }
   // The permanent tags, kept so a client that connects after they were made
   // still gets the scenery. A tag with a lifespan is dropped as soon as it has
   // been sent -- the client owns the whole of its short life.
@@ -1094,8 +1107,10 @@ function installNatives(vm, eng) {
       const list = /^music$/i.test(String(name || '')) ? musicList()
                                                        : [soundKey(name)].filter(Boolean);
       if (!list.length) return;
-      eng.emit({ t: 'music', set: true, list, random: !!random,
-                 index: Math.max(0, Math.min(list.length - 1, index | 0)) });
+      const ev = { t: 'music', set: true, list, random: !!random,
+                   index: Math.max(0, Math.min(list.length - 1, index | 0)) };
+      eng.atmosphere.music = ev;
+      eng.emit(ev);
     },
     PlayMusic: (name) => {
       const f = soundKey(name);
@@ -1187,23 +1202,56 @@ function installNatives(vm, eng) {
     ForceUIKey: () => {}, ForceUICancel: () => {},
     ClearSelection: () => {}, SelectUnit: () => {},
     SetUnitSelectionScale: () => {},
-    SetDayNightModels: () => {},
+    // The two DNC models are not scenery: each holds one light, FDirectSun,
+    // whose colour and ambient colour are animated across a sequence that IS
+    // the day.  tools/daynight.py carries those curves into data/daynight.json;
+    // the renderer had been lighting the world with three constants of its own.
+    SetDayNightModels: (terrain, unit) => {
+      // data/daynight.json is keyed by the path the script names, lower-cased
+      // with backslashes and no extension
+      const key = (p) => String(p || '').replace(/\//g, '\\')
+        .replace(/\.[^.\\]*$/, '').toLowerCase();
+      const ev = { t: 'daynight', terrain: key(terrain), unit: key(unit),
+                   hour: eng.todHour ?? 12 };
+      eng.atmosphere.daynight = ev;
+      eng.emit(ev);
+    },
+    // Warcraft III's clock. The map never touches it -- 0 calls to
+    // SetTimeOfDay, SuspendTimeOfDay, SetTimeOfDayScale or GetTimeOfDay in the
+    // whole script -- and it does not advance here, because how long a full day
+    // takes is not in any file the archives gave us: it is not in MiscGame.txt,
+    // not in MiscData.txt, and the DNC sequence's own 60 seconds is the length
+    // of the ANIMATION rather than of the day. So the hour stays where Warcraft
+    // III starts a melee map and the light is sampled there, which is a figure
+    // from the map's own model rather than a colour of ours. A map that does
+    // drive the clock will find these working.
+    SetTimeOfDay: (h) => {
+      eng.todHour = Math.max(0, Math.min(24, +h || 0));
+      eng.atmosphere.tod = { t: 'tod', hour: eng.todHour };
+      eng.emit(eng.atmosphere.tod);
+    },
+    SetTimeOfDayScale: (f) => { eng.todScale = Math.max(0, +f || 0); },
+    GetTimeOfDayScale: () => (eng.todScale === undefined ? 1 : eng.todScale),
+    SuspendTimeOfDay: (b) => { eng.todSuspended = !!b; },
     // SetTerrainFogEx(style, zstart, zend, density, r, g, b).  The client had a
     // fog of its own -- 0x0b1018 from 4200 to 9000 -- and this map asks for
     // black from 3000 to 5000, so the constant was both the wrong colour and
     // the wrong distance.  Style and density are carried but not yet drawn:
     // style picks linear against exponential falloff, which three.js has, and
     // density only applies to the exponential ones.
-    SetTerrainFogEx: (style, zstart, zend, density, r, g, b) => eng.emit({
-      t: 'fog', style: style | 0, start: +zstart || 0, end: +zend || 0,
-      density: +density || 0,
-      color: [Math.round((+r || 0) * 255), Math.round((+g || 0) * 255),
-              Math.round((+b || 0) * 255)],
-    }),
-    ResetTerrainFog: () => eng.emit({ t: 'fog', reset: true }),
-    SetSkyModel: () => {}, SetTimeOfDay: () => {}, GetTimeOfDay: () => 12,
-    SetTimeOfDayScale: () => {}, GetTimeOfDayScale: () => 1,
-    SuspendTimeOfDay: () => {},
+    SetTerrainFogEx: (style, zstart, zend, density, r, g, b) => {
+      const ev = { t: 'fog', style: style | 0, start: +zstart || 0, end: +zend || 0,
+                   density: +density || 0,
+                   color: [Math.round((+r || 0) * 255), Math.round((+g || 0) * 255),
+                           Math.round((+b || 0) * 255)] };
+      eng.atmosphere.fog = ev;
+      eng.emit(ev);
+    },
+    ResetTerrainFog: () => {
+      eng.atmosphere.fog = { t: 'fog', reset: true };
+      eng.emit(eng.atmosphere.fog);
+    },
+    SetSkyModel: () => {}, GetTimeOfDay: () => (eng.todHour === undefined ? 12 : eng.todHour),
     CreateFogModifierRect: () => H('fogmodifier', {}),
     CreateFogModifierRadius: () => H('fogmodifier', {}),
     CreateFogModifierRadiusLoc: () => H('fogmodifier', {}),

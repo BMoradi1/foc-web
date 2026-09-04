@@ -100,6 +100,66 @@ console.log('\n-- SetTerrainFogEx gives the renderer the map\'s own fog');
         f && f.color && f.color.every((c) => c === 0), f ? JSON.stringify(f.color) : '-');
 }
 
+// ------------------------------------------------------------- day and night
+console.log('\n-- SetDayNightModels lights the world from the map\'s own model');
+{
+  const curves = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/daynight.json'), 'utf8'));
+  check('the DNC curves are compiled', Object.keys(curves).length >= 4,
+        `${Object.keys(curves).length} models`);
+  const ev = seen.find((e) => e.t === 'daynight');
+  check('the map names its day/night models', !!ev, JSON.stringify(ev || {}));
+  check('and the terrain model it names has a curve',
+        ev && !!curves[ev.terrain], ev ? ev.terrain : '-');
+  check('and so does the unit model', ev && !!curves[ev.unit], ev ? ev.unit : '-');
+  const c = ev && curves[ev.terrain];
+  check('the curve is the light\'s own colour track, not one key',
+        c && c.color.length >= 8 && c.ambient.length >= 8,
+        c ? `${c.color.length} / ${c.ambient.length}` : '-');
+  // hour 0 is night and hour 12 is day, which is the check that the sequence
+  // was mapped onto the day the right way round
+  if (c) {
+    const at = (h) => {
+      let a = c.color[0], b = c.color[c.color.length - 1];
+      for (let i = 0; i < c.color.length - 1; i++)
+        if (h >= c.color[i][0] && h <= c.color[i + 1][0]) { a = c.color[i]; b = c.color[i + 1]; break; }
+      const span = b[0] - a[0], k = span > 0 ? (h - a[0]) / span : 0;
+      return [1, 2, 3].map((j) => a[j] + (b[j] - a[j]) * k);
+    };
+    const night = at(0), noon = at(12);
+    check('midnight is darker than noon', night[2] < noon[2],
+          `${night.map((v) => v.toFixed(2))} vs ${noon.map((v) => v.toFixed(2))}`);
+    check('and midnight is warm rather than white', night[0] - night[2] > 0.2,
+          `${night.map((v) => v.toFixed(2))}`);
+    check('noon is near white', noon.every((v) => v > 0.9), `${noon.map((v) => v.toFixed(2))}`);
+  }
+  // the clock: the map never touches it, so it stays where a melee map starts
+  // the natives themselves, not through the VM: vm.call returns a generator
+  // because a JASS thread can sleep mid-call
+  const nat = eng.vm.natives;
+  check('GetTimeOfDay answers a real hour', nat.get('GetTimeOfDay')() === 12,
+        String(nat.get('GetTimeOfDay')()));
+  nat.get('SetTimeOfDay')(7.5);
+  check('SetTimeOfDay moves it', nat.get('GetTimeOfDay')() === 7.5,
+        String(nat.get('GetTimeOfDay')()));
+  check('SuspendTimeOfDay and the scale are real too',
+        (nat.get('SetTimeOfDayScale')(0.5), nat.get('GetTimeOfDayScale')() === 0.5),
+        String(nat.get('GetTimeOfDayScale')()));
+  nat.get('SetTimeOfDay')(12);
+  nat.get('SetTimeOfDayScale')(1);
+}
+
+// ------------------------------------------------ a client that joins late
+console.log('\n-- the standing atmosphere is replayed to a client that joins late');
+{
+  const ev = eng.atmosphereEvents();
+  const kinds = new Set(ev.map((e) => e.t));
+  check('it carries the fog', kinds.has('fog'), [...kinds].join(','));
+  check('it carries the music list', kinds.has('music'), [...kinds].join(','));
+  check('it carries the day/night models', kinds.has('daynight'), [...kinds].join(','));
+  check('and none of it is a one-shot event', ev.every((e) => e && e.t),
+        String(ev.length));
+}
+
 // ------------------------------------------- three that are not cosmetic
 console.log('\n-- and three the audit called "not cosmetic, worth a look"');
 {

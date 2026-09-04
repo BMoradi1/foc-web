@@ -362,6 +362,9 @@ function handleEvent(ev) {
     // SetTerrainFogEx: the map's own fog colour and distances, in place of the
     // ones the renderer used to pick for itself
     case 'fog': view.setFog(ev); break;
+    // SetDayNightModels: the map's own sun and ambient colours, hour by hour
+    case 'daynight': view.setDayNight(dayNightCurves, ev); break;
+    case 'tod': view.setTimeOfDay(ev.hour); break;
     case 'sound': {
       // the map's own PlaySoundBJ / PlaySoundAtPointBJ / PlaySoundOnUnitBJ
       let x = ev.x, y = ev.y;
@@ -398,11 +401,15 @@ function stepRings(dt) {
 }
 let flashT = 0;
 function flash() { flashT = 0.25; }
+// data/daynight.json, loaded at boot and handed to the renderer when the map
+// names which of the models it wants
+let dayNightCurves = {};
 
 // ---------------------------------------------------------------------- boot
 async function boot(m) {
   const [terr, heightsBuf, doodads, dests, unitModels, ubersplats,
-         splatTable, spawnTable, animSounds, boltTable, uiSounds, buffArt] = await Promise.all([
+         splatTable, spawnTable, animSounds, boltTable, uiSounds, buffArt,
+         dncCurves] = await Promise.all([
     fetch('/data/terrain.json').then((r) => r.json()),
     fetch('/data/heights.bin').then((r) => r.arrayBuffer()),
     fetch('/data/doodads.json').then((r) => r.json()),
@@ -422,9 +429,15 @@ async function boot(m) {
     fetch('/data/uisounds.json').then((r) => r.json()).catch(() => ({})),
     // the model a buff hangs on a unit, and the point it hangs from
     fetch('/data/buffart.json').then((r) => r.json()).catch(() => ({})),
+    // the sun and ambient colours of Warcraft III's own day/night models, so
+    // SetDayNightModels has something to name
+    fetch('/data/daynight.json').then((r) => r.json()).catch(() => ({})),
   ]);
   S.uiSounds = uiSounds;
   S.buffArt = buffArt;
+  dayNightCurves = dncCurves;
+  // the map may have named its models before this finished loading
+  view.setDayNight(dayNightCurves, null);
   // Warcraft III's console frame, from its own ConsoleUI.fdf, with our panels
   // moved into the openings the art leaves for them.
   fetch('/data/console.json').then((r) => r.json()).then((spec) => {

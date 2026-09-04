@@ -1294,17 +1294,76 @@ GAMEPLAY / INPUT
                               linear against exponential falloff, and density
                               only applies to the exponential ones.
 
+      SetDayNightModels       2, and they are not scenery. Each of the two MDX
+                              files holds ONE light, FDirectSun, whose colour
+                              (KLAC, 8 keys) and ambient colour (KLBC, 9) are
+                              animated across a sequence that IS the day --
+                              333 to 60333 ms mapping onto 0 to 24 hours. Warm
+                              orange at midnight (0.80, 0.53, 0.31), white from
+                              about 06:00 to 17:20, back to orange by 24:00.
+                              render.js had been lighting the whole world with
+                              three numbers of its own: a hemisphere at
+                              0xa9c2e8/0x2a2620 and a directional at 0xfff0d8,
+                              all at intensity 1.15.
+                              tools/daynight.py carries the curves for all four
+                              DNC models into data/daynight.json. Only the
+                              colours and the two intensities are taken: the
+                              light's rotation is a single static key and the
+                              axis convention that would turn that quaternion
+                              into a world direction is not stated in the file,
+                              so the sun keeps the position it had.
+                              The CLOCK does not advance, and that is deliberate.
+                              How long a full day takes is in none of the files
+                              the archives gave us -- not MiscGame.txt, not
+                              MiscData.txt -- and the DNC sequence's own 60
+                              seconds is the length of the animation, not of the
+                              day. The map never touches the clock either: zero
+                              calls to SetTimeOfDay, SuspendTimeOfDay,
+                              SetTimeOfDayScale or GetTimeOfDay in the whole
+                              script. So the hour stays where Warcraft III starts
+                              a melee map and the light is sampled there, which
+                              is a figure out of the map's own model rather than
+                              a colour of ours. SetTimeOfDay, SetTimeOfDayScale,
+                              GetTimeOfDayScale and SuspendTimeOfDay are real
+                              now, so a map that does drive the clock works.
+      the late-joiner gap     Found while doing the above and worth its own line.
+                              The fog, the music list and the day/night models
+                              are all set once inside config() and main(), and a
+                              client that connects after that -- a reconnect, a
+                              second window -- got none of them, so it was lit
+                              and fogged by the renderer's constants while
+                              everyone else was not. They are scenery in exactly
+                              the way the permanent text tags are, and are now
+                              replayed alongside them.
+
+    NOT PORTABLE -- established 2026-09-03, do not spend an evening on it:
+      the ambient themes      SetAmbientDaySound("CityScapeDay") and
+        SetAmbientNightSound  SetAmbientNightSound("CityScapeNight"), 2 sites
+                              each. The labels are not rows in
+                              AmbienceSounds.slk. They are rows in
+                              UI\SoundInfo\MIDISounds.slk, whose columns are
+                              MIDIFileName and DLSFileName: CityScapeDay.mid
+                              against CityScape.dls, under Sound\Ambient\
+                              CityScape. Warcraft III renders those through a
+                              DirectMusic soundbank, which a browser cannot do --
+                              and the question does not even arise here, because
+                              the archives contain no .mid and no .dls at all.
+                              `find war3_extracted -iname '*.mid' -o -iname
+                              '*.dls'` returns nothing, and the converted sound
+                              index has zero .mid entries of 6192. There is
+                              nothing to play and nothing to convert.
+                              NewSoundEnvironment("Default") is the EAX reverb
+                              preset that goes with them and is the same story.
+
     Player-visible, still open:
-      SetDayNightModels 2      the sky and day/night light models, set once per
-                               team base. The fog half of this pair is done.
-      ambience                 NewSoundEnvironment 2, SetSoundParamsFromLabel 3,
-                               VolumeGroupSetVolume 6, SetAmbientDay/NightSound
-                               4. CityScapeDay and CityScapeNight are not rows in
-                               AmbienceSounds.slk, so the labels resolve
-                               somewhere else and that is the first thing to
-                               establish.
       ClearSelection/SelectUnit 4 each, via SelectUnitForPlayerSingle. The
                                auto-reselect after an event.
+      SetSoundParamsFromLabel  3. The three handles already carry their paths
+                               from CreateSound, so the label would only add the
+                               row's volume and pitch. Small.
+      VolumeGroupSetVolume     6, all from CustomVictoryBJ and CustomDefeatBJ,
+                               which duck the world at the end of a match. There
+                               is no volume-group model here to duck.
       TerrainDeformRipple      2, via TerrainDeformationRippleBJ. The crater
                                half of this is done; the ripple is not.
       cinematic framing        ShowInterface 2, EnableUserControl 6,

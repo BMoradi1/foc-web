@@ -222,6 +222,42 @@ check('a locust dummy has no mesh', out.dummyExists && out.dummyHasMesh === 0,
 check('and cannot be clicked', out.pickedDummy === null,
       out.pickedDummy === null ? '' : `picked ${out.pickedDummy}`);
 
+// ---------------------------------------------------- the day/night light
+//
+// The renderer's own three constants were lighting the world. Read the sun and
+// the ambient back off the scene after the map's model is applied, because a
+// curve that is compiled correctly and never reaches a light is exactly the
+// failure a data-only check would pass.
+const dnc = await page.evaluate(async () => {
+  const view = window.view;
+  const curves = await fetch('/data/daynight.json').then((r) => r.json()).catch(() => ({}));
+  const key = 'environment\\dnc\\dnclordaeron\\dnclordaeronterrain\\dnclordaeronterrain';
+  const unit = 'environment\\dnc\\dnclordaeron\\dnclordaeronunit\\dnclordaeronunit';
+  if (!view.setDayNight || !curves[key]) return { missing: true };
+  const before = view.sun.color.getHex();
+  view.setDayNight(curves, { terrain: key, unit, hour: 12 });
+  const noon = { sun: view.sun.color.getHex(), amb: view.hemi.color.getHex(),
+                 i: +view.sun.intensity.toFixed(3) };
+  view.setTimeOfDay(0);
+  const night = { sun: view.sun.color.getHex(), amb: view.hemi.color.getHex() };
+  view.setTimeOfDay(12);
+  return { before, noon, night };
+});
+check('the day/night curves reach the renderer', !dnc.missing,
+      dnc.missing ? 'no curve or no setDayNight' : '');
+if (!dnc.missing) {
+  check('the sun stops being the renderer\'s own 0xfff0d8',
+        dnc.before === 0xfff0d8 && dnc.noon.sun !== 0xfff0d8,
+        `${dnc.before.toString(16)} -> ${dnc.noon.sun.toString(16)}`);
+  check('noon is brighter than midnight on the same light',
+        (dnc.noon.sun & 0xff) > (dnc.night.sun & 0xff),
+        `noon ${dnc.noon.sun.toString(16)} vs night ${dnc.night.sun.toString(16)}`);
+  check('and the ambient moves with it', dnc.noon.amb !== dnc.night.amb,
+        `${dnc.noon.amb.toString(16)} vs ${dnc.night.amb.toString(16)}`);
+  check('the sun takes the model\'s own intensity', Math.abs(dnc.noon.i - 1.3) < 1e-6,
+        String(dnc.noon.i));
+}
+
 check('no console errors', errs.length === 0, errs.slice(0, 2).join(' | '));
 
 const passed = results.filter((r) => r.pass).length;

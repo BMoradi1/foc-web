@@ -15,6 +15,8 @@ $PY tools/objdata.py extracted/war3map.w3u extracted/war3map.w3t \
                      extracted/war3map.w3a extracted/war3map.w3h extracted/war3map.w3q
 $PY tools/terrain.py
 $PY tools/jass_fmt.py
+# the day/night light curves, out of Warcraft III's own DNC models
+$PY tools/daynight.py
 
 echo "== 3. Warcraft III archives (patch > expansion > base)"
 $PY tools/gamedata.py

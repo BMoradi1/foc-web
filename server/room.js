@@ -488,8 +488,13 @@ export class Room {
         for (const p of this.players.values()) {
           if (!p.ws || p.tagsSent) continue;
           p.tagsSent = true;
-          const tags = this.eng.liveTags();
-          if (tags.length) this.send(p.ws, { t: Msg.EVENT, ev: tags });
+          // The fog, the music list and the day/night models are set once
+          // during config() and main(), so a client that was not connected then
+          // -- a reconnect, or a second window -- would have a world lit and
+          // fogged by the renderer's own constants. They are scenery in exactly
+          // the way the tags are, and go out with them.
+          const ev = [...this.eng.atmosphereEvents(), ...this.eng.liveTags()];
+          if (ev.length) this.send(p.ws, { t: Msg.EVENT, ev });
         }
       }
     } catch (e) {
