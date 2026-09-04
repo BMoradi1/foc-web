@@ -163,9 +163,29 @@ EFFECTS (cont.)
     XYQuad                              carried by every emitter and set by NONE
         of the 2493, so there is nothing to implement.
 
-    attStart on an omni light           116 lights carry an attenuation start
-        that nothing reads, so a light falls off from its centre instead of from
-        the edge of its bright core. Small, and not done.
+    attStart on an omni light -- MEASURED AND NOT A DEFECT
+        114 of the 116 lights carry an attenuation start and nothing reads it,
+        which is true and turns out not to matter. Warcraft III holds a light at
+        full brightness to attStart and then falls linearly to zero at attEnd;
+        three.js gives a point light two knobs, distance and decay, and the
+        curve itself is fixed in the shader every lit material uses. With decay
+        at 0 that curve is (1 - (d/D)^4)^2, which is flat near the centre and
+        rolls off toward D -- the same shape, by luck rather than design.
+        Fitted against Warcraft III's curve for the 80/200 shape that 114 of the
+        116 lights carry:
+              d=80   (attStart)   wc3 1.000   ours 0.949
+              d=120               wc3 0.667   ours 0.758
+              d=160               wc3 0.333   ours 0.349
+              d=190               wc3 0.083   ours 0.034
+        Worst disagreement anywhere is 0.093 of full brightness, rms 0.046.
+        Refitting the one knob available moves D from 200 to 197 and improves
+        the worst case to 0.077 -- a 1.5% change in radius, not worth making.
+        An exact match needs our own light model, which means our own shader for
+        every lit material. Recorded so this is not reopened.
+        The thing in this area actually worth measuring is the POOL: it holds
+        eight slots and an effect that finds it full goes unlit. On a map where
+        a dozen effects appear a second that is a likelier cause of a missing
+        light than the falloff curve. Not measured yet.
 
     tools/render_test.mjs, 26 checks, four of them new here -- read off the real
     materials and the real index buffer in a browser, because a uniform that is
