@@ -941,6 +941,7 @@ export class World {
     if (numericOrder && this.castDummy(u, { target: o.target, x: o.x, y: o.y })) return true;
     const name = typeof o.type === 'string' ? o.type : String(o.type);
     if (/stop|halt/i.test(name)) { u.order = { type: 'idle' }; u.path = null; return true; }
+    if (name === 'hold') { u.order = { type: 'hold' }; u.path = null; return true; }
     if (o.target) {
       u.order = { type: 'attack', targetId: o.target.id };
       // a gate is 896 units across and its middle is inside its own footprint,
@@ -952,9 +953,12 @@ export class World {
       return true;
     }
     if (o.x != null) {
+      if (!Number.isFinite(o.x) || !Number.isFinite(o.y)) return false;
       const attack = /attack/i.test(name);
       u.path = this.grid.path(u.x, u.y, o.x, o.y);
-      u.order = { type: attack ? 'attackMove' : 'move', x: o.x, y: o.y };
+      u.order = name === 'patrol'
+        ? { type: 'patrol', x: o.x, y: o.y, fromX: u.x, fromY: u.y }
+        : { type: attack ? 'attackMove' : 'move', x: o.x, y: o.y };
       return true;
     }
     return true;
@@ -1975,6 +1979,30 @@ export class World {
   }
 
   stepMove(u) {
+    if (u.order.type === 'hold') { u.path = null; return; }
+    if (u.order.type === 'patrol') {
+      const target = this.enumInRange(u.x, u.y, u.acquisitionRange).find(t =>
+        t !== u && t.alive && !t.hidden && !this.isLocust(t)
+        && !this.isAlly(this.playerOf(u), this.playerOf(t)));
+      if (target) {
+        u.order.targetId = target.id;
+        if (Math.hypot(target.x - u.x, target.y - u.y) <= u.atkRange + target.radius) {
+          u.path = null; return;
+        }
+        if (!u.path || (u.repathAt ?? 0) < this.now) {
+          u.path = this.grid.path(u.x, u.y, target.x, target.y); u.repathAt = this.now + 400;
+        }
+      } else {
+        if (u.order.targetId) { delete u.order.targetId; u.path = null; }
+        if (!u.path?.length) {
+          if (Math.hypot(u.x - u.order.x, u.y - u.order.y) < 32) {
+            [u.order.x, u.order.fromX] = [u.order.fromX, u.order.x];
+            [u.order.y, u.order.fromY] = [u.order.fromY, u.order.y];
+          }
+          u.path = this.grid.path(u.x, u.y, u.order.x, u.order.y);
+        }
+      }
+    }
     // A pursuer has to keep repathing at its target: crowding pushes units apart
     // once they close, and clinging to the waypoint from the original approach
     // left them drifting out of attack range without ever stepping back in.
@@ -2118,7 +2146,7 @@ export class World {
   stepAttack(u) {
     if (!u.attacksEnabled) return;
     if (u.atkTimer > 0) u.atkTimer -= this.dt;
-    if (u.order.type !== 'attack' && u.order.type !== 'attackMove') return;
+    if (!['attack', 'attackMove', 'hold', 'patrol'].includes(u.order.type)) return;
     let t = this.target(u.order.targetId);
     if (!t || !t.alive) {
       let bd = Infinity; t = null;
@@ -2387,6 +2415,10 @@ export class World {
                 left: Math.max(0, Math.round((d.timer.nextAt - this.now) / 100) / 10) };
       break;
     }
-    return { tick: this.tick, now: Math.round(this.now), ents, items, clock };
+    const quests = (this.jass?.quests || []).filter(q => q.discovered).map(q => ({
+      title: q.title, description: q.description, required: q.required, completed: q.completed,
+      items: q.items.map(i => ({ description: i.description, completed: i.completed })),
+    }));
+    return { tick: this.tick, now: Math.round(this.now), ents, items, clock, quests };
   }
 }

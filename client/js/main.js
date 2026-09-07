@@ -159,6 +159,12 @@ net.on(Msg.SNAPSHOT, (m) => {
   // (static views use negative ids and are never tracked in S.ents, so they persist)
   if (m.s.board) ui.updateScore(m.s.board, 100);
   ui.updateClock(m.s.clock);
+  ui.quests = m.s.quests || [];
+  if (ui.unitSel) {
+    const selected = S.ents.get(ui.unitSel.i);
+    if (selected) ui.renderSelected(selected);
+    else { ui.unitSel = null; if (S.hero) ui.updateHero(S.hero); showUnitPortrait(); }
+  }
 });
 
 net.on('hero', (m) => {
@@ -459,15 +465,17 @@ async function boot(m) {
     // quest text to show, and a button that silently does nothing is worse
     // than one the game itself would grey out.
     topBar = buildTopBar(spec, document.getElementById('uitop'), {
-      enabled: (k) => k === 'allies' || k === 'chat',
+      enabled: () => true,
       onButton: (k) => {
-        if (k === 'allies') { S.showScore = !S.showScore; ui.toggleScore(S.showScore); }
-        else if (k === 'chat') ui.log('Chat: type in the box below the log', 'lvl');
+        if (k === 'chat') ui.openChat();
+        else ui.openDialog({ quests: 'Quests', menu: 'Main Menu', allies: 'Allies' }[k]);
       },
     });
     placeIn(document.getElementById('minimap'), slots.minimap);
     placeIn(document.getElementById('portrait'), slots.info);
     placeIn(document.getElementById('unitPortrait'), slots.portrait);
+    document.documentElement.style.setProperty('--portrait-left', slots.portrait.left);
+    document.documentElement.style.setProperty('--portrait-width', slots.portrait.width);
     // The card is four across and three down, which is twelve: the six
     // abilities fill it the way Warcraft III fills one, row by row, and the six
     // inventory slots take the rest.
@@ -581,6 +589,13 @@ canvas.addEventListener('mousedown', (e) => {
   const nx = (e.clientX / innerWidth) * 2 - 1;
   const ny = -(e.clientY / innerHeight) * 2 + 1;
   if (e.button === 0) {
+    if (ui.orderPending) {
+      const g = view.pickGround(nx, ny), target = view.pickEntity(nx, ny);
+      if (ui.orderPending === 'attack' && target && target.id !== S.hero?.id)
+        net.send({ t: Msg.ATTACK, targetId: target.id });
+      else if (g) net.send({ t: Msg.MOVE, x: g.x, y: g.y, attack: ui.orderPending === 'attack', patrol: ui.orderPending === 'patrol' });
+      ui.orderPending = null; canvas.style.cursor = 'default'; return;
+    }
     // an item aimed at a unit: the Monster Ball is thrown at a creep
     if (S.itemPending != null) {
       const t = view.pickEntity(nx, ny);
@@ -610,14 +625,23 @@ canvas.addEventListener('mousedown', (e) => {
     const picked = view.pickEntity(nx, ny);
     const shop = shopFor(picked);
     if (shop) {
+      ui.unitSel = null; ui.skillMenu = false;
       ui.selectShop(S.ents.get(picked.id) || picked, shop);
       showUnitPortrait();
       return;
     }
     if (ui.shopSel) { ui.clearShop(); showUnitPortrait(); }
-    const g = view.pickGround(nx, ny);
-    if (g) { net.send({ t: Msg.MOVE, x: g.x, y: g.y }); markMove(g); }
+    if (picked) {
+      ui.skillMenu = false;
+      if (picked.id === S.hero?.id) { ui.unitSel = null; ui.updateHero(S.hero); }
+      else ui.renderSelected(S.ents.get(picked.id) || picked);
+      showUnitPortrait();
+    }
   } else if (e.button === 2) {
+    if (ui.orderPending || S.castPending != null || S.itemPending != null) {
+      ui.orderPending = null; S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default'; return;
+    }
+    if (ui.unitSel) return;
     // Warcraft III's smart order: an item under the cursor beats anything else,
     // and the hero walks to it rather than teleporting it into a slot
     const gi = view.pickItem(nx, ny);
@@ -645,7 +669,7 @@ canvas.addEventListener('mousedown', (e) => {
       if (g) markMove(g);
     } else {
       const g = view.pickGround(nx, ny);
-      if (g) { net.send({ t: Msg.MOVE, x: g.x, y: g.y, attack: true }); markMove(g); }
+      if (g) { net.send({ t: Msg.MOVE, x: g.x, y: g.y }); markMove(g); }
     }
   }
 });
@@ -683,6 +707,23 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (document.activeElement?.tagName === 'INPUT') return;
   if (S.phase !== Phase.PLAYING) return;
+  if (document.getElementById('wcDialog')) { if (e.key === 'Escape') ui.closeDialog(); return; }
+  if (e.key === 'Enter') { e.preventDefault(); ui.openChat(); return; }
+  if (e.key === 'F9' || e.key === 'F10' || e.key === 'F11') {
+    e.preventDefault(); ui.openDialog({ F9: 'Quests', F10: 'Main Menu', F11: 'Allies' }[e.key]); return;
+  }
+  if (e.key === 'F1') {
+    e.preventDefault(); ui.unitSel = null; ui.clearShop(); ui.updateHero(S.hero); showUnitPortrait();
+    const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); return;
+  }
+  if (ui.unitSel && e.key !== 'Escape') return;
+  if (ui.skillMenu && k in KEY_SLOT) {
+    const slot = KEY_SLOT[k], a = S.hero?.abilities?.[slot];
+    if (a && !a.innate && S.hero.skillPoints > 0 && a.lvl < a.cap) {
+      net.send({ t: Msg.LEARN, slot }); ui.skillMenu = false;
+    }
+    return;
+  }
   if (k in KEY_SLOT) {
     const slot = KEY_SLOT[k];
     const a = S.hero?.abilities?.[slot];
@@ -707,9 +748,11 @@ addEventListener('keydown', (e) => {
   else if (k === '`') { overlay.stats.on = !overlay.stats.on;
     ui.log(`frame stats ${overlay.stats.on ? 'on' : 'off'}`, 'lvl'); }
   else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
-  else if (k === 's') net.send({ t: Msg.STOP });
+  else if (k === 'o' && S.hero?.skillPoints > 0) { ui.skillMenu = true; ui.renderAbilities(S.hero); }
+  else if (['m','s','h','a','p'].includes(k)) ui.onCommand({m:'move',s:'stop',h:'hold',a:'attack',p:'patrol'}[k]);
   else if (k === 'escape') {
-    S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default';
+    S.castPending = null; S.itemPending = null; ui.orderPending = null; ui.skillMenu = false; canvas.style.cursor = 'default';
+    if (S.hero) ui.updateHero(S.hero);
     if (ui.shopSel) { ui.clearShop(); showUnitPortrait(); }
   }
   else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }
@@ -722,6 +765,17 @@ addEventListener('keyup', (e) => {
 // Warcraft III shows every visible unit's bar for as long as ALT is held
 addEventListener('keydown', (e) => { if (e.key === 'Alt') S.altHeld = true; });
 addEventListener('blur', () => { S.altHeld = false; });
+ui.getVolume = () => audio.volume;
+ui.setVolume = value => { audio.volume = value; if (audio.master) audio.master.gain.value = value; };
+ui.onCommand = (command) => {
+  S.castPending = null; S.itemPending = null;
+  if (command === 'stop' || command === 'hold') {
+    ui.orderPending = null; canvas.style.cursor = 'default';
+    net.send({ t: command });
+  } else {
+    ui.orderPending = command; canvas.style.cursor = 'crosshair';
+  }
+};
 ui.onCastSlot = (slot) => {
   const a = S.hero?.abilities?.[slot];
   if (!a || a.lvl < 1) return;
@@ -884,7 +938,7 @@ function showUnitPortrait() {
   // While a shop is selected the arch shows the shop's building, as the game
   // does; S.unitModels carries every unit type's model, shops included.
   const sel = ui.shopSel;
-  const h = sel ? { id: sel.shop.id, name: sel.shop.name }
+  const h = ui.unitSel ? { id: ui.unitSel.u, name: ui.unitSel.name } : sel ? { id: sel.shop.id, name: sel.shop.name }
           : (S.heroes?.find((x) => x.id === S.hero?.unitId)
              || S.heroes?.find((x) => x.id === ui.selected));
   if (!cv || !h) return;

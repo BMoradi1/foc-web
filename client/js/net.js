@@ -8,9 +8,9 @@ export class Net {
     this.you = null;
   }
   on(t, fn) { this.handlers.set(t, fn); return this; }
-  connect(name, room = 'arena') {
+  connect(name, room = new URLSearchParams(location.search).get('room') || 'arena') {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    this.ws = new WebSocket(`${proto}://${location.host}/ws?room=${room}`);
+    this.ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}`);
     this.ws.onopen = () => {
       this.send({ t: Msg.HELLO, name });
       this._ping = setInterval(() => this.send({ t: Msg.PING, c: performance.now() }), 2000);

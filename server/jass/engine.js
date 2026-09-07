@@ -45,6 +45,7 @@ export class JassEngine {
     this.players = [];
     this.ctx = {};                      // current event context
     this.timerDialogs = [];             // Warcraft III's on-screen countdowns
+    this.quests = [];
     this.ctxStack = [];
     this.clientEvents = [];
     this.log = [];
@@ -1359,11 +1360,17 @@ function installNatives(vm, eng) {
     MultiboardMinimize: () => {}, MultiboardClear: (mb) => { if (mb) mb.cells.clear(); },
     MultiboardSuppressDisplay: () => {},
     IsMultiboardDisplayed: (mb) => !!(mb && mb.shown),
-    CreateQuest: () => H('quest', {}), QuestSetTitle: () => {}, QuestSetDescription: () => {},
-    QuestSetCompleted: () => {}, QuestSetDiscovered: () => {}, QuestSetRequired: () => {},
-    QuestSetIconPath: () => {}, QuestCreateItem: () => H('questitem', {}),
-    QuestItemSetDescription: () => {}, QuestItemSetCompleted: () => {},
-    DestroyQuest: () => {}, FlashQuestDialogButton: () => {},
+    CreateQuest: () => { const q = H('quest', { title: '', description: '', discovered: true, required: false, completed: false, items: [] }); eng.quests.push(q); return q; },
+    QuestSetTitle: (q, s) => { if (q) q.title = resolveTrigstr(s); },
+    QuestSetDescription: (q, s) => { if (q) q.description = resolveTrigstr(s); },
+    QuestSetCompleted: (q, b) => { if (q) q.completed = !!b; },
+    QuestSetDiscovered: (q, b) => { if (q) q.discovered = !!b; },
+    QuestSetRequired: (q, b) => { if (q) q.required = !!b; },
+    QuestSetIconPath: (q, s) => { if (q) q.icon = s; },
+    QuestCreateItem: (q) => { const item = H('questitem', { description: '', completed: false }); if (q) q.items.push(item); return item; },
+    QuestItemSetDescription: (q, s) => { if (q) q.description = resolveTrigstr(s); },
+    QuestItemSetCompleted: (q, b) => { if (q) q.completed = !!b; },
+    DestroyQuest: (q) => { eng.quests = eng.quests.filter(x => x !== q); }, FlashQuestDialogButton: () => {},
     CreateDefeatCondition: () => H('defeatcondition', {}),
     DialogCreate: () => H('dialog', {}), DialogDisplay: () => {},
     DialogSetMessage: () => {}, DialogAddButton: () => H('button', {}),

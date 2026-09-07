@@ -229,8 +229,9 @@ export class Room {
     if (!u || !u.alive) return;
     const W = this.world;
     switch (m.t) {
-      case Msg.MOVE:   W.order(u, { type: m.attack ? 'attack' : 'move', x: m.x, y: m.y }); break;
+      case Msg.MOVE:   W.order(u, { type: m.patrol ? 'patrol' : m.attack ? 'attack' : 'move', x: m.x, y: m.y }); break;
       case Msg.STOP:   W.order(u, { type: 'stop' }); break;
+      case 'hold': W.order(u, { type: 'hold' }); break;
       case Msg.ATTACK: {
         // either a unit or one of the map's destructables -- only the six gates
         // carry DestructableData's selectable flag, and a click may not land on

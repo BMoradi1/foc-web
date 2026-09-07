@@ -57,6 +57,7 @@ $PY tools/stage.py
 # atlas. Needs assets/textures.json, so it follows convert_textures.py; writes
 # public/data/console.json, which stage.py does not touch.
 $PY tools/uiframe.py
+$PY tools/hud_assets.py
 
 echo "== 8. bake the lobby portraits"
 # The map ships no hero icons -- every hero shows whatever icon the Warcraft III

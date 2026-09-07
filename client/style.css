@@ -250,3 +250,57 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
   font-size:10px;letter-spacing:.3px;cursor:pointer;pointer-events:auto;
   border-radius:0}
 #uitop .ubbtn.off{color:#666;cursor:default}
+
+/* Classic in-game typography and frames; the custom lobby has its own style. */
+#hud,#score,#wcTooltip,#wcDialog{font-family:"Friz Quadrata",serif;color:#fff;text-shadow:1px 1px #000}
+#hud{font-size:clamp(10px,1.3vh,16px)}
+#uitop .ubbtn{font-family:inherit;font-size:clamp(9px,1.25vh,15px);letter-spacing:0}
+#uitop .rbtext{font-size:clamp(10px,1.35vh,16px);color:#fff}
+#portrait{padding:1.2% .8% .3%;text-align:center}
+#portrait .pinfo{justify-content:flex-start;position:relative}
+#portrait #pname2{font-size:clamp(11px,1.55vh,19px);font-weight:400;margin:0;line-height:1.1}
+#heroClass{font-size:clamp(9px,1.25vh,15px);margin:.6vh 0 1vh;position:relative;z-index:1}
+#portrait .bars{position:static}
+#portrait .bar.xp{position:absolute;top:2.15vh;left:0;right:0;height:1.65vh;border:1px solid #766332;background:#080808}
+#portrait .bar.xp i{background:#6637ac url('/assets/textures/UI/Feedback/XpBar/human-bigbar-fill.png') center/100% 100%;background-blend-mode:multiply}
+#portrait .bar.hp,#portrait .bar.mp{position:fixed;left:var(--portrait-left);width:var(--portrait-width);height:1.6vh;margin:0;border:1px solid #655829;border-radius:0;z-index:2;background:#000}
+#portrait .bar.hp{bottom:3vh}#portrait .bar.mp{bottom:1.15vh}
+#portrait .bar.hp i{background:#21bd20 url('/assets/textures/UI/Feedback/HPBarConsole/human-healthbar-fill.png') center/100% 100%;background-blend-mode:multiply}
+#portrait .bar.mp i{background:#2348ed url('/assets/textures/UI/Feedback/ManaBarConsole/human-manabar-fill.png') center/100% 100%;background-blend-mode:multiply}
+#portrait .bar span{font-family:"Friz Quadrata",serif;font-size:clamp(9px,1.2vh,14px);line-height:1.5vh}
+#portrait #stats{display:flex;justify-content:space-between;align-items:flex-start;margin-top:1.2vh;font-size:clamp(10px,1.35vh,16px);text-align:left;color:#ffcc00;gap:1vw}
+.combat-stats{line-height:2.8vh}.combat-stats b{font-weight:400;display:inline-block;margin-left:1vw}
+.hero-attributes{display:flex;flex-direction:column;gap:.2vh;color:#fff}
+.hero-attributes>div{display:flex;align-items:center;gap:.5vw;min-width:5vw}
+.hero-attributes img{height:2.7vh;width:2.7vh;object-fit:contain}.hero-attributes b{font-weight:400}
+#abilities .slot,#inventory .islot{border:0;border-radius:0;padding:0;background-color:#000;box-shadow:none;filter:none;opacity:1;overflow:hidden}
+#abilities .slot{background-size:100% 100%}
+#abilities .slot:hover,#inventory .islot:not(.empty):hover{outline:1px solid #ffdf64;outline-offset:-2px}
+#abilities .slot:active{filter:brightness(.7)}
+#abilities .slot.unavailable{filter:grayscale(1) brightness(.55);cursor:default}
+#abilities .slot.learnable{box-shadow:inset 0 0 8px #ffcc00}
+#abilities .slot .key,#abilities .slot .lv{font:inherit;color:#fff}
+#abilities .cooldown-sweep{position:absolute;inset:0;pointer-events:none}
+#inventory .islot.empty{background:transparent;cursor:default}
+#inventory .islot .chg{font-size:clamp(9px,1.3vh,15px);color:#fff}
+#wcTooltip{position:fixed;right:1vw;bottom:28vh;width:min(32vw,460px);z-index:45;pointer-events:none;
+ white-space:pre-line;padding:14px 17px;background:#080808 url('/assets/ui/tooltip_background.png') repeat;
+ border:2px solid #ac9256;box-shadow:inset 0 0 0 1px #332b16,0 0 3px #000;font-size:clamp(11px,1.5vh,18px);line-height:1.4}
+#wcTooltip::first-line{color:#ffcc00}
+#topbar{left:auto;right:1%;top:7%;transform:none;border-radius:0;border:1px solid #9c864e;background:#080808;padding:3px 9px;gap:9px}
+.score b{font-size:inherit}.score,.score-mid{font-size:clamp(10px,1.3vh,16px);color:#fff}
+#gameclock{top:3.8%;right:1%;padding:3px 9px;border:1px solid #9c864e;border-radius:0;background:#080808;font-size:clamp(10px,1.3vh,16px);color:#fff}
+#gameclock b{font-size:inherit;color:#fff;font-weight:400}
+#log{top:8%;left:1%;width:45%;font-size:clamp(11px,1.6vh,18px)}
+#log div{background:none;border:0;padding:0;border-radius:0}
+#build{display:none}
+#score{background:rgba(0,0,0,.45)}
+#score table{background:#080808;border:2px solid #9c864e}
+#score th,#score td{font-size:clamp(11px,1.5vh,18px);border:0}
+#wcChat{position:absolute;left:2%;bottom:31%;width:45%;font:inherit;color:white;background:#000b;border:1px solid #9c864e;border-radius:0}
+#wcDialog{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:#0008}
+#wcDialog section{width:min(640px,85vw);max-height:75vh;overflow:auto;padding:24px;background:#111 url('/assets/ui/tooltip_background.png');border:2px solid #9c864e}
+#wcDialog h2,#wcDialog h3{color:#ffcc00;font-weight:400}
+#wcDialog p{white-space:pre-line}
+#wcDialog button{font:inherit;color:#ffcc00;background:#101010;border:2px ridge #9c864e;border-radius:0;display:block;margin:20px auto 0}
+#wcDialog input[type=range]{display:block;width:100%;margin:14px 0;accent-color:#ffcc00}

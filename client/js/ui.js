@@ -1,3 +1,4 @@
+import { initHud, renderCard } from './hud.js';
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => {
   const e = document.createElement(tag);
@@ -45,6 +46,7 @@ export class UI {
     this.you = null;
     this.players = [];
     this.logLines = [];
+    initHud(this);
   }
 
   setLoading(msg, pct) {
@@ -187,7 +189,8 @@ export class UI {
 
   updateHero(h) {
     this.hero = h;
-    $('pname2').textContent = `${h.name} — ${h.title || ''}  (lvl ${h.level}${h.maxLevel ? `/${h.maxLevel}` : ''})`;
+    $('pname2').textContent = h.name;
+    $('heroClass').textContent = `Level ${h.level} ${T(h, 'title')}`;
     const set = (bar, txt, v, m) => {
       $(bar).style.width = `${Math.max(0, Math.min(100, (v / Math.max(1, m)) * 100))}%`;
       if (txt) $(txt).textContent = `${Math.round(v)} / ${Math.round(m)}`;
@@ -195,11 +198,10 @@ export class UI {
     set('hpbar', 'hptext', h.hp, h.maxHp);
     set('mpbar', 'mptext', h.mana, h.maxMana);
     set('xpbar', null, h.xp, h.xpNeed || 1);
-    $('stats').innerHTML =
-      `<span>DMG</span><b>${h.dmg}</b><span>ARM</span><b>${h.armor}</b>
-       <span>STR</span><b>${h.str}</b><span>AGI</span><b>${h.agi}</b>
-       <span>INT</span><b>${h.int}</b><span>MS</span><b>${h.moveSpeed}</b>
-       <span>GOLD</span><b>${h.gold}</b><span>K/D</span><b>${h.kills}/${h.deaths}</b>`;
+    $('stats').innerHTML = `<div class="combat-stats"><div>Damage: <b>${h.dmg}</b></div><div>Armor: <b>${h.armor}</b></div></div>
+      <div class="hero-attributes">${[['str', 'Strength'], ['agi', 'Agility'], ['int', 'Intelligence']].map(([key, name]) =>
+        `<div data-tooltip="${name}: ${h[key]}"><img src="/assets/ui/${key}.png" alt="${name}"><b>${h[key]}</b></div>`).join('')}</div>`;
+    if (this.unitSel) { this.renderSelected(this.unitSel); return; }
     // A selected shop takes over the panel and the card, and the inventory
     // stays: Warcraft III leaves your six slots visible while you shop, which
     // is the only way to see whether there is room for what you are buying.
@@ -236,7 +238,7 @@ export class UI {
       if (it) {
         cell.innerHTML = `<img src="${icon(it.icon)}" onerror="this.style.opacity=.2">` +
                          (it.charges > 0 ? `<b class="chg">${it.charges}</b>` : '');
-        cell.title = `${it.name}${it.charges > 0 ? ` (${it.charges} charges)` : ''}` +
+        cell.dataset.tooltip = `${it.name}${it.charges > 0 ? ` (${it.charges} charges)` : ''}` +
                      (it.targeted ? '\nclick then click a target · right-click to drop'
                                   : '\nclick to use · right-click to drop');
         // an item aimed at a unit arms the cursor instead of firing at once
@@ -256,60 +258,22 @@ export class UI {
     }
   }
 
-  renderAbilities(h) {
-    queueMicrotask(() => this.placeCard());
-    const box = $('abilities');
-    // The key each ability actually binds to, resolved in main.js from the
-    // map's own 'ahky' -- read here rather than re-derived, so the letter
-    // printed on the button is by construction the letter that casts it.
-    box.innerHTML = '';
-
-    // Unspent skill points are easy to miss, and a hero that cannot cast because
-    // nothing is learned yet just looks broken -- so say so plainly.
-    if (h.skillPoints > 0) {
-      const canLearn = h.abilities.some((a) => a.lvl < (a.cap ?? a.maxLvl));
-      const note = el('div', 'skillnote' + (canLearn ? '' : ' idle'));
-      note.textContent = canLearn
-        ? `${h.skillPoints} skill point${h.skillPoints > 1 ? 's' : ''} — click a + to learn`
-        : `${h.skillPoints} skill point${h.skillPoints > 1 ? 's' : ''} — nothing available until you level up`;
-      box.appendChild(note);
+  renderSelected(ent) {
+    this.unitSel = ent;
+    $('pname2').textContent = ent.name || ent.u || '';
+    $('heroClass').textContent = '';
+    for (const [bar, text, value, max] of [['hpbar', 'hptext', ent.h, ent.H], ['mpbar', 'mptext', ent.m, ent.M]]) {
+      $(bar).style.width = `${100 * Math.max(0, Math.min(1, (value || 0) / (max || 1)))}%`;
+      $(text).textContent = max ? `${Math.round(value || 0)} / ${Math.round(max)}` : '';
     }
+    $('xpbar').style.width = '0%';
+    $('stats').replaceChildren();
+    $('abilities').replaceChildren();
+    $('inventory').replaceChildren();
+  }
 
-    h.abilities.forEach((a, i) => {
-      const cap = a.cap ?? a.maxLvl;
-      const gated = cap < 1;                       // hero level too low for rank 1
-      const canRank = h.skillPoints > 0 && a.lvl < cap;
-      const s = el('div', 'slot' + (a.lvl < 1 ? ' unlearned' : '')
-                              + (gated ? ' gated' : '') + (canRank ? ' ready' : ''));
-      s.style.backgroundImage = a.icon ? `url(/assets/${a.icon})` : 'none';
-      if (!a.icon) { s.style.background = '#1c2130'; s.dataset.initial = (T(a, 'name') || '?')[0]; }
-
-      const nextAt = a.reqLevel + a.cap * a.levelSkip;
-      const gate = gated ? `\nUnlocks at hero level ${a.reqLevel}`
-                 : (a.lvl >= cap && a.lvl < a.maxLvl && a.levelSkip
-                    ? `\nNext rank at hero level ${nextAt}` : '');
-      const how = canRank ? '\nClick + to learn (or right-click the icon)' : '';
-      s.title = `${T(a, 'name')}${gate}${how}\n${T(a, 'desc')}`;
-
-      s.innerHTML = `<span class="key">${(a.key || '').toUpperCase()}</span>
-        <span class="lv">${a.lvl}/${a.maxLvl}</span>
-        ${a.cdLeft > 0.1 ? `<span class="cd">${a.cdLeft.toFixed(0)}</span>` : ''}
-        ${gated ? `<span class="req">Lv ${a.reqLevel}</span>` : ''}
-        ${a.icon ? '' : `<span class="noicon">${(T(a, 'name') || '?')[0]}</span>`}`;
-
-      if (canRank) {
-        const up = el('button', 'up', '+');
-        up.title = `Learn ${T(a, 'name')}`;
-        up.onclick = (ev) => { ev.stopPropagation(); this.net.send({ t: 'learn', slot: i }); };
-        s.appendChild(up);
-      }
-      s.oncontextmenu = (ev) => { ev.preventDefault(); this.net.send({ t: 'learn', slot: i }); };
-      s.onclick = () => {
-        if (a.lvl < 1) { if (canRank) this.net.send({ t: 'learn', slot: i }); return; }
-        this.onCastSlot?.(i);
-      };
-      box.appendChild(s);
-    });
+  renderAbilities(h) {
+    renderCard(this, h, T);
   }
 
   /**
@@ -367,7 +331,7 @@ export class UI {
     }
     // The command card is the abilities' and the inventory has its own six
     // slots beside it, which is where Warcraft III puts them.
-    slots.forEach((el, i) => put(el, cells[i]));
+    slots.forEach((el, i) => put(el, cells[Number(el.dataset.cell ?? i)]));
     items.forEach((el, i) => put(el, (this.invCells || [])[i]));
   }
 
@@ -428,6 +392,7 @@ export class UI {
   /** The shop's own name and health, in the panel the hero's would use. */
   renderShopPanel({ ent, shop }) {
     $('pname2').textContent = shop.name || ent.u;
+    $('heroClass').textContent = '';
     const hp = ent.h ?? 0, maxHp = ent.H ?? 0;
     const set = (bar, txt, v, m) => {
       $(bar).style.width = `${Math.max(0, Math.min(100, (v / Math.max(1, m)) * 100))}%`;
@@ -457,7 +422,7 @@ export class UI {
       // these cells -- the gold price uses the corner an ability rank sits in.
       const cell = el('div', 'slot shopitem' + (afford ? '' : ' tooldear'));
       cell.style.backgroundImage = it.icon ? `url(${icon(it.icon)})` : 'none';
-      cell.title = `${it.name} — ${it.gold || 0} gold`
+      cell.dataset.tooltip = `${it.name} — ${it.gold || 0} gold`
                  + (afford ? '' : '\nNot enough gold')
                  + (it.desc || it.tip ? `\n${it.desc || it.tip}` : '');
       cell.innerHTML = `<span class="lv">${it.gold || 0}g</span>`
