@@ -11,8 +11,8 @@ authoritative Node server with a Three.js top-down 3D client. Powered by a JASS 
 # [Video](https://www.youtube.com/watch?v=vcHNVRgg-5s)
 ## Screenshots
 ### In-Game
-<img width="1385" height="981" alt="image" src="https://github.com/user-attachments/assets/0d7900a4-79f6-4d45-aa8f-017afe8b14e3" />
-<img width="1403" height="1006" alt="image" src="https://github.com/user-attachments/assets/179c79bf-a8fa-41b1-918d-21df728b0019" />
+<img width="1972" height="1242" alt="image" src="https://github.com/user-attachments/assets/db55897f-6fc9-4d6c-8628-42948e877d30" />
+
 <img width="1388" height="1001" alt="image" src="https://github.com/user-attachments/assets/4ac8ee8f-648e-42e6-8520-9c402cca6483" />
 
 <img width="1400" height="1013" alt="image" src="https://github.com/user-attachments/assets/3b671237-cb96-4624-9806-0b1024419321" />
