@@ -1215,9 +1215,10 @@ function installNatives(vm, eng) {
     // The map uses it five times, all through CinematicFadeBJ or
     // CinematicFilterGenericBJ: three over White_mask, which is a plain white
     // square and so exactly a flat colour, and two over shaped masks
-    // (DiagonalSlash, and a command-button icon) which the client currently
-    // renders as that flat colour too. The texture path is sent so it can stop
-    // doing that without a protocol change.
+    // (DiagonalSlash, and a command-button icon). The client resolves their
+    // texture paths through the staged index and preserves the authored alpha.
+    // All five use BLEND_MODE_BLEND and UVs (0, 0, 1, 1); other blend modes
+    // and animated UVs are still outside this map's implemented filter path.
     SetCineFilterTexture: (tex) => { CF().tex = String(tex || ''); },
     SetCineFilterBlendMode: (m) => { CF().blend = m && m.v != null ? m.v : m; },
     SetCineFilterStartUV: () => {}, SetCineFilterEndUV: () => {},

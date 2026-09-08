@@ -1311,9 +1311,15 @@ GAMEPLAY / INPUT
                                White_mask, a plain white square and so exactly
                                the flat colour the client draws; the other two
                                name a shaped mask (DiagonalSlash, and a
-                               command-button icon) and render as that flat
-                               colour too. The texture path is sent so that can
-                               be fixed without a protocol change.
+                               command-button icon). FIXED 2026-09-07: the
+                               client now resolves the staged PNG and multiplies
+                               its RGB by the filter tint, preserving texture
+                               alpha and the scripted fade. All five map filters
+                               use normal alpha blending and full-image UVs;
+                               other blend modes / animated UVs remain unported.
+                               The slash's own 100% transparency is preserved.
+                               tools/cinefilter_test.mjs checks rendered pixels,
+                               tint, transparency, elapsed time and loading races.
 
     DONE 2026-09-03, tools/atmosphere_test.mjs (14 checks):
       SetMapMusic             2 sites. The argument is the string "Music",
@@ -1551,8 +1557,9 @@ GAMEPLAY / INPUT
     only being named, the four specific fallbacks, and that Buu keeps the map's
     own imported art rather than being handed a stock button.
 
-[ ] Fog of war
-    Nothing exists. The whole map is visible to everyone.
+[—] Fog of war — out of scope
+    The map turns it off (confirmed by the user, 2026-09-07). Full-map
+    visibility is intentional here; do not add fog of war as a fidelity fix.
 
 [x] The four buff seams the audit has been printing  (FIXED)
     war3map.j gates real trigger chains on UnitHasBuffBJ, and four of the eight

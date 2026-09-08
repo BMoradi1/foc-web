@@ -175,30 +175,75 @@ class TextTags {
  * DisplayCineFilter(false), which Blizzard.j's FinishCinematicFadeBJ sends, is
  * what clears it, and a fade-in ends transparent anyway.
  */
-class CineFilter {
-  constructor() { this.f = null; this.last = performance.now(); }
+export class CineFilter {
+  constructor() {
+    this.f = null;
+    this.textures = new Map();
+    this.index = fetch('/assets/textures.json').then(r => {
+      if (!r.ok) throw new Error('Cinematic texture index unavailable');
+      return r.json();
+    });
+    // Keep a failed preload handled even before the first filter is shown.
+    this.index.catch(e => console.warn(e.message));
+  }
+
+  texture(path) {
+    const key = path.replace(/\//g, '\\').toLowerCase();
+    if (!this.textures.has(key)) {
+      const pending = this.index.then(async index => {
+        const file = index[key];
+        if (!file) throw new Error(`Cinematic texture missing: ${path}`);
+        const img = new Image();
+        img.src = `/assets/${file}`;
+        await img.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return { canvas, ctx, pixels: ctx.getImageData(0, 0, canvas.width, canvas.height), color: null };
+      }).catch(e => { console.warn(e.message); return null; });
+      this.textures.set(key, pending);
+    }
+    return this.textures.get(key);
+  }
 
   show(ev) {
-    this.f = { from: ev.from || [0, 0, 0, 255], to: ev.to || [0, 0, 0, 0],
-               dur: Math.max(0, +ev.dur || 0), t: 0 };
+    const f = this.f = { from: ev.from || [0, 0, 0, 255], to: ev.to || [0, 0, 0, 0],
+               dur: Math.max(0, +ev.dur || 0), start: performance.now(), tex: ev.tex,
+               texture: null };
+    // All five filters in this map use BLEND_MODE_BLEND and full-image UVs.
+    // A named texture stays clear while loading; it must never flash as a
+    // solid rectangle. Loading an old filter cannot replace the current one.
+    f.ready = ev.tex ? this.texture(ev.tex).then(texture => { f.texture = texture; }) : Promise.resolve();
+    return f.ready;
   }
   clear() { this.f = null; }
 
   draw(ctx) {
-    const now = performance.now();
-    const dt = Math.min(0.25, Math.max(0, (now - this.last) / 1000));
-    this.last = now;
     const f = this.f;
     if (!f) return;
-    f.t += dt;
-    const k = f.dur > 0 ? Math.min(1, f.t / f.dur) : 1;
+    const k = f.dur > 0 ? Math.min(1, (performance.now() - f.start) / (1000 * f.dur)) : 1;
     const c = (i) => Math.round(f.from[i] + (f.to[i] - f.from[i]) * k);
     const a = c(3) / 255;
-    if (a <= 0) return;
+    if (a <= 0 || (f.tex && !f.texture)) return;
     ctx.save();
     ctx.globalAlpha = a;
-    ctx.fillStyle = `rgb(${c(0)},${c(1)},${c(2)})`;
-    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    if (f.texture) {
+      const t = f.texture, color = [c(0), c(1), c(2)];
+      if (t.color !== color.join(',')) {
+        // Multiply RGB without changing the texture's authored alpha. Work
+        // at asset resolution, and only when the tint changes, not per frame.
+        const tinted = new ImageData(new Uint8ClampedArray(t.pixels.data), t.canvas.width, t.canvas.height);
+        for (let i = 0; i < tinted.data.length; i += 4)
+          for (let j = 0; j < 3; j++) tinted.data[i + j] *= color[j] / 255;
+        t.ctx.putImageData(tinted, 0, 0);
+        t.color = color.join(',');
+      }
+      ctx.drawImage(t.canvas, 0, 0, innerWidth, innerHeight);
+    } else {
+      ctx.fillStyle = `rgb(${c(0)},${c(1)},${c(2)})`;
+      ctx.fillRect(0, 0, innerWidth, innerHeight);
+    }
     ctx.restore();
   }
 }
