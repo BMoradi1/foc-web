@@ -27,10 +27,10 @@ that same table resolves to ReplaceableTextures\\Cliff\\<tileset>_<texFile>.blp,
 falling back to the unprefixed name for Lordaeron Summer, the one tileset that
 has no recolour of its own.
 
-Ramps are not cliffs.  A cell whose four corners are all ramp-flagged keeps its
-sloping ground surface and is left to the terrain mesh; the map's own pathing
-grid agrees, marking exactly those cells walkable and every other cliff cell
-blocked.
+Open ramps keep their ground surface. Their low flagged vertices sit half a
+layer higher, extending the slope into the preceding flat cell. The two-cell
+transition models beside them are baked here and both footprint cells are
+excluded from the ground mesh. See docs/TERRAIN_PROVENANCE.md.
 
 Output:
   data/cliffs.json   groups, cell lists, counts
@@ -94,6 +94,80 @@ def classify(t):
                 cliffId=tiles[idx] if idx < len(tiles) else (tiles[0] if tiles else ''),
                 layer=lo))
     return cliffs, ramps
+
+
+def place_transitions(t, cliffs, models, types):
+    """Fit the archive's two-cell transition meshes to the terrain corners.
+
+    L/H labels name a ramp edge, not a one-cell footprint. Choose its anchor
+    by checking the model's four *outer* corners against the layer grid. This
+    uses the actual geometry rather than assuming that all models extend in
+    the same direction. See docs/TERRAIN_PROVENANCE.md for measurements.
+    """
+    W, H = t['width'], t['height']
+    cw = W - 1
+    occupied, transitions = set(), []
+    for c in cliffs:
+        i, j = c['i'], c['j']
+        ks = (j * W + i, (j + 1) * W + i, (j + 1) * W + i + 1, j * W + i + 1)
+        ramp = [bool(t['flags'][k] & 1) for k in ks]
+        edge = [n for n in range(4) if ramp[n]]
+        ls = [t['layer'][k] - c['layer'] for k in ks]
+        if (len(edge) != 2 or (edge[1] - edge[0]) % 2 == 0
+                or sorted(ls[n] for n in edge) != [0, 1] or max(ls) > 1):
+            continue
+        directory = types.get(c['cliffId'], {}).get('rampModelDir')
+        if not directory:
+            continue
+        code = ''.join(('L' if l == 0 else 'H') if r else chr(65 + l)
+                       for r, l in zip(ramp, ls))
+        path = models.path(directory, code, 0)
+        if not path:
+            continue
+        model = models.get(path)
+        if not model or not model['geosets']:
+            continue
+        verts = np.concatenate([np.asarray(g['vertices']).reshape(-1, 3) for g in model['geosets']])
+        low, high = verts.min(axis=0), verts.max(axis=0)
+        size = np.rint((high[:2] - low[:2]) / CELL).astype(int)
+        if tuple(size) not in ((2, 1), (1, 2)):
+            continue
+        corners = []
+        for x in (low[0], high[0]):
+            for y in (low[1], high[1]):
+                at = verts[(abs(verts[:, 0] - x) < .02) & (abs(verts[:, 1] - y) < .02)]
+                if not len(at):
+                    break
+                corners.append((x, y, float(at[:, 2].max())))
+        if len(corners) != 4:
+            continue
+        fits = []
+        # The H endpoint stays on the flagged high terrain vertex. L sits
+        # halfway across the mesh's two-cell span, not at its outer low edge.
+        high_corner = next(n for n in edge if ls[n] == 1)
+        high_xy = ((0, 0), (0, 1), (1, 1), (1, 0))[high_corner]
+        model_high = [high[a] if high_xy[a] else low[a] for a in (0, 1)]
+        for x0 in range(i - size[0] + 1, i + 1):
+            for y0 in range(j - size[1] + 1, j + 1):
+                if x0 < 0 or y0 < 0 or x0 + size[0] >= W or y0 + size[1] >= H:
+                    continue
+                ox, oy = x0 - low[0] / CELL, y0 - low[1] / CELL
+                if (abs(ox + model_high[0] / CELL - i - high_xy[0]) > .001
+                        or abs(oy + model_high[1] / CELL - j - high_xy[1]) > .001):
+                    continue
+                error = max(abs(z - (t['layer'][round(oy + y / CELL) * W + round(ox + x / CELL)]
+                                     - c['layer']) * LAYER) for x, y, z in corners)
+                if error < .5:
+                    cells = [y * cw + x for y in range(y0, y0 + size[1])
+                             for x in range(x0, x0 + size[0])]
+                    fits.append(dict(c, model=path, code=code, i=round(ox) - 1,
+                                     j=round(oy), cells=cells, transition=True))
+        # Ambiguous or intersecting footprints stay ordinary cliffs. Never
+        # remove ground for a model whose placement has not been established.
+        if len(fits) == 1 and not occupied.intersection(fits[0]['cells']):
+            transitions.append(fits[0])
+            occupied.update(fits[0]['cells'])
+    return [c for c in cliffs if c['cell'] not in occupied] + transitions
 
 
 class Models:
@@ -253,8 +327,11 @@ def main():
                  ('%dx%d' % size) if size else ''))
 
     models = Models(gd)
+    cliffs = place_transitions(t, cliffs, models, types)
     missing = set()
     for c in cliffs:
+        if c.get('transition'):
+            continue
         p = models.path(model_dir[c['cliffId']], c['code'], c['variation'])
         if p is None:
             missing.add((c['cliffId'], c['code']))
@@ -283,7 +360,9 @@ def main():
 
     drawn = [c for c in cliffs if c.get('model')]
     out = dict(width=t['width'] - 1, height=t['height'] - 1,
-               groups=meta, cells=[c['cell'] for c in drawn], ramps=ramps,
+               groups=meta, cells=sorted({cell for c in drawn for cell in c.get('cells', [c['cell']])}), ramps=ramps,
+               transitions=[dict(model=c['model'], cells=c['cells'], i=c['i'], j=c['j'])
+                            for c in drawn if c.get('transition')],
                verts=int(len(allv)), tris=int(len(allv) // 3), stride=8)
     json.dump(out, open('data/cliffs.json', 'w'))
 

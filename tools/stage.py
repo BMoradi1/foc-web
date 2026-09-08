@@ -27,7 +27,8 @@ t = json.load(open('data/terrain.json'))
 w, h = t['width'], t['height']
 hs = np.array(t['heights'], np.int16)
 layer = np.array(t['layer'], np.uint8)
-z = (hs.astype(np.float32) - 8192.0) / 4.0 + (layer.astype(np.float32) - 2.0) * 128.0
+from terrain_surface import surface_heights
+z = surface_heights(t)
 open(PUB + '/data/heights.bin', 'wb').write(z.astype(np.float32).tobytes())
 open(PUB + '/data/tiles.bin', 'wb').write(np.array(t['tex'], np.uint8).tobytes())
 

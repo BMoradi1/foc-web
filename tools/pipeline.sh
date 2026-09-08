@@ -40,8 +40,8 @@ echo "== 4. convert assets"
 $PY tools/convert_textures.py
 $PY tools/mdx2gltf.py
 $PY tools/extract_audio.py
-$PY tools/bake_ground.py
 $PY tools/cliffs.py             # a cliff mesh for every layer transition
+$PY tools/bake_ground.py        # blend the matching ground tile around cliffs
 
 echo "== 5. compile game data"
 $PY tools/compile_game.py

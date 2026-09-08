@@ -111,6 +111,10 @@ EFFECTS (cont.)
       - the cliff textures ask for max anisotropy and the ground never did. At
         an RTS camera angle the ground is seen edge-on, so it smeared while the
         cliff beside it stayed sharp. It asks for the same now.
+    FIXED 2026-09-07: the boundary also ignored CliffTypes.groundTile. The
+    bake now uses the cliff's matching Ysqd tile at 697 boundary vertices and
+    blends into the surrounding painted terrain through the original masks.
+    Ramp interiors keep their painted ground. The source map is not modified.
     STILL OPEN: the cliff surface carries 256 texels over a single 128-unit
     cell -- 2.0 per unit against the ground's 0.50 -- so a 4x mismatch remains,
     and matching it would mean baking at 4x the pixels from 64px source art,
@@ -191,13 +195,13 @@ EFFECTS (cont.)
     materials and the real index buffer in a browser, because a uniform that is
     computed and never bound is exactly what a data-only check would pass.
 
-[ ] Ramp transitions: the CliffTrans wedges are never placed
-    Also reported from play -- the transition art at a cliff edge is absent.
+[x] Ramp transitions: the CliffTrans wedges are now placed (2026-09-07)
+    Reported from play -- the transition art at a cliff edge was absent.
     CliffTypes.slk gives every cliff type a *second* model directory --
     `rampModelDir`, CityCliffTrans for this map's CYsq -- holding the wedges
-    Warcraft III sets where a ramp meets a cliff. cliffs.py reads
-    cliffModelDir only, so those cells get ordinary cliff walls and the ramp
-    mouth has a hard edge instead of a carried-down ground.
+    Warcraft III sets where a ramp meets a cliff. cliffs.py previously read
+    cliffModelDir only, so those cells got ordinary cliff walls and the ramp
+    mouth had a hard edge instead of a carried-down ground.
     What is established, so the next attempt starts here rather than from
     scratch:
       - the art exists: 16 CityCliffTrans models, and Models.path() already
@@ -206,14 +210,19 @@ EFFECTS (cont.)
         rather than A/B/C, which is why every one of the 16 has exactly one H
         and one L
       - this map has 4 fully-ramped cells and 20 cliff cells touching them
-    What is NOT established, and where an attempt failed: which cells take a
-    wedge. Coding every cell whose ramp-flagged corners span both layers gives
-    12 cells, and all 12 codes have art -- but the resulting mesh fails
-    cliff_test with 64 height mismatches (max 128, exactly one layer) and 8
-    cells covered that were never declared, and some of the 12 sit three rows
-    from the ramp mouth. So the corner-to-letter rule is close but the
-    selection or the base layer is wrong, and it wants Blizzard's actual
-    placement rule rather than another inference. Reverted; the tree is green.
+    Resolved by measuring the models: each spans TWO cells. L is the
+    half-height midpoint, while H stays at the high flagged grid vertex.
+    The placement matcher checks the four outer corners against the layer
+    grid and declares both covered cells. Twelve wedges replace twelve cliff
+    cells and twelve adjacent flat cells; total coverage rises 498 -> 510.
+    Six ground vertices are raised by 64 to meet the walkable ramp ridges.
+    Internal wedge vertices no longer get compared to hidden raw ground;
+    the test checks exposed ground joins AND agreement between models.
+    Zero mismatched joins, zero conflicting model heights, zero coverage
+    differences. Rotation tests verify all four orientations. Browser tests
+    verify the actual drawn slope against unit height queries at both bases.
+    See docs/TERRAIN_PROVENANCE.md and THIRD_PARTY_NOTICES.md for measurements,
+    the consulted MIT reference, and its retained notice. Assets stay local.
 
 INTERFACE (the Warcraft III console)
 ------------------------------------

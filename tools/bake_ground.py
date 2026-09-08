@@ -67,8 +67,11 @@ def mask_slot(mask, cols):
 def bake(out='assets/textures/_ground.png'):
     t = json.load(open('data/terrain.json'))
     W, H = t['width'], t['height']
-    ground = t['groundTiles']
-    tex = np.array(t['tex'], np.uint8).reshape(H, W)
+    from cliffs import cliff_types
+    from terrain_surface import ground_indices
+    with open('data/cliffs.json') as f:
+        cliff_spec = json.load(f)
+    ground, tex = ground_indices(t, cliff_spec, cliff_types())
     det = np.array(t['detail'], np.uint8).reshape(H, W)
     atlases, ncols, misses = {}, {}, []
     for i, tid in enumerate(ground):

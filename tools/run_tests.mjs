@@ -45,6 +45,8 @@ const EXTRA = [
   { file: 'audit.mjs', cmd: process.execPath, args: ['tools/audit.mjs'] },
   { file: 'cliff_test.py', cmd: VENV, args: ['tools/cliff_test.py'],
     skip: fs.existsSync(VENV) ? null : 'no .venv -- python3 -m venv .venv && .venv/bin/pip install numpy pillow' },
+  { file: 'terrain_surface_test.py', cmd: VENV, args: ['tools/terrain_surface_test.py'],
+    skip: fs.existsSync(VENV) ? null : 'no .venv -- requires numpy and pillow' },
 ];
 
 const discovered = fs.readdirSync(path.join(ROOT, 'tools'))
