@@ -138,7 +138,16 @@ export function renderCard(ui, h, translate) {
   });
   // Keep buttons attached between snapshots. Replacing a button between the
   // pointer-down and pointer-up events drops real mouse clicks.
-  const old = new Map([...box.children].map(n => [n.dataset.command, n]));
+  // Only this card's own buttons are keyed by command. The shop lays its stock
+  // into these same cells and marks none of it, so a `new Map` over every child
+  // collapsed the whole stock onto one `undefined` key and left all but the last
+  // cell behind: coming back from a shop showed 17 cells, the twelve that belong
+  // here and five items still for sale. Anything without a command is not ours.
+  const old = new Map();
+  for (const n of [...box.children]) {
+    if (n.dataset.command) old.set(n.dataset.command, n);
+    else n.remove();
+  }
   for (const node of [...next.children]) {
     const existing = old.get(node.dataset.command);
     if (existing) {

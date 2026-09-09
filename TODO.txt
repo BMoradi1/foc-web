@@ -273,11 +273,15 @@ Warcraft III's own screenshot still has and we do not:
     war3map.j) and lumber (8) and never touches food, so supply reads what the
     engine reports for it, which is nothing -- the same as the game would show.
 
-    Quests and Menu are drawn from the layout's own DisabledTexture and grey
-    disabled colour. The engine's QuestSetTitle and QuestSetDescription are
-    no-ops, so there is no quest text to show, and a button that silently does
-    nothing is worse than one the game itself would grey out. Allies opens the
-    scoreboard, which is the one thing already behind it.
+    Quests and Menu were drawn from the layout's own DisabledTexture and grey
+    disabled colour while QuestSetTitle and QuestSetDescription were no-ops --
+    a button that silently does nothing is worse than one the game itself
+    would grey out. CreateQuest/QuestSetTitle/QuestSetDescription keep real
+    quests now and the snapshot carries them, so all four buttons are live and
+    each opens the panel it names (F9 quests, F10 menu, F11 allies, and the
+    chat line). topbar_test asserts the click reaches a dialog that names
+    itself, not that a handler ran -- a button wired to the wrong dialog fails
+    it.
 
     Our own centre score strip sat where the resource bar goes; the resource bar
     is the game's layout, so ours is what moved down.
@@ -1511,7 +1515,8 @@ GAMEPLAY / INPUT
         the sound already plays at. Exactly one site asks for 80%.
       MultiboardReleaseItem 37, RemoveLocation 9  -- handle cleanup, and this
         port garbage-collects.
-      Quest* 12  -- the quest log is greyed deliberately; see its own item.
+      Quest* 12  -- real now, and the Quests button opens the log; see the top
+        strip's item.
       lobby and meta  -- SetStartLocPrio 24, SetPlayerRacePreference 10,
         SetPlayerRaceSelectable 10, SetMapName/Description, SetTeams,
         SetGameSpeed, SetGameDifficulty, GetCameraMargin 18. Correct as no-ops.
@@ -1628,6 +1633,28 @@ INTERFACE -- THE SHOP
     buildings, the card becomes the stock with a price and icon per cell laid
     into distinct measured cells, the panel and portrait follow, clicking sends
     the right buy, clearing restores the hero, and pressing 'b' does nothing.
+
+[x] The shop's stock stayed on the card after leaving it  (FIXED)
+    Coming back from a shop showed 17 cells: the twelve that belong to the hero
+    and five items still for sale underneath. renderCard keeps buttons attached
+    between snapshots by keying the existing children on data-command, and the
+    shop lays its stock into the same cells with no command at all -- so a
+    `new Map` over every child collapsed the whole stock onto one `undefined`
+    key and removed only the last of them. Anything without a command is not
+    the card's and is dropped now.
+    shop_test was counting cells with a printed hotkey letter, which the
+    classic console does not draw, so it passed on the leftover stock keeping
+    the count above zero. It counts cells that carry a command now, and asserts
+    the stock is gone. hotkey_test had the same dead check -- the letter lives
+    in the tooltip, and that is what it reads.
+
+[x] Three files the deploy bundle left out  (FIXED)
+    tools/make_serve.py did not carry public/fonts (FRIZQT__.TTF, the face the
+    whole UI is set in -- a 404 there is not an error, so the browser fell back
+    to a system font), data/buffart.json (world.js filters the snapshot's buff
+    art through it with no fallback to public/data, so a bundle without it
+    drew no buff icon on any unit) or data/ambience.json (engine.js does fall
+    back for that one; the pack now carries the copy it prefers).
 
 [x] The heroes ran at the shop as if to attack it  (FIXED)
     Reported from play. Nothing was ever damaged -- shops sit on player 15,

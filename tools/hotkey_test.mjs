@@ -66,7 +66,6 @@ const info = await page.evaluate(() => {
   return {
     hero: h.name,
     abilities: h.abilities.map((a) => ({ slot: a.slot, id: a.id, hotkey: a.hotkey, key: a.key })),
-    labels: [...document.querySelectorAll('#abilities .slot .key')].map((n) => n.textContent.trim()),
   };
 });
 console.log(JSON.stringify(info, null, 1));
@@ -87,12 +86,6 @@ check('no two abilities share a key', new Set(keys).size === keys.length,
 const honoured = declared.every((a) => a.key === a.hotkey.trim().toLowerCase());
 check('a declared hotkey is the key that binds', honoured,
       declared.map((a) => `${a.hotkey}->${a.key}`).join(' '));
-
-// ---- the label on the button is the key that binds
-const labelsMatch = info.abilities.every(
-  (a, i) => (info.labels[i] || '').toLowerCase() === (a.key || ''));
-check('the printed letter is the bound key', labelsMatch,
-      `labels ${info.labels.join('')} vs keys ${info.abilities.map((a) => a.key.toUpperCase()).join('')}`);
 
 // ---- and pressing it casts THAT ability
 //
@@ -134,6 +127,27 @@ check('pressing a key reached the cast path', tried.length > 0,
       `${tried.length}/${fired.length} keys produced a cast`);
 check('each key casts its OWN ability', tried.length > 0 && tried.every((f) => f.got === f.want),
       tried.map((f) => `${f.key}:${f.want}${f.got === f.want ? '' : '!=' + f.got}`).join(' '));
+
+// ---- the button says which key casts it
+//
+// Classic Warcraft III prints no letter on the command button; the hotkey is
+// named in the tooltip, and that is where the card puts it. This ran against an
+// overlay the HUD drew until it was matched to the classic console, and passed
+// on an empty string once that overlay went away. Read after the hero is
+// levelled, because an unlearned ability is not on the card to carry a tooltip.
+const tips = await page.evaluate(() => {
+  const out = [];
+  window.FOC.S.hero.abilities.forEach((a, i) => {
+    if (a.lvl < 1 || !a.key) return;
+    const n = document.querySelector(`#abilities .slot[data-command="ability-${i}"]`);
+    out.push({ key: a.key, tip: n ? n.dataset.tooltip : null });
+  });
+  return out;
+});
+const named = tips.filter((t) => (t.tip || '').includes(`(${t.key.toUpperCase()})`));
+check('the button names the key that casts it',
+      tips.length > 0 && named.length === tips.length,
+      `${named.length}/${tips.length} -- ` + tips.map((t) => `${t.key}:${(t.tip || 'no button').split('\n')[0]}`).join(' | '));
 
 // A missing hero portrait 404s on purpose -- the card's onerror falls back to
 // the unit's original Warcraft III icon -- so those are not failures.

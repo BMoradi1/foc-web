@@ -156,11 +156,21 @@ const back = await page.evaluate(() => {
   window.FOC.ui.clearShop();
   window.FOC.showUnitPortrait();
   const cells = [...document.querySelectorAll('#abilities .slot')];
-  return { cells: cells.length, keys: cells.filter((c) => c.querySelector('.key')).length,
+  return { cells: cells.length,
+           commands: cells.filter((c) => c.dataset.command).length,
+           stock: cells.filter((c) => c.classList.contains('shopitem')).length,
            name: document.getElementById('pname2').textContent };
 });
+// Counted by command rather than by a printed hotkey letter: the classic
+// console draws none, and this check passed on its absence for as long as the
+// stock left behind kept the cell count above zero.
 check('clearing the selection restores the hero\'s abilities',
-      back.cells > 0 && back.keys > 0, `${back.cells} cells, ${back.keys} with a hotkey`);
+      back.commands > 0, `${back.commands} of ${back.cells} cells carry a command`);
+// The card reconciles on data-command and the stock carries none, so every item
+// but the last survived the trip back -- 17 cells, five of them still for sale
+// underneath the hero's own buttons.
+check('and the shop\'s stock is gone from the card', back.stock === 0,
+      `${back.stock} item cells left of ${back.cells}`);
 check('and the hero\'s name comes back', !back.name.includes(after.shopName),
       JSON.stringify(back.name));
 

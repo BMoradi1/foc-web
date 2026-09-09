@@ -22,6 +22,11 @@ TREES = [
     ('shared', 'shared'),                 # constants both sides read
     ('public/data', 'public/data'),       # terrain, heights, walkability, cliffs
     ('public/assets', 'public/assets'),   # converted models, textures, sounds
+    # FRIZQT__.TTF, the font the whole UI is set in. Left out of the bundle, the
+    # deployed game 404s it and the browser falls back to a system face -- the
+    # one difference from the real console that nothing here would have failed
+    # on, since a missing font is not an error.
+    ('public/fonts', 'public/fonts'),
 ]
 
 # individual files, with the paths the runtime expects them at
@@ -36,6 +41,14 @@ FILES = [
 # compiled game data the server reads at boot
 DATA = ['abilities.json', 'game.json', 'unittypes.json', 'itemtypes.json',
         'soundsets.json', 'gameplay.json', 'spell_targets.json',
+        # which buffs draw something -- world.js filters the snapshot through
+        # this, and reads it from data/ with no fallback to public/data, so a
+        # bundle without it sends no buff art at all and every buff icon on
+        # every unit silently disappears
+        'buffart.json',
+        # engine.js does fall back to public/data for this one, but the pack
+        # carries the copy it prefers rather than relying on the fallback
+        'ambience.json',
         # the build counter, so the deployed game reports the same build number
         # as the machine it was packed on rather than starting over at 1
         'build.json']

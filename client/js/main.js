@@ -460,10 +460,10 @@ async function boot(m) {
       .filter((p) => String(p.a || '').startsWith('BOTTOM'))
       .map((p) => p.h || 0)));
     // The top strip's contents: the resource readout and the menu buttons.
-    // Quests and Menu are drawn from the layout's own disabled art -- the
-    // engine's QuestSetTitle/QuestSetDescription are no-ops, so there is no
-    // quest text to show, and a button that silently does nothing is worse
-    // than one the game itself would grey out.
+    // All four are live. Quests was drawn from the layout's disabled art while
+    // the quest natives were stubs; CreateQuest/QuestSetTitle/QuestSetDescription
+    // now keep real quests and the snapshot carries them, so the button has
+    // something behind it -- as do Menu, Allies and Chat.
     topBar = buildTopBar(spec, document.getElementById('uitop'), {
       enabled: () => true,
       onButton: (k) => {

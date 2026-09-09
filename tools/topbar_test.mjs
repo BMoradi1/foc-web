@@ -7,8 +7,8 @@
 // console.
 //
 // What is worth asserting is what could be faked: that the numbers are the
-// server's and not placeholders, and that a button with nothing behind it is
-// drawn disabled rather than offered as a control that does nothing.
+// server's and not placeholders, and that each button actually opens the thing
+// it names rather than being art that swallows the click.
 //
 //   node server/index.js &        # port 8077
 //   node tools/topbar_test.mjs
@@ -77,25 +77,39 @@ check('all four buttons are there', out.btns.length === 4,
       out.btns.map((b) => b.label).join(' '));
 check('they carry the layout\'s button art', out.btns.every((b) => /buttonstates2\.png$/.test(b.img)),
       out.btns.map((b) => b.img.split('/').pop()).slice(0, 1).join(''));
-// QuestSetTitle/QuestSetDescription are no-ops in the engine, so there is no
-// quest text to show -- the game's own disabled art says so
-check('Quests and Menu are drawn disabled, not live',
-      out.btns.filter((b) => /Quests|Menu/.test(b.label)).every((b) => b.off && b.disabled),
+// Quests was greyed out while the quest natives were stubs. They are not any
+// more -- CreateQuest/QuestSetTitle/QuestSetDescription keep real quests and the
+// snapshot carries them -- so all four buttons lead somewhere and none of them
+// is drawn from the layout's disabled art.
+check('all four buttons are live, none drawn disabled',
+      out.btns.every((b) => !b.off && !b.disabled),
       out.btns.map((b) => `${b.label}:${b.off ? 'off' : 'on'}`).join(' '));
-check('Allies and Chat are live', out.btns.filter((b) => /Allies|Chat/.test(b.label))
-      .every((b) => !b.off && !b.disabled));
 check('the buttons run left to right in the layout\'s order',
       out.btns.every((b, i) => i === 0 || b.x > out.btns[i - 1].x),
       out.btns.map((b) => b.x).join(' '));
 
-// Allies opens the scoreboard, which is the one thing behind it
-const toggled = await page.evaluate(() => {
-  const before = window.FOC.S.showScore;
-  [...document.querySelectorAll('#uitop .ubbtn')].find((n) => /Allies/.test(n.textContent))?.click();
-  return { before, after: window.FOC.S.showScore };
+// Each button opens its own panel -- Warcraft III's F9/F10/F11, and the chat
+// line for Chat. Asserting the click reaches a panel that names itself, rather
+// than that a handler was called: a button wired to the wrong dialog passes the
+// second and fails this.
+const opened = await page.evaluate(async () => {
+  const click = (label) => [...document.querySelectorAll('#uitop .ubbtn')]
+    .find((n) => new RegExp(label).test(n.textContent))?.click();
+  const out = {};
+  for (const [label, want] of [['Quests', 'Quests'], ['Menu', 'Main Menu'], ['Allies', 'Allies']]) {
+    click(label);
+    const dlg = document.querySelector('#wcDialog [role="dialog"]');
+    out[label] = { got: dlg?.getAttribute('aria-label') || null, want };
+    window.FOC.ui.closeDialog();
+  }
+  click('Chat');
+  const chat = document.getElementById('wcChat');
+  out.Chat = { got: chat && !chat.classList.contains('hidden'), want: true };
+  return out;
 });
-check('Allies toggles the scoreboard', toggled.after !== toggled.before,
-      `${toggled.before} -> ${toggled.after}`);
+for (const [label, r] of Object.entries(opened)) {
+  check(`${label} opens what it names`, r.got === r.want, `${r.got} vs ${r.want}`);
+}
 
 check('no missing textures', bad404.length === 0, bad404.slice(0, 2).join(' '));
 const real = errs.filter((e) => !/404|portraits\//.test(e));
