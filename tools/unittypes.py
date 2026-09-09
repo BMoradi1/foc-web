@@ -41,6 +41,14 @@ def from_blz(rec):
         int_=num(rec.get('INT'), 0), intLvl=num(rec.get('INTplus'), 0),
         abilities=[a for a in str(rec.get('abilList', '')).split(',') if a and a != '_'],
         heroAbilities=[a for a in str(rec.get('heroAbilList', '')).split(',') if a and a != '_'],
+        # UnitWeapons.slk 'castpt' / 'castbsw' -- how far into the spell
+        # animation the ability takes effect, and how long the animation runs
+        # on after it (UnitMetaData: "Animation - Cast Point" / "Cast
+        # Backswing").  Only the map's own ucpt/ucbs overrides were carried, so
+        # 987 of 997 unit types had no cast point at all and every spell landed
+        # on the frame it was ordered.  A row of '-' has no spells to time and
+        # reads as 0.
+        castPoint=num(rec.get('castpt'), 0), castBackswing=num(rec.get('castbsw'), 0),
         bountyDice=num(rec.get('bountydice'), 0), bountySides=num(rec.get('bountysides'), 0),
         bountyPlus=num(rec.get('bountyplus'), 0),
         isBuilding=int(num(rec.get('isbldg'), 0)),

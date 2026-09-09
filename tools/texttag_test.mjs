@@ -94,12 +94,17 @@ if (A && B) {
   world.moveUnit(B, 0, 0); world.moveUnit(A, 200, 0);
   A.mana = A.maxMana = 5000;
   eng.flushClientEvents();
+  // Where the caster stood as the trigger ran. The tag is a position, not an
+  // attachment, so it must be this and not wherever the hero has walked to by
+  // the time the shout fades -- nor where it was ORDERED from: a spell whose
+  // target is out of range is walked into range first, and the shout goes up
+  // where the cast lands, at the effect.
+  let at = null;
+  const effect = world.castEffect.bind(world);
+  world.castEffect = (u) => { if (u === A) at = { x: A.x, y: A.y }; effect(u); };
   for (const aid of caster.learnable) {
     world.castAbility(A, id2int(aid), B, B.x, B.y);
-    // Where the caster stood as the trigger ran. The tag is a position, not an
-    // attachment, so it must be this and not wherever the hero has walked to
-    // by the time the shout fades.
-    const at = { x: A.x, y: A.y };
+    at = { x: A.x, y: A.y };
     tickBoth(1.2);
     for (const e of eng.flushClientEvents().filter((e) => e.t === 'texttag'))
       spellTags.push({ ...e, at });

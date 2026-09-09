@@ -70,7 +70,8 @@ if (A && B) {
   A.atkTimer = 0;
 }
 tick(4);                                                          // auto-attacks land
-if (A) for (const aid of heroA.learnable || []) world.castAbility(A, id2int(aid), B, B ? B.x : A.x, B ? B.y : A.y);
+// a cast at a time, with room for its cast point: a second order breaks the first off
+if (A) for (const aid of heroA.learnable || []) { world.castAbility(A, id2int(aid), B, B ? B.x : A.x, B ? B.y : A.y); tick(1); }
 if (A && ITEM) {
   const shop = world.shopFor(ITEM.id);
   if (shop) world.sellItem(shop, A, ITEM.id);                     // shop purchase + pickup

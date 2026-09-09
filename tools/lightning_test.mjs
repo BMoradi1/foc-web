@@ -59,10 +59,15 @@ if (caster && victim) {
   // is a different one and draining that instead finds nothing at all
   world.flushEvents();
   world.castAbility(caster, id2int(abilId), victim, victim.x, victim.y);
-  // Drain straight away. The queue is emptied every tick on its way to the
-  // clients, so stepping the world first and reading afterwards finds nothing
-  // -- which looks exactly like "the cast emitted no lightning".
-  emitted = world.flushEvents().filter((e) => e.t === 'lightning');
+  // The bolt is drawn at the spell's EFFECT, which comes at the caster's cast
+  // point rather than on the tick it was ordered. The queue is emptied every
+  // tick on its way to the clients, so it is read from each step's own return
+  // rather than after the fact -- stepping first and reading afterwards finds
+  // nothing, which looks exactly like "the cast emitted no lightning".
+  for (let i = 0; i < 30 && !emitted.length; i++) {
+    eng.update(1000 / 30);
+    emitted = world.step().filter((e) => e.t === 'lightning');
+  }
 }
 console.log('abilities naming a bolt: %d', withBolt.size);
 console.log('cast %s from %s -> %d lightning event(s)',

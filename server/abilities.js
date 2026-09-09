@@ -709,9 +709,13 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const secs = (t.isHero ? i.heroDuration : i.duration) || i.duration
                 || i.heroDuration || 0;
       if (secs <= 0.1) return { ok: true };
-      w.applyBuff(t, { kind: 'slow', pct: 1, until: w.now + secs * 1000 });
-      if (slot(d1, 0) > 0) w.dotUnit(caster, t, d1, secs, 1);
-      return { ok: true };
+      const buff = { kind: 'slow', pct: 1, until: w.now + secs * 1000 };
+      w.applyBuff(t, buff);
+      const dot = slot(d1, 0) > 0 ? w.dotUnit(caster, t, d1, secs, 1) : null;
+      // The caster channels for as long as the target is held: the cast
+      // timeline keeps it there, and lets go -- buff and burn with it -- when
+      // the caster is interrupted, the target dies, or the map strips the buff.
+      return { ok: true, hold: { target: t, buff, dot, until: w.now + secs * 1000 } };
     }
     case 'ANsi': case 'ACsi': {
       let n = 0;

@@ -48,7 +48,9 @@ for (let round = 1; round <= 6; round++) {
   world.moveUnit(A, B.x + 150, B.y);
   A.order = { type: 'attack', targetId: B.id };
   B.order = { type: 'attack', targetId: A.id };
-  for (const aid of caster.learnable) if (B.alive) world.castAbility(A, id2int(aid), B, B.x, B.y);
+  // One cast at a time: a spell takes the caster's cast point to land, and a
+  // second order before then breaks the first off, as it does in the game.
+  for (const aid of caster.learnable) if (B.alive) { world.castAbility(A, id2int(aid), B, B.x, B.y); tick(1); }
   tick(3);
   if (!B.alive) { deaths++; world.reviveUnit(B, B.x + 400, B.y); B.mana = B.maxMana; }
   A.cooldowns.clear(); A.mana = A.maxMana; A.hp = A.maxHp;

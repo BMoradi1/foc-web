@@ -8,7 +8,7 @@ import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
          auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs,
-         carriedImmolation } from './abilities.js';
+         carriedImmolation, baseOf as abilBase } from './abilities.js';
 import { chatFor } from './chatalias.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -171,6 +171,15 @@ function binKey(x, y) {
 // WorldEditStrings -- to exactly these three, which is the family that gets
 // back up: AOre is the hero form, ACrn and ANrn the unit ones.
 const REINCARNATE = new Set(['AOre', 'ACrn', 'ANrn']);
+/**
+ * Bases whose caster stands channelling until the spell is done: Blizzard and
+ * Rain of Fire's waves, Starfall, Stampede, Cluster Rockets, Aerial Shackles.
+ * Engine behaviour rather than a field -- no table in the archives says which
+ * abilities hold their caster -- so this is the set the engine's own cases
+ * queue waves for, less Bladestorm (AOww), whose caster walks while it spins.
+ * ENDCAST waits on these; for everything else it follows EFFECT on the tick.
+ */
+const CHANNEL_HOLDS = new Set(['AHbz', 'ACbz', 'ANrf', 'ACrf', 'AEsf', 'ANst', 'ANcs', 'Amls']);
 
 const MORPH_FIELDS = ['typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
   'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'attacksEnabled', 'missile',
@@ -424,6 +433,9 @@ export class World {
       // where this unit stands guard, and how far it looks for a fight
       homeX: x, homeY: y, returning: false, strayedAt: 0, lastAttackedAt: 0,
       acquisitionRange: t ? t.acquisitionRange || 500 : 500,
+      // how far into the spell animation a cast takes effect, and how long the
+      // animation runs on after it (UnitWeapons.slk castpt / castbsw)
+      castPoint: t ? t.castPoint || 0 : 0, castBackswing: t ? t.castBackswing || 0 : 0,
       flyHeight: 0, expireAt: 0, bounty: t ? t.bountyPlus : 0,
       kills: 0, deaths: 0, sellUnits: t ? t.sellUnits || [] : [],
       sellItems: t ? t.sellItems || [] : [],
@@ -538,6 +550,7 @@ export class World {
 
   killUnit(u, killer) {
     if (!u || !u.alive) return;
+    this.interruptCast(u);                      // a dying caster stops casting
     u.alive = false; u.hp = 0; u.path = null; u.order = { type: 'idle' };
     // Warcraft III carries timed life as the BTLF buff, so death disposes of it
     // with every other buff and it cannot outlive the unit. We keep it as a bare
@@ -809,6 +822,7 @@ export class World {
   removeAbility(u, abilId) {
     if (!u) return false;
     u.abilities.delete(typeof abilId === 'number' ? abilId : id2int(abilId));
+    this.holdReleasedBy(u, typeof abilId === 'number' ? int2id(abilId) : abilId);
     this.recalc(u);
     return true;
   }
@@ -937,6 +951,8 @@ export class World {
   // ----------------------------------------------------------------- orders
   order(u, o) {
     if (!u || !u.alive || u.paused) return false;
+    // any order breaks off a cast in progress, as the game's does
+    this.interruptCast(u);
     const numericOrder = typeof o.type === 'number' || /^-?\d+$/.test(String(o.type));
     if (numericOrder && this.castDummy(u, { target: o.target, x: o.x, y: o.y })) return true;
     const name = typeof o.type === 'string' ? o.type : String(o.type);
@@ -1503,12 +1519,14 @@ export class World {
    * enough to fake that would still catch whatever shares the tile.
    */
   dotUnit(caster, target, perTick, seconds, interval = 1) {
-    if (!target || perTick <= 0 || seconds <= 0) return;
+    if (!target || perTick <= 0 || seconds <= 0) return null;
     this.dots = this.dots || [];
-    this.dots.push({ caster, target, perTick,
-                     interval: Math.max(100, interval * 1000),
-                     nextAt: this.now + interval * 1000,
-                     until: this.now + seconds * 1000 });
+    const d = { caster, target, perTick,
+                interval: Math.max(100, interval * 1000),
+                nextAt: this.now + interval * 1000,
+                until: this.now + seconds * 1000 };
+    this.dots.push(d);
+    return d;
   }
 
   stepDots() {
@@ -1714,8 +1732,45 @@ export class World {
   }
 
   /**
-   * Cast an ability. Engine checks level/mana/cooldown, then hands off to the
-   * map's own spell trigger via EVENT_PLAYER_UNIT_SPELL_EFFECT.
+   * Cast an ability -- as an ORDER with a timeline, not as a function call.
+   *
+   * Warcraft III does not resolve a spell on the frame it is ordered. The
+   * caster walks into range, turns, and starts its spell animation; the effect
+   * lands at the unit's cast point (UnitWeapons.slk castpt, 0.3s for most of
+   * this roster) or, for an ability with a Casting Time (acas), after that
+   * time; a channelled spell then holds the caster until it is done or
+   * interrupted. The five spell events mark those moments, and the map's
+   * triggers sit on them:
+   *
+   *   CHANNEL, CAST   the cast begins (in range, facing the target).  Five of
+   *                   this map's triggers arm here -- they spawn the ritual
+   *                   dummies for A01G, A00L, A03K, A060 and play A00W's
+   *                   line -- and then WAIT for the ability's own casting time
+   *                   before doing the real work.
+   *   EFFECT          the cast point / casting time is reached: mana and
+   *                   cooldown are spent and the ability happens.  Almost
+   *                   every trigger in the map is here.
+   *   FINISH          the spell ran to completion (its channel ended by
+   *                   itself).  A022 hides the caster here.
+   *   ENDCAST         the caster is no longer casting, for any reason -- after
+   *                   FINISH, or alone on an interrupt: a new order, a stun,
+   *                   death, the shackled target dying or losing its buff.
+   *                   Six triggers clean up here.
+   *
+   * All five used to fire back to back in one call, which is why Luffy's
+   * 고무고무 바람개비 (A04X) threw its target for 500 x 0: its EFFECT trigger
+   * starts a spin and its ENDCAST trigger stops it, and the stop landed before
+   * the first turn.  Now ENDCAST waits for the channel.
+   *
+   * What is established from the map and the archives: the event names, the
+   * cast point and backswing per unit, the casting time per ability, which
+   * abilities the map's own triggers treat as timed rituals, and each channel's
+   * length from the ability's own fields.  What is engine behaviour rather than
+   * data, and is taken from how the game is known to play rather than from any
+   * file here: that mana and cooldown are spent at the effect and not at the
+   * order, that a casting time replaces the cast point rather than adding to
+   * it, and which bases hold their caster (CHANNEL_HOLDS).  tools/casttime_test.mjs
+   * asserts each of the map's own expectations listed above.
    */
   castAbility(u, abilId, targetUnit, tx, ty) {
     if (!u || !u.alive || !this.jass) return { ok: false, reason: 'dead' };
@@ -1726,33 +1781,205 @@ export class World {
     u.cooldowns = u.cooldowns || new Map();
     if ((u.cooldowns.get(key) || 0) > this.now) return { ok: false, reason: 'cooldown' };
     const info = this.abilityInfo(key, lvl);
+    // the game refuses the ORDER for want of mana; the mana itself goes at the effect
     if (u.mana < info.mana) return { ok: false, reason: 'mana' };
-    u.mana -= info.mana;
-    u.cooldowns.set(key, this.now + info.cooldown * 1000);
-    u.facing = Math.atan2((ty ?? u.y) - u.y, (tx ?? u.x) - u.x);
+    if (targetUnit && !targetUnit.alive) return { ok: false, reason: 'dead target' };
+    // The attack the cast displaces, to pick back up afterwards. The game's
+    // idle auto-acquire would find the same target again on its own; a player's
+    // hero here has no auto-acquire (stepAI leaves controlled units alone), so
+    // without this a hero that cast mid-fight stood still until clicked.
+    const prior = u.order && (u.order.type === 'attack' || u.order.type === 'attackMove') ? u.order : null;
+    // a new cast replaces whatever the unit was doing, a cast included
+    this.interruptCast(u);
     const abil = abilEntry(this.abilKey(key));
+    const L = abil ? levelInfo(abil, lvl) : {};
+    u.cast = {
+      key, lvl, abil, info, target: targetUnit || null,
+      x: tx ?? (targetUnit ? targetUnit.x : u.x), y: ty ?? (targetUnit ? targetUnit.y : u.y),
+      phase: 'approach', begunAt: 0, effectAt: 0, endAt: 0, channels: [], hold: null, prior,
+      castTime: Math.max(0, L.castTime || 0),
+      ctx: { unit: u, spellId: key, targetUnit: targetUnit || null,
+             targetX: tx ?? u.x, targetY: ty ?? u.y, player: this.playerOf(u) },
+    };
+    u.order = { type: 'cast' };
+    u.path = null;
+    this.casters = this.casters || new Set();
+    this.casters.add(u);
+    // in range already: the cast begins on the tick it was ordered, as the
+    // game's does, rather than one tick later
+    this.stepCast(u);
+    return { ok: true };
+  }
+
+  /** Where the cast is measured to, and how far it may be from there. */
+  castDistance(u, c) {
+    const t = c.target;
+    if (t) return Math.max(0, Math.hypot(t.x - u.x, t.y - u.y) - (t.radius || 0) - (u.radius || 0));
+    return Math.hypot(c.x - u.x, c.y - u.y);
+  }
+
+  stepCasts() {
+    if (!this.casters || !this.casters.size) return;
+    for (const u of [...this.casters]) {
+      if (!u.cast) { this.casters.delete(u); continue; }
+      if (!u.alive) { this.interruptCast(u); continue; }
+      if (u.paused) continue;                          // PauseUnit freezes it in place
+      if (this.stunned(u)) { this.interruptCast(u); continue; }
+      this.stepCast(u);
+    }
+  }
+
+  stepCast(u) {
+    const c = u.cast;
+    if (!c) return;
+    if (c.target && !c.target.alive) {
+      // the target died: a cast that had not begun is simply dropped, one in
+      // progress is broken off
+      this.interruptCast(u);
+      return;
+    }
+    if (c.phase === 'approach') {
+      // a range of 0 is a self or instant cast; anything else is walked into
+      const range = c.info.range || 0;
+      if (range > 0 && this.castDistance(u, c) > range) {
+        if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
+          const gx = c.target ? c.target.x : c.x, gy = c.target ? c.target.y : c.y;
+          u.path = this.grid.path(u.x, u.y, gx, gy);
+          u.repathAt = this.now + 400;
+          if (!u.path || !u.path.length) { this.interruptCast(u); return; }   // no way there
+        }
+        return;
+      }
+      this.beginCast(u);
+      return;
+    }
+    if (c.phase === 'casting') {
+      if (this.now >= c.effectAt) this.castEffect(u);
+      return;
+    }
+    if (c.phase === 'channel') {
+      const waves = c.channels.some((ch) => ch.left > 0);
+      const held = c.hold && this.now < c.hold.until && c.hold.target.alive;
+      if (!waves && !held && this.now >= c.endAt) this.finishCast(u);
+    }
+  }
+
+  beginCast(u) {
+    const c = u.cast;
+    const gx = c.target ? c.target.x : c.x, gy = c.target ? c.target.y : c.y;
+    if (gx !== u.x || gy !== u.y) u.facing = Math.atan2(gy - u.y, gx - u.x);
+    u.path = null;
+    c.phase = 'casting';
+    c.begunAt = this.now;
+    // A Casting Time (acas) is the time the map's own triggers wait for from
+    // CHANNEL -- A01G's waits 3.0 against its 3.0 -- so it stands in for the
+    // cast point rather than being added to it.
+    c.effectAt = this.now + (c.castTime > 0 ? c.castTime : u.castPoint || 0) * 1000;
     // The ability names the animation it wants, as a Warcraft III token set:
     // "spell,slam", "attack,slam", "spell,throw", "stand,channel". 257 of this
     // map's abilities carry one and nothing had ever read it, so every cast
-    // played whichever clip happened to be called "Spell".
-    this.emit({ t: 'cast', id: u.id, ab: int2id(key), anim: abil?.art?.anim || null });
+    // played whichever clip happened to be called "Spell". A cast that holds
+    // the unit -- a casting time, a channel -- loops it until castEnd.
+    c.loops = c.castTime > 0 || CHANNEL_HOLDS.has(abilBase(c.abil));
+    this.emit({ t: 'cast', id: u.id, ab: int2id(c.key), anim: c.abil?.art?.anim || null,
+                loop: c.loops ? 1 : 0 });
+    this.fireSpellEvent('EVENT_PLAYER_UNIT_SPELL_CHANNEL', c.ctx);
+    if (u.cast !== c) return;                          // the trigger itself broke it off
+    this.fireSpellEvent('EVENT_PLAYER_UNIT_SPELL_CAST', c.ctx);
+  }
+
+  castEffect(u) {
+    const c = u.cast;
+    u.mana = Math.max(0, u.mana - c.info.mana);
+    u.cooldowns.set(c.key, this.now + c.info.cooldown * 1000);
+    const before = this.channels ? this.channels.length : 0;
+    let res = null;
     // 1. the engine performs the base Warcraft III ability, and draws the art
     //    that ability carries.  An ability with a missile hands its payload to
     //    the missile instead, and resolves when that lands.
-    if (!this.launchAbilityMissile(u, abil, key, { target: targetUnit, x: tx, y: ty })) {
-      this.runAbility(u, key, { target: targetUnit, x: tx, y: ty });
-    }
-    this.emitAbilityArt(abil, u, targetUnit, tx ?? u.x, ty ?? u.y);
+    const o = { target: c.target, x: c.x, y: c.y };
+    if (!this.launchAbilityMissile(u, c.abil, c.key, o)) res = this.runAbility(u, c.key, o);
+    this.emitAbilityArt(c.abil, u, c.target, c.x, c.y);
+    if (u.cast !== c) return;                          // the ability moved the caster on
+    // a channelled base keeps the caster on the waves it just queued
+    if (CHANNEL_HOLDS.has(abilBase(c.abil)) && this.channels)
+      c.channels = this.channels.slice(before).filter((ch) => ch.caster === u);
+    if (res && res.hold) c.hold = res.hold;
+    c.phase = 'channel';
+    c.endAt = this.now;
     // 2. the map's own trigger adds its bespoke effects on top
-    const ctx = { unit: u, spellId: key, targetUnit: targetUnit || null,
-                  targetX: tx ?? u.x, targetY: ty ?? u.y, player: this.playerOf(u) };
-    for (const name of ['EVENT_PLAYER_UNIT_SPELL_CHANNEL', 'EVENT_PLAYER_UNIT_SPELL_CAST',
-                        'EVENT_PLAYER_UNIT_SPELL_EFFECT', 'EVENT_PLAYER_UNIT_SPELL_FINISH',
-                        'EVENT_PLAYER_UNIT_SPELL_ENDCAST']) {
-      const key = this.jass.eventId(name);
-      if (key != null) this.jass.fire(key, ctx);
+    this.fireSpellEvent('EVENT_PLAYER_UNIT_SPELL_EFFECT', c.ctx);
+    if (u.cast !== c) return;
+    // nothing holds the caster: the spell is over on the same tick
+    if (!c.channels.length && !c.hold) this.finishCast(u);
+  }
+
+  /** The spell ran its course. */
+  finishCast(u) {
+    const c = u.cast;
+    if (!c) return;
+    this.fireSpellEvent('EVENT_PLAYER_UNIT_SPELL_FINISH', c.ctx);
+    this.endCast(u, c);
+  }
+
+  /**
+   * The caster stops for any other reason.  Nothing fires for a cast that had
+   * not begun -- the unit was still walking there -- because nothing had.
+   */
+  interruptCast(u) {
+    const c = u && u.cast;
+    if (!c) return;
+    for (const ch of c.channels) ch.left = 0;
+    if (c.hold) this.releaseHold(c.hold);
+    if (c.phase === 'approach') { this.dropCast(u, c); return; }
+    this.endCast(u, c);
+  }
+
+  endCast(u, c) {
+    if (u.cast !== c) return;
+    this.dropCast(u, c);
+    this.fireSpellEvent('EVENT_PLAYER_UNIT_SPELL_ENDCAST', c.ctx);
+  }
+
+  dropCast(u, c) {
+    if (c.loops) this.emit({ t: 'castEnd', id: u.id });
+    u.cast = null;
+    if (this.casters) this.casters.delete(u);
+    if (u.order && u.order.type === 'cast') {
+      u.path = null;
+      const t = c.prior && c.prior.targetId != null ? this.target(c.prior.targetId) : null;
+      u.order = c.prior && u.alive && (c.prior.type === 'attackMove' || (t && t.alive)) ? c.prior : { type: 'idle' };
     }
-    return { ok: true };
+  }
+
+  /** Aerial Shackles lets go: the target walks, and stops burning. */
+  releaseHold(h) {
+    if (!h || !h.target) return;
+    if (h.buff) h.target.buffs = (h.target.buffs || []).filter((b) => b !== h.buff);
+    if (h.dot) h.dot.until = 0;
+    h.until = 0;
+    this.recalc(h.target);
+  }
+
+  /**
+   * A buff the map strips from a shackled unit ends the shackles.  A04X's own
+   * spin loop does exactly this -- UnitRemoveAbility(target, 'Bmlt') -- to let
+   * the target go, and the channel has to end with it or the caster stands
+   * holding nothing for the rest of the duration.
+   */
+  holdReleasedBy(target, code) {
+    if (!this.casters) return;
+    for (const u of this.casters) {
+      const c = u.cast;
+      if (!c || !c.hold || c.hold.target !== target) continue;
+      const buffs = String(levelInfo(c.abil, c.lvl).buff || '').split(',').map((x) => x.trim());
+      if (buffs.includes(code)) this.interruptCast(u);
+    }
+  }
+
+  fireSpellEvent(name, ctx) {
+    const k = this.jass.eventId(name);
+    if (k != null) this.jass.fire(k, ctx);
   }
 
   abilityInfo(key, lvl) {
@@ -1845,6 +2072,7 @@ export class World {
     this.rebuildBins();
     this.stepMissiles();
     this.stepItems();
+    this.stepCasts();
     const alive = [];
     for (const u of this.units.values()) {
       if (!u.alive) {

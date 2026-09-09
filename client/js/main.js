@@ -279,9 +279,16 @@ function handleEvent(ev) {
     }
     case 'cast': {
       const v = view.views.get(ev.id);
-      // the ability's own Animnames if it has one, else the generic cast clip
-      if (v) view.play(v, ev.anim || 'spell', true);
+      // the ability's own Animnames if it has one, else the generic cast clip.
+      // A cast that holds the unit -- a casting time, a channel -- loops it
+      // until the server says the cast is over.
+      if (v) view.play(v, ev.anim || 'spell', !ev.loop);
       if (ev.x != null) spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0x88ccff, 120);
+      break;
+    }
+    case 'castEnd': {
+      const v = view.views.get(ev.id);
+      if (v) view.play(v, 'stand');
       break;
     }
     case 'camShake': view.setShake(ev.mag, ev.vel, ev.vert); break;

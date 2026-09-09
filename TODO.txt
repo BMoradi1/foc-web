@@ -1282,14 +1282,118 @@ GAMEPLAY / INPUT
         MPQs: OrderId() here is a string hash of ours, which cannot match a
         literal id the script passes. Not establishable from the data we have.
 
-    Every spell event fires at once
-        castAbility fires SPELL_CHANNEL, SPELL_CAST, SPELL_EFFECT, SPELL_FINISH
-        and SPELL_ENDCAST back to back in one call. A trigger that arms on
-        EFFECT and disarms on ENDCAST is therefore disarmed before it can run --
-        A04X's spin is the reported case, where both UnitDamageTargetBJ calls
-        multiply by an udg_integer12 that never leaves 0. Fixing it means giving
-        the engine a real cast timeline, which every trigger in the map sits on;
-        it is a redesign rather than a repair and wants its own pass.
+    Every spell event fires at once  (FIXED 2026-09-08 -- see THE CAST
+        TIMELINE below)
+
+[x] THE CAST TIMELINE  (FIXED 2026-09-08)
+    castAbility resolved a spell on the frame it was ordered and fired all five
+    spell events back to back in one call. Warcraft III does neither: a spell
+    is an ORDER. The caster walks into range, turns, starts its spell
+    animation, and the effect lands at the unit's cast point; a channelled
+    spell then holds the caster until it is done or broken off. The five
+    events mark those moments, and the map's own triggers sit on them.
+
+    Measured off the script, so this is what the map expects rather than what
+    a manual says. TriggerRegisterAnyUnitEventBJ appears once per event; the
+    per-spell triggers hang off those four:
+      EFFECT   ~120 triggers, one per spell -- the work
+      CHANNEL  5: A01G, A00W, A00L, A03K, A060. Four of them CREATE the ritual
+               (A00L raises 24 h009 around the caster, A060 raises 30 dummies,
+               A03K two pairs of e006/e007, A01G a peasant and pauses the
+               target) and then WAIT -- A01G's action is BO(3.) against its
+               own acas of 3.0
+      ENDCAST  6: A01G, A00L, A03K, A060, A04C, A04X. Five of them REMOVE what
+               CHANNEL created (ForGroupBJ over KO(type) -> RemoveUnit); the
+               sixth, A04X, sets udg_integer11 = 1 to stop a spin loop
+      FINISH   1: A022 pauses, hides and invulnerables the caster
+    So with everything fired at once the cleanup ran before the ritual, and
+    A04X (Amls, Luffy's 고무고무 바람개비) is the visible case: its EFFECT
+    trigger enables a 0.01s loop that pulls the target in, spins it three
+    turns while copying the turn count into udg_integer12, then throws it for
+    200 x udg_integer12 and 500 x udg_integer12 around; ENDCAST sets the stop
+    flag, and the stop landed before the first turn, so the throw was 500 x 0.
+
+    What is now in the engine (server/world.js castAbility and the step*Cast
+    family under it, tools/casttime_test.mjs, 38 checks):
+      - the order is refused up front for level, silence, cooldown, mana and a
+        dead target, as the game refuses it; a new cast replaces a cast in
+        progress
+      - approach: an ability with a range is walked into it, measured edge to
+        edge for a unit target; a range of 0 casts where the unit stands.
+        Nothing fires while walking, and a target that dies on the way drops
+        the order silently
+      - begin: face the target, CHANNEL then CAST, the 'cast' animation event
+      - EFFECT after the unit's cast point -- UnitWeapons.slk castpt, which the
+        compiled table had never carried (only the ten w3u overrides; every
+        other type had none). 0.3s for 20 of the map's 26 heroes, 0.4 for two
+        and 0.5 for four. Mana and cooldown are spent HERE, not at the
+        order. An ability with a Casting Time (acas: 47 of 1046, five of them
+        on this roster's castables -- A01G 3.0, A00L 5.0, A060 5.0, A03K 3.1,
+        A027 0.2) lands after that instead; that is the number the map's own
+        CHANNEL triggers wait for
+      - channel: a base in CHANNEL_HOLDS keeps the caster until its waves are
+        done (AHbz ANrf ACbz ACrf AEsf ANst ANcs -- the bases whose engine
+        case queues waves, less AOww, whose caster walks while it spins) or,
+        for Amls, until the hold ends. Amls now returns its hold -- the
+        target, the buff, the burn -- so ending the channel lets the target go
+      - FINISH then ENDCAST when it ran its course; ENDCAST alone on an
+        interrupt: any order() (the script's IssueImmediateOrder included), a
+        stun, death, the shackled target dying, or the map stripping one of
+        the ability's own buff codes from it (UnitRemoveAbility(target,
+        'Bmlt') is how A04X's loop lets go, so that had to end the channel or
+        the caster stood holding nothing for the rest of the 20s)
+      - the client loops the cast animation for a casting time or a channel
+        and drops back to stand on 'castEnd'
+
+    Traced for A04X with the target at 300: EFFECT at +0.30s, the engine's
+    Mls1 burn of 300 at +1.0/+2.0/+3.0, udg_integer12 1 -> 2 -> 3 a second
+    apart, the map's own UnitRemoveAbility at +3.93s and ENDCAST with it, the
+    throw's 600 (200 x 3) at +4.20s. The three-turn spin is the map's; the
+    engine only stopped ending it early.
+
+    Engine behaviour rather than data, and said so in the code: that mana and
+    cooldown go at the effect rather than the order; that a Casting Time
+    stands in for the cast point rather than adding to it (the map's 3.0 wait
+    against 3.0 acas says replace; the difference would be one cast point);
+    which bases hold their caster. The cast BACKSWING (castbsw) is compiled
+    and not yet used -- the game keeps the animation running that long after
+    the effect, and the client already lets a one-shot clip finish.
+
+    Tests that cast back to back had to change: a second castAbility now
+    interrupts the first, as a second order does in the game, so match_test
+    and audit.mjs cast one at a time; lightning_test reads the bolt off the
+    step that draws it rather than the order's tick; texttag_test takes the
+    shout's position at the effect rather than the order, since the caster
+    may have walked; spell_targets.mjs waits each ability's own casting time.
+    Left as they were: the item-spell path in useItem and startReincarnation,
+    which still fire all five at once -- the map's item spells and A01K have
+    no trigger on anything but EFFECT.
+
+    spell_targets.mjs, found on the way. Its table moved by 13 rows on the
+    first re-run, and the reasons were two, neither of them the timeline:
+      - a trigger that WAITS (A03H's BO) resumed inside the next ability's
+        window and read the target on its behalf. The classifier now drains
+        the sleeping trigger threads between abilities (the map keeps two of
+        its own asleep for good, jD and wD; those are the resting set).
+        A03H is back to "unit", which is what its trigger reads.
+      - udg_trigger24's CONDITION asks RectContainsLoc(base, GetSpellTargetLoc())
+        of EVERY spell effect, to keep seven blinks out of the bases, so
+        nearly every spell reads as "point". The old table's eight "none" rows
+        (Rain of Fire and Carrion Swarm among them, which need a point) were
+        an accident of some earlier state: the previous world.js trips the
+        same guard. Attributing reads to the spell's own trigger alone was
+        tried and turned 36 point spells -- Inferno, Stampede, Blink,
+        Shockwave -- into "none", because the point there is the ENGINE's
+        need and no table in the data names a base's target kind. So every
+        read counts, "point" is the honest default (a ground click carries the
+        unit under it too), and the table is now 94 point / 21 unit with three
+        real corrections: A05A and A05R read the target point, A05H the unit.
+        Open: a self-cast base (AEme, AOws, AHtc, AOmi, AOwk) still prompts
+        for a click. Closing that needs the base's own target kind written
+        down, which is Blizzard engine knowledge rather than a column.
+
+    Open under the same heading: castDummy (the script's numeric orders) still
+    runs the dummy's ability directly with no events, as before.
 
 [ ] The stub natives, ranked  (measured 2026-08-31, tools/stub_audit.mjs)
     A native the engine has never heard of is reported -- boot_test prints the

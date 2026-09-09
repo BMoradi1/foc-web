@@ -12,11 +12,22 @@ process.chdir(new URL('..', import.meta.url).pathname);
 import fs from 'node:fs';
 const { World, id2int } = await import('../server/world.js');
 const { JassEngine } = await import('../server/jass/engine.js');
+const { entry: abilEntry } = await import('../server/abilities.js');
 
 const GAME = JSON.parse(fs.readFileSync('data/game.json', 'utf8'));
 const w = new World(), e = new JassEngine(w);
 e.load();
 
+// Every read counts, the map's spell-wide triggers included: udg_trigger24's
+// condition asks RectContainsLoc(base, GetSpellTargetLoc()) of every spell
+// effect to keep seven blinks out of the bases, so nearly every spell here
+// comes out "point". That is a safe superset -- a ground click carries the
+// unit under it too -- and a unit read still outranks it. Attributing reads
+// to the spell's own trigger alone was tried and turned 36 point spells
+// (Rain of Fire, Inferno, Stampede, Blink, Shockwave among them) into "none",
+// because their triggers read nothing and the point is the ENGINE's need,
+// which no table in the data names. The base's own target kind is Blizzard
+// engine knowledge; until it is written down, "point" is the honest default.
 let touched = { unit: false, point: false };
 for (const n of ['GetSpellTargetUnit']) {
   const f = e.vm.natives.get(n);
@@ -31,6 +42,7 @@ const tick = (s) => { for (let i = 0; i < Math.round(s * 30); i++) { e.update(10
 tick(2);
 
 const modes = {};
+const resting = new Set(e.threads);
 for (const h of GAME.heroes) {
   const ids = (h.learnable && h.learnable.length) ? h.learnable
             : (h.abilities || []).map((a) => a.id);
@@ -49,7 +61,17 @@ for (const h of GAME.heroes) {
     if (A.cooldowns) A.cooldowns.clear();
     A.mana = A.maxMana;
     try { w.castAbility(A, k, T, T ? T.x : A.x, T ? T.y : A.y); } catch {}
-    tick(2.5);                                   // let waits inside the trigger resume
+    // let waits inside the trigger resume -- and let the cast land at all: an
+    // ability with a Casting Time fires its EFFECT trigger only after it
+    const ct = Math.max(0, ...((abilEntry(aid) || {}).levels || []).map((l) => l.castTime || 0));
+    tick(2.5 + ct);
+    // Then drain the trigger's own sleeping threads before the next ability,
+    // or a wait inside this spell's trigger wakes during the NEXT one's window
+    // and reads the target on its behalf. Measured: twelve abilities changed
+    // mode between two runs that differed only in timing. The map keeps a few
+    // threads of its own asleep for good; those are the resting set, and the
+    // wait is for everything else, capped so a runaway loop cannot stall it.
+    for (let n = 0; n < 30 * 60 && e.threads.some((th) => !resting.has(th)); n++) tick(1 / 30);
     const mode = touched.unit ? 'unit' : touched.point ? 'point' : 'none';
     // a spell may read both; the unit is the stricter requirement
     modes[aid] = mode;
