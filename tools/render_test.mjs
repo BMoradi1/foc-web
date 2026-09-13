@@ -204,13 +204,17 @@ check('every cycle gives the geometry back', cycles.every((c) => c.rest.g <= bas
 check('geometry does not creep across cycles',
       new Set(cycles.map((c) => c.rest.g)).size === 1,
       `rest: ${cycles.map((c) => c.rest.g).join(', ')} (baseline ${base.g})`);
-// Deliberately reported, not asserted. three.js refcounts an upload per
-// (texture source, sampler-state key) and only frees at zero, so a texture the
-// model cache still holds never comes back however it is disposed. The count
-// climbs anyway and the scene retains nothing -- an open item in TODO.txt, not
-// something this test should pretend passes.
-console.log(`  note  textures ${base.t} -> ${cycles.map((c) => c.rest.t).join(' -> ')}`
-            + `  (${((after.t - base.t) / 12).toFixed(1)} per unit spawned, unreleased)`);
+// Asserted now. This used to be a note: the count climbed 9 per unit spawned
+// and never fell, and the texanim clones were the wrong suspect -- they share
+// the cache's source and sampler key, so disposing one moves nothing. The
+// nine were bone textures: a Skeleton per skinned geoset, a DataTexture each,
+// made by the renderer on first draw and disposed by nobody. releaseGPU
+// disposes the skeleton now, and the geosets share one.
+check('every cycle gives the textures back', cycles.every((c) => c.rest.t <= base.t),
+      `${base.t} -> ${cycles.map((c) => c.rest.t).join(' -> ')}`);
+check('textures do not creep across cycles',
+      new Set(cycles.map((c) => c.rest.t)).size === 1,
+      `${((after.t - base.t) / 12).toFixed(1)} per unit spawned`);
 
 check('a missile model was found to aim', !!out.missilePath, out.missilePath || 'none');
 check('a missile points along its travel', out.heading

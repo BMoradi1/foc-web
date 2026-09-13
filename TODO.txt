@@ -2039,42 +2039,58 @@ ABILITY DATA SLOTS
 
 PERFORMANCE
 -----------
-[ ] Skinning is the suspected remaining cost, unconfirmed on real hardware
-    On a 4080 at 307 units the frame is 45 ms while the GPU has only 137k
-    triangles and 1559 draw calls to draw -- so it is CPU, not the card.
-    Freezing animation saves 29 ms with the draw calls unchanged, and only 9 ms
-    of that is measurable in our own timers; the rest is three.js recomputing
-    and uploading a skeleton per visible skinned mesh during render. Confirm
-    with the in-game keys before optimising: ` for the readout, [ to freeze
-    animation, ] to hide units.
-    Ruled out already: merging geosets to cut draw calls. Only 8% of them are
-    safe to merge -- the rest share a material but not visibility, and merging
-    those breaks the animated geoset switching that Bankai depends on.
+[x] Off-screen units were skinned, uploaded and drawn every frame  (FIXED)
+    The suspect was skinning; the measurement says it was skinning done many
+    times over for units nobody could see. Three things stacked, all measured
+    in tools/fps_test.mjs (new rows: skeleton updates, scene matrices, views
+    off screen; MOBS=300 fills the field through a new debugSpawn message):
+      - Every geoset is loaded with frustumCulled off, and in three.js the
+        skeleton update and its bone-texture upload sit *inside* that test
+        (WebGLRenderer.projectObject -> objects.update -> skeleton.update). So
+        every skinned unit in the match was re-skinned, re-uploaded and drawn
+        whether or not it was near the screen. The frustum test render() was
+        already doing per view only gated the mixers.
+      - SkeletonUtils.clone makes a Skeleton per SkinnedMesh even when the
+        source shared one (every converted glb has exactly one skin). A unit
+        of four skinned geosets carried four skeletons over the same bones and
+        paid four bone-matrix passes and four texture uploads a frame: 1412
+        skeleton updates a frame for 397 units.
+      - The 387 scenery doodads are skinned models too (city walls, plants),
+        never animate, and were re-skinned, re-uploaded and had every bone
+        recomposed every frame regardless.
+    Now: a unit's model object is hidden while its bounding sphere is outside
+    the frustum, with the radius taken from the MDX's own extents (model plus
+    every sequence, the same bounds Warcraft III culls with; median 370 model
+    units across the 588 unit models, against the 220 the old test guessed),
+    and its matrix walk is skipped while hidden. cloneModel folds the clones'
+    skeletons back onto one per model. Static doodads are frustum-culled by
+    the same bounds, have their skeleton computed once, and their holder's
+    matrix walk runs once. The geosets keep frustumCulled off on purpose:
+    their bind-pose bounds say nothing about where an animation reaches.
+    Measured, headless SwiftShader, 397 units on the same 300-mob layout:
+                                 before      after
+      draw calls                   2045       1232
+      skeleton updates / frame     1412        281
+      skeleton CPU                 5.3 ms     2.0 ms
+      scene matrix walk            9.1 ms     6.5 ms
+      renderer.render CPU         32.0 ms    18.5 ms
+      textures held               1613        668
+    The GPU side of the bone uploads is invisible under SwiftShader and is the
+    part a real card would have felt most; worth a look at the ` readout on
+    the 4080 that started this. The 273 units that layout leaves in frame are
+    what the remaining matrix walk and the 5 ms of mixers are; a real match
+    has far fewer on screen at once.
 
-[ ] GPU texture handles are never released, and disposing them does not help
-    Geometry and materials now come back on removeView -- 29 -> 55 -> 29 over
-    three spawn/remove cycles, asserted in render_test. Textures do not:
-    renderer.info.memory.textures climbs 9 per unit spawned and never falls,
-    for the whole match.
-    It is not a reference we hold. At rest between cycles the scene traverses
-    to 2 meshes and 2 textures, flat, and exactly 3 Texture objects are created
-    per spawn -- the texanim layer clones, which releaseGPU does dispose.
-    The mechanism is three.js's own accounting (r185, WebGLTextures):
-    info.memory.textures counts one entry per (texture.source, sampler-state
-    key), where the key is getTextureCacheKey -- wrap, filters, anisotropy,
-    colorSpace and friends. An entry is only freed when its usedTimes reaches
-    zero, so disposing one texture that shares an entry moves nothing:
-    measured, disposing a texanim clone changes the counter by 0.
-    What has NOT been established is which 9 that is, given only 3 objects are
-    born. The next step is to instrument getTextureCacheKey rather than guess
-    -- the signature (monotonic growth, nothing retained) is what you get when
-    a shared texture's key changes after it has been uploaded, which orphans
-    the old entry forever. Look for a per-spawn write to a cached texture's
-    wrap/filter/colorSpace.
-    Worth keeping in proportion: the pixel data is uploaded once per source and
-    shared, so this is handle growth rather than image growth. It is still
-    unbounded, and it is the last thing standing between the ` counters and
-    actually flattening.
+[x] GPU texture handles are never released  (FIXED -- they were bone textures)
+    The nine per unit were never the texanim clones: those share the cache's
+    source and sampler key, so disposing one moves the counter by nothing,
+    exactly as measured. They were one bone DataTexture per skinned geoset --
+    made by the renderer the first time it draws the mesh, held by a Skeleton
+    nobody disposed, one Skeleton per geoset because of the clone bug above.
+    releaseGPU now disposes the holder's skeletons (units, effects and
+    missiles all go through it). render_test asserts it: textures 8 -> 8 -> 8
+    -> 8 over three spawn/remove cycles, 0.0 per unit, where it used to note
+    the growth and move on.
 
 [x] o00D has no entry in unittypes.json  (FIXED -- it never should have had one)
     The entry assumed a compiler gap. It is not one. A05N is a summon, not a

@@ -151,6 +151,101 @@ function sampleCurve(c, t) {
  */
 const APPROX_CRATER_FALLOFF = (t) => 0.5 * (1 + Math.cos(Math.PI * Math.min(1, t)));
 
+/**
+ * How far a model reaches, from the MDX's own bounds: the model extent plus
+ * one per sequence, which is what Warcraft III culls a unit with. The union of
+ * them is the farthest any animation can put a vertex. Two forms, both in
+ * model units and MDX axes (z up):
+ *   sphere  the union box's centre and half-diagonal, for a mesh-local bounds
+ *           that three.js transforms by the mesh's own matrix
+ *   up, r   the same sphere flattened onto the vertical axis: centre `up`
+ *           above the origin, radius reaching every corner from there, so it
+ *           holds under any facing without a rotation
+ * Null when the file carries no bounds at all (the particle-only effect models
+ * do not).
+ */
+function cullBoundsOf(meta) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const boxes = [meta?.extent, ...(meta?.sequences || []).map((q) => q.extent)];
+  for (const b of boxes) {
+    if (!b?.min || !b?.max) continue;
+    for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], b.min[k]); hi[k] = Math.max(hi[k], b.max[k]); }
+  }
+  if (!(hi[0] > lo[0] || hi[1] > lo[1] || hi[2] > lo[2])) return null;
+  const c = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  const half = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
+  let r = 0;
+  for (const x of [lo[0], hi[0]]) for (const y of [lo[1], hi[1]]) for (const z of [lo[2], hi[2]])
+    r = Math.max(r, Math.hypot(x, y, z - c[2]));
+  return { sphere: new THREE.Sphere(new THREE.Vector3(c[0], c[1], c[2]), half), up: c[2], r };
+}
+
+/**
+ * A static clone is drawn where it stands and never moves, so three things
+ * that three.js redoes for it every frame need doing once:
+ *   - the scene walk that recomposes every node under its holder -- a doodad
+ *     model is skinned like any other, so that is its whole skeleton --
+ *     Object3D.updateMatrixWorld recurses whether anything changed or not, and
+ *     the holder's is replaced by a no-op after its first full pass;
+ *   - the skeleton itself: three.js re-skins and re-uploads a bone texture for
+ *     every skinned mesh it draws, and 360-odd scenery doodads were paying
+ *     that per frame for a pose that never changes. The first update is left
+ *     to run, after that first walk has placed the bones; the ones after it
+ *     are no-ops;
+ *   - and the frustum test, which every geoset is loaded without: a mesh that
+ *     never moves can be culled by the bounds above.
+ * Only for clones with no mixer. pickDoodad's raycast is untouched: it goes
+ * through updateWorldMatrix, a different method, and the frozen matrices are
+ * the right ones anyway.
+ */
+function freezeStatic(holder, obj, bounds) {
+  holder.updateMatrixWorld = function (force) {
+    THREE.Object3D.prototype.updateMatrixWorld.call(this, force);
+    this.updateMatrixWorld = NOOP;
+  };
+  obj.traverse((m) => {
+    if (!m.isMesh) return;
+    if (m.isSkinnedMesh) {
+      if (!bounds) return;                  // no bounds to cull with: leave it uncullable
+      m.boundingSphere = bounds.sphere.clone();
+      const sk = m.skeleton;
+      if (!sk.__frozen) {
+        sk.__frozen = true;
+        const real = sk.update;
+        sk.update = function () { real.call(this); this.update = NOOP; };
+      }
+    }
+    m.frustumCulled = true;                 // a plain mesh culls by its geometry's bounds
+  });
+}
+
+/**
+ * A model instance: SkeletonUtils.clone, then one skeleton per model again.
+ *
+ * Every converted glb carries exactly one skin that all of its skinned geosets
+ * share, and GLTFLoader gives them one Skeleton. SkeletonUtils.clone does not
+ * keep that: it clones a Skeleton per SkinnedMesh, so a unit of four skinned
+ * geosets arrives with four skeletons over the same bones, and three.js then
+ * computes the bone matrices and uploads a bone texture four times a frame for
+ * it. Measured before this: 1412 skeleton updates a frame for 397 units.
+ * Meshes whose clones were cut from the same skeleton still share its
+ * boneInverses array by reference and map to the same cloned bones, which is
+ * the identity used to fold them back onto one.
+ */
+function cloneModel(scene) {
+  const obj = skeletonClone(scene);
+  const shared = new Map();                // boneInverses -> the skeleton kept
+  obj.traverse((m) => {
+    if (!m.isSkinnedMesh) return;
+    const sk = m.skeleton;
+    const keep = shared.get(sk.boneInverses);
+    if (!keep) { shared.set(sk.boneInverses, sk); return; }
+    if (keep.bones.length !== sk.bones.length || keep.bones.some((b, i) => b !== sk.bones[i])) return;
+    m.bind(keep, m.bindMatrix);
+  });
+  return obj;
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -612,7 +707,7 @@ export class Renderer {
         let rec = null;
         try {
           const r = await this.loadModel(name);
-          rec = { scene: r.gltf.scene, meta: r.meta, anims: r.gltf.animations || [] };
+          rec = { scene: r.gltf.scene, meta: r.meta, anims: r.gltf.animations || [], bounds: r.bounds };
         } catch { rec = null; }
         protos.set(name, rec);
         return rec;
@@ -658,7 +753,7 @@ export class Renderer {
         const h = this.heightAt(d.x, d.y);
         let obj;
         if (proto) {
-          obj = skeletonClone(proto);
+          obj = cloneModel(proto);
           applyRepl(obj);
           applyStand(obj, rec);
         } else {
@@ -684,7 +779,7 @@ export class Renderer {
           entry.mixer = new THREE.AnimationMixer(obj);
           entry.actions = new Map();
           for (const clip of rec.anims) entry.actions.set(clip.name.toLowerCase(), clip);
-        }
+        } else if (proto) freezeStatic(holder, obj, rec.bounds);
         this.doodadAt.set(di, entry);
       }
     }
@@ -815,7 +910,7 @@ export class Renderer {
           }
         }
       });
-      const rec = { gltf, meta };
+      const rec = { gltf, meta, bounds: cullBoundsOf(meta) };
       this.modelCache.set(name, rec);
       return rec;
     })();
@@ -876,11 +971,23 @@ export class Renderer {
     try { rec = await this.loadModel(name); } catch { return standIn(); }
     if (!this.views.has(ent.i)) return view;        // removed while loading
     const { gltf, meta } = rec;
-    const obj = skeletonClone(gltf.scene);
+    const obj = cloneModel(gltf.scene);
     obj.scale.setScalar(ent.scale || 1);
     view.root.add(obj);
     view.obj = obj;
+    // While the cull below has this model hidden, the per-frame scene walk
+    // would still recompose every bone in it: Object3D.updateMatrixWorld
+    // recurses whether or not a node is visible, and at 400 units that walk
+    // was 9 ms a frame. Skipped while hidden. Nothing goes stale that
+    // matters: the walk recomputes the whole subtree the frame it is shown
+    // again, and an on-demand query in the meantime (getWorldPosition on an
+    // attachment point, say) rebuilds its own ancestor chain through
+    // updateWorldMatrix, which does not come through here.
+    obj.updateMatrixWorld = function (force) {
+      if (this.visible) THREE.Object3D.prototype.updateMatrixWorld.call(this, force);
+    };
     view.meta = meta;
+    view.bounds = rec.bounds;
     view.isBuilding = !!ent.isBuilding;      // decides the Stand Work question
     view.animProps = animTokens(ent.an);     // Required Animation Names
     this.attachShadow(view, ent);
@@ -1368,7 +1475,7 @@ export class Renderer {
       const name = await this.resolveModel(path);
       if (!name) return null;
       const rec = await this.loadModel(name);
-      return skeletonClone(rec.gltf.scene);
+      return cloneModel(rec.gltf.scene);
     }).then((list) => { owner.sprays = list; }).catch(() => {});
   }
 
@@ -1706,7 +1813,7 @@ export class Renderer {
     let rec;
     try { rec = await this.loadModel(name); } catch { return; }
     if (this.effects.has(ev.fx)) return;            // destroyed while loading
-    const obj = skeletonClone(rec.gltf.scene);
+    const obj = cloneModel(rec.gltf.scene);
     let parent = this.scene;
     if (onUnit) {
       const v = this.views.get(ev.id);
@@ -1784,7 +1891,7 @@ export class Renderer {
     let rec;
     try { rec = await this.loadModel(name); } catch { return; }
     if (this.missiles.has(ev.fx)) return;          // it landed while loading
-    const obj = skeletonClone(rec.gltf.scene);
+    const obj = cloneModel(rec.gltf.scene);
     const z0 = this.heightAt(ev.x, ev.y) + 40;
     obj.position.set(toX(ev.x), z0, toZ(ev.y));
     this.scene.add(obj);
@@ -2104,6 +2211,15 @@ export class Renderer {
    * readout is where to watch it flatten.
    */
   releaseGPU(holder) {
+    // The skeleton's bone texture is the renderer's own upload -- a DataTexture
+    // three.js makes the first time it draws the skinned mesh -- and nothing
+    // owned it here, so it outlived the unit. That was the "9 per unit, never
+    // released" texture growth: one skeleton per skinned geoset (see
+    // cloneModel), one bone texture each, none disposed. Distinct skeletons
+    // only; the geosets share one now.
+    const skeletons = new Set();
+    holder.obj?.traverse((m) => { if (m.isSkinnedMesh) skeletons.add(m.skeleton); });
+    for (const sk of skeletons) sk.dispose();
     for (const e of (holder.emitters || [])) e.dispose();
     for (const r of (holder.ribbons || [])) r.dispose();
     for (const sp of (holder.sprays || [])) sp.dispose();
@@ -2213,7 +2329,7 @@ export class Renderer {
         if (name) {
           try {
             const rec = await this.loadModel(name);
-            const obj = skeletonClone(rec.gltf.scene);
+            const obj = cloneModel(rec.gltf.scene);
             g.root.add(obj);
             if (rec.gltf.animations.length) {
               g.mixer = new THREE.AnimationMixer(obj);
@@ -2322,30 +2438,49 @@ export class Renderer {
     // hiding the units leaves the terrain and doodads with neither.
     if (this.noUnits) {
       for (const v of this.views.values()) v.root.visible = false;
-    } else if (this.frozen) {
-      // still nothing to update, but the meshes are still drawn
     } else {
-    // Only animate what the camera can see.
+    // Only animate -- and only draw -- what the camera can see.
     //
     // Warcraft III's own answer to a busy field: a unit off screen has nothing
     // to show, so stepping its mixer, its emitters and its texture animations
-    // is work thrown away. three.js already skips the skeleton for a culled
-    // mesh, but every one of these runs whether the unit is on screen or not,
-    // and on a full field most units are not.
+    // is work thrown away, and so is skinning and drawing it. The second half
+    // is the one that used to cost the frame: every geoset is loaded with
+    // frustumCulled off, and in three.js the skeleton update and its bone
+    // texture upload live inside that very test (WebGLRenderer.projectObject
+    // -> objects.update -> skeleton.update), so every skinned unit in the match
+    // was re-skinned, uploaded and drawn every frame whether or not it was
+    // anywhere near the screen. A subtree whose `visible` is false is skipped
+    // before any of that, so hiding the model object is what takes the
+    // off-screen work away; the geosets keep frustumCulled off on purpose,
+    // because their bind-pose bounds say nothing about where an animation
+    // reaches.
     //
     // The test is done once per frame against the camera's frustum rather than
-    // per mesh, and it deliberately uses the view's root: a unit half out of
-    // frame keeps animating, which is what stops a walk cycle snapping as it
-    // crosses the edge.
+    // per mesh, around the view's root, with the model's own extents for its
+    // radius: the MDX carries a bounding box per sequence, which is what the
+    // game itself culls with, and the union of them all is the farthest any
+    // animation can reach from the unit's feet. A model with no extents keeps
+    // the old generous constant.
     this._frustum.setFromProjectionMatrix(this._fmat.multiplyMatrices(
       this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     for (const v of this.views.values()) {
-      // a generous sphere: the root sits at the unit's feet, and a model's
-      // reach above it is what would otherwise pop
-      this._sph.center.copy(v.root.position); this._sph.center.y += 80;
-      this._sph.radius = 220;
-      if (!this._frustum.intersectsSphere(this._sph)) { v.offscreen = true; continue; }
-      v.offscreen = false;
+      this._sph.center.copy(v.root.position);
+      if (v.bounds) {
+        const k = v.obj?.scale.x || 1;
+        this._sph.center.y += v.bounds.up * k; this._sph.radius = v.bounds.r * k;
+      } else { this._sph.center.y += 80; this._sph.radius = 220; }
+      const off = !this._frustum.intersectsSphere(this._sph);
+      v.offscreen = off;
+      // compared against the object rather than a flag, so a model rebuilt by
+      // a metamorphosis (visible by default) is settled on its first frame
+      if (v.obj && v.obj.visible === off) {
+        v.obj.visible = !off;
+        if (v.shadow) v.shadow.visible = !off;
+        if (v.splat) v.splat.visible = !off;
+      }
+      // frozen is the diagnostic that keeps the draw calls and drops only the
+      // animation, so it culls the same and skips just the stepping
+      if (off || this.frozen) continue;
       v.mixer?.update(dt);
       const ctx = this.animCtxOf(v);
       for (const p of (v.emitters || [])) p.update(dt, ctx);

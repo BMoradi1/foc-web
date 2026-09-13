@@ -31,6 +31,14 @@ await page.$eval('#btnReady', (b) => b.click());
 await page.waitForFunction(() => !document.getElementById('hud').classList.contains('hidden'),
                            { timeout: 60000 });
 await new Promise((r) => setTimeout(r, 9000));       // let creeps spawn and models load
+// The crowded case on demand: MOBS=300 fills a grid around the hero with the
+// map's own creep types, some in frame and most not, which is what a real
+// field looks like. Needs the server started with FOC_DEBUG=1, as npm test does.
+const MOBS = +(process.env.MOBS || 0);
+if (MOBS) {
+  await page.evaluate((n) => window.FOC.net.send({ t: 'debugSpawn', n }), MOBS);
+  await new Promise((r) => setTimeout(r, 6000));     // their models load too
+}
 
 // Time the pieces separately. requestAnimationFrame deltas alone say a frame was
 // slow; they do not say which half was.
@@ -55,6 +63,22 @@ const out = await page.evaluate(async (secs) => {
   wrap(window.FOC.ui, 'drawMinimap', 'minimap');
   wrap(window.FOC.overlay, 'draw', 'bars');
   wrap(V, 'markSelected', 'circles');
+  // The skeleton work itself, which is what the PERFORMANCE note suspects:
+  // three.js re-skins and re-uploads a bone texture for every skinned mesh it
+  // does not cull, and it counts once per skeleton per frame. The prototype is
+  // reached through a live skeleton because THREE is not on the window.
+  let skel = null;
+  for (const v of V.views.values()) for (const m of v.prims || []) if (m.skeleton) { skel = m.skeleton; break; }
+  parts.skelN = 0; parts.skel = 0;
+  if (skel) {
+    const proto = Object.getPrototypeOf(skel);
+    const orig = proto.update;
+    proto.update = function () { const t = performance.now(); orig.call(this);
+                                 parts.skel += performance.now() - t; parts.skelN++; };
+  }
+  // and the scene-graph walk that recomposes every bone's matrix each frame,
+  // on screen or not
+  wrap(V.scene, 'updateMatrixWorld', 'matrices');
   let last = performance.now();
   await new Promise((done) => {
     const tick = () => {
@@ -67,8 +91,9 @@ const out = await page.evaluate(async (secs) => {
   });
   frames.sort((a, b) => a - b);
   const pick = (p) => frames[Math.min(frames.length - 1, Math.floor(frames.length * p))];
-  let meshes = 0, points = 0, visible = 0;
+  let meshes = 0, points = 0, visible = 0, offscreen = 0;
   V.scene.traverse((o) => { if (o.isMesh) { meshes++; if (o.visible) visible++; } if (o.isPoints) points++; });
+  for (const v of V.views.values()) if (v.offscreen) offscreen++;
   return {
     frames: frames.length,
     median: pick(0.5), p90: pick(0.9), p99: pick(0.99), worst: frames[frames.length - 1],
@@ -80,6 +105,8 @@ const out = await page.evaluate(async (secs) => {
     minimapMs: parts.minimap / Math.max(1, parts.n),
     barsMs: parts.bars / Math.max(1, parts.n),
     circleMs: parts.circles / Math.max(1, parts.n),
+    skelMs: parts.skel / Math.max(1, parts.n), skelN: parts.skelN / Math.max(1, parts.n),
+    matricesMs: parts.matrices / Math.max(1, parts.n), offscreen,
     calls: V.renderer.info.render.calls, tris: V.renderer.info.render.triangles,
     programs: V.renderer.info.programs?.length ?? 0,
     textures: V.renderer.info.memory.textures, geometries: V.renderer.info.memory.geometries,
@@ -107,6 +134,8 @@ console.log(`pickEntity            ${f(out.pickMs)} ms per frame`);
 console.log(`minimap               ${f(out.minimapMs)} ms per frame`);
 console.log(`health bars           ${f(out.barsMs)} ms per frame`);
 console.log(`selection circles     ${f(out.circleMs)} ms per frame`);
+console.log(`skeleton updates      ${f(out.skelN, 1)} per frame, ${f(out.skelMs)} ms`);
+console.log(`scene matrices        ${f(out.matricesMs)} ms per frame`);
 console.log();
 console.log(`draw calls            ${out.calls}`);
 console.log(`triangles             ${out.tris}`);
@@ -114,4 +143,4 @@ console.log(`shader programs       ${out.programs}`);
 console.log(`meshes (visible)      ${out.meshes} (${out.visible})`);
 console.log(`particle systems      ${out.points}`);
 console.log(`textures / geometries ${out.textures} / ${out.geometries}`);
-console.log(`unit views / entities ${out.views} / ${out.ents}`);
+console.log(`unit views / entities ${out.views} / ${out.ents}   (${out.offscreen} views off screen)`);

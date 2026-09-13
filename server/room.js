@@ -305,6 +305,31 @@ export class Room {
         this.world.killUnit(u, null);
         break;
       }
+      // ---- fill the field around your hero, for measuring a crowded frame
+      //
+      // Third sibling, gated the same way. The client-side cost of a match is
+      // set by how many units exist and how many of them the camera can see,
+      // and a fresh match has a hundred creeps spread over the whole map.
+      // tools/fps_test.mjs needs the crowded case on demand: the same neutral
+      // creep types the map already spawned, laid out in a grid around the
+      // hero so that some are in frame and most are not, which is the shape of
+      // a real field. Capped, because a typo is not a reason to build ten
+      // thousand units.
+      case 'debugSpawn': {
+        if (!DEBUG) return;
+        const n = Math.min(1000, Math.max(0, m.n | 0));
+        const types = [...new Set([...W.units.values()].filter((x) => x.alive && !x.isHero
+          && !x.isBuilding && x.typeKey).map((x) => x.typeKey))];
+        const neutral = W.jass.players[12];
+        // 20 columns 220 apart: a 4400-wide band, which at the game's camera
+        // leaves about a fifth of the field in frame, as a real match does
+        const cols = 20, gap = 220;
+        for (let i = 0; i < n && types.length; i++) {
+          W.createUnit(neutral, types[i % types.length],
+                       u.x + (i % cols - cols / 2) * gap, u.y + (Math.floor(i / cols) - n / cols / 2) * gap, 0);
+        }
+        break;
+      }
       case 'dropItem': {
         const it = (u.items || [])[m.slot];
         if (it) { this.world.dropItem(u, it); this.sendHero(p); }
