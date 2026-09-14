@@ -11,6 +11,16 @@ selection.assign('1', id => id !== 3); selection.set([]);
 selection.recall('1', () => true); assert.deepEqual(selection.ids, [2]);
 selection.recall('1', () => false); assert.deepEqual(selection.ids, []);
 selection.recall('9', () => true); assert.deepEqual(selection.ids, []);
+const entities = new Map([[1,{u:'hero',k:1}],[2,{u:'footman',k:2}],[3,{u:'footman',k:2}],[4,{u:'archer',k:2}]]);
+selection.set([1,2,3,4]);
+assert.deepEqual(selection.subgroups(entities),[[1],[2,3],[4]]);
+selection.cycle(entities); assert.equal(selection.activeId,2);
+assert.deepEqual(selection.ids,[1,2,3,4],'subgroup cycling preserves whole selection');
+selection.cycle(entities); assert.equal(selection.activeId,4);
+selection.cycle(entities); assert.equal(selection.activeId,1,'cycle wraps');
+selection.cycle(entities,-1); assert.equal(selection.activeId,4,'reverse cycle wraps');
+selection.prune(id=>id!==4); assert.ok(selection.ids.includes(selection.activeId),'removed primary falls back to a selected unit');
+selection.set([]); selection.cycle(entities); assert.equal(selection.activeId,null);
 const units = new Map(Array.from({length: 20}, (_, i) => [i + 1, { id: i + 1, playerIndex: 0, alive: true }]));
 Object.assign(units.get(2), { playerIndex: 1 }); // allies are not owned
 Object.assign(units.get(3), { alive: false });

@@ -318,3 +318,5 @@ body.cinematic #letterbox .bar{transform:none}
 
 .selection-group{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;width:100%}
 .selection-group button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;padding:3px;font-size:11px;color:#ffcc00;background:#15191c;border:1px solid #827145}
+
+.selection-group button.active-subgroup{border-color:#ffe180;background:#39331b;color:#fff5b5;box-shadow:inset 0 0 0 1px #b89a44}

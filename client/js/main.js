@@ -128,6 +128,7 @@ net.on(Msg.STATE, (m) => {
   // the server drops everyone's ready flag in reset() and the client has to
   // agree, and a half-aimed spell must not survive into the lobby.
   if (m.phase !== was) {
+    S.showScore = false; ui.toggleScore(false);
     if (m.phase === Phase.LOBBY) {
       selection.set([]); selection.groups.clear(); selectionInitialized = false;
       ui.unitSel = null; ui.clearShop();
@@ -638,11 +639,11 @@ document.body.appendChild(selectionBox);
 function canCommand(ent) { return !!ent && !!ent.a && ent.p === S.slot && ent.sel !== false; }
 ui.canCommand = canCommand;
 function commandIds() { return selection.ids.filter(id => canCommand(S.ents.get(id))); }
-function heroSelected() { return S.hero?.id != null && selection.ids[0] === S.hero.id; }
+function heroSelected() { return S.hero?.id != null && selection.activeId === S.hero.id; }
 function sendOrder(message, queue = false) { const unitIds = commandIds(); if (unitIds.length) net.send({ ...message, unitIds, ...(queue ? { queue: true } : {}) }); }
 function refreshSelection() {
   if (ui.shopSel) { if (S.hero) ui.updateHero(S.hero); return; }
-  const primary = S.ents.get(selection.ids[0]);
+  const primary = S.ents.get(selection.activeId);
   if (heroSelected() && S.hero) { ui.unitSel = null; ui.updateHero(S.hero); }
   else ui.renderSelected(primary || { name: '', a: 0 });
   if (primary?.q) document.getElementById('heroClass').textContent += ` · ${primary.q} queued`;
@@ -650,22 +651,35 @@ function refreshSelection() {
     const box = document.getElementById('stats');
     const group = document.createElement('div'); group.className = 'selection-group';
     box.replaceChildren(group);
-    for (const id of selection.ids) {
+    for (const id of selection.subgroups(S.ents).flat()) {
       const ent = S.ents.get(id); if (!ent) continue;
       const button = document.createElement('button');
       button.textContent = ent.name || ent.u;
-      button.title = 'Click to select; Shift-click to remove';
-      const choose = e => setSelection(e.shiftKey ? selection.ids.filter(i => i !== id) : [id]);
+      const active = ent.u === primary?.u;
+      button.classList.toggle('active-subgroup', active);
+      button.setAttribute('aria-pressed', String(active));
+      button.dataset.unitId = id;
+      button.title = active ? 'Click to select this unit; Shift-click to remove' : 'Click to activate this subgroup; Shift-click to remove';
+      const choose = e => {
+        if (e.shiftKey) setSelection(selection.ids.filter(i => i !== id));
+        else if (active) setSelection([id]);
+        else { selection.activeId = id; changeSubgroup(); }
+      };
       button.onpointerdown = e => { if (e.button === 0) { e.preventDefault(); choose(e); } };
       button.onclick = e => { if (e.detail === 0) choose(e); };
       group.appendChild(button);
     }
   }
-  const portraitKey = `${selection.ids[0]}:${primary?.u}`;
+  const portraitKey = `${selection.activeId}:${primary?.u}`;
   if (portraitKey !== lastPortraitSelection) { lastPortraitSelection = portraitKey; showUnitPortrait(); }
+}
+function changeSubgroup() {
+  ui.skillMenu = false; ui.orderPending = null; S.castPending = null; S.itemPending = null;
+  canvas.style.cursor = 'default'; refreshSelection(); showUnitPortrait();
 }
 function setSelection(ids) {
   selection.set(ids.filter(id => S.ents.has(id) && S.ents.get(id).sel !== false));
+  selection.activeId = selection.subgroups(S.ents)[0]?.[0] ?? null;
   selectionInitialized = true;
   ui.clearShop(); ui.skillMenu = false; ui.orderPending = null;
   S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default';
@@ -819,10 +833,22 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (document.activeElement?.tagName === 'INPUT') return;
   if (S.phase !== Phase.PLAYING || S.cinematic) return;
+  if (S.showScore) { if (e.key === 'Escape') ui.onShowScore(false); return; }
   if (document.getElementById('wcDialog')) { if (e.key === 'Escape') ui.closeDialog(); return; }
   if (e.key === 'Enter') { e.preventDefault(); ui.openChat(); return; }
   if (e.key === 'F9' || e.key === 'F10' || e.key === 'F11') {
     e.preventDefault(); ui.openDialog({ F9: 'Quests', F10: 'Main Menu', F11: 'Allies' }[e.key]); return;
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (!ui.shopSel && !e.ctrlKey && !e.metaKey) { selection.cycle(S.ents, e.shiftKey ? -1 : 1); changeSubgroup(); }
+    return;
+  }
+  const itemSlot = { Numpad7: 0, Numpad8: 1, Numpad4: 2, Numpad5: 3, Numpad1: 4, Numpad2: 5 }[e.code];
+  if (itemSlot != null) {
+    e.preventDefault();
+    if (!e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) ui.activateItem(itemSlot);
+    return;
   }
   if (e.key === 'F1') {
     e.preventDefault(); const already = selection.ids.length === 1 && heroSelected();
@@ -886,15 +912,16 @@ addEventListener('keydown', (e) => {
     if (ui.shopSel) setSelection([S.hero?.id]);
   }
   else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }
-  else if (e.key === 'Tab') { e.preventDefault(); S.showScore = true; ui.toggleScore(true); }
 });
 addEventListener('keyup', (e) => {
-  if (e.key === 'Tab') { S.showScore = false; ui.toggleScore(false); }
   if (e.key === 'Alt') S.altHeld = false;
 });
 // Warcraft III shows every visible unit's bar for as long as ALT is held
 addEventListener('keydown', (e) => { if (e.key === 'Alt') S.altHeld = true; });
 addEventListener('blur', () => { S.altHeld = false; });
+ui.onShowScore = show => { S.showScore = show; ui.toggleScore(show); };
+ui.canUseItems = () => S.phase === Phase.PLAYING && !S.cinematic && !!S.hero?.alive && (heroSelected() || !!ui.shopSel);
+ui.beforeUseItem = () => { S.castPending = null; S.itemPending = null; ui.orderPending = null; canvas.style.cursor = 'default'; };
 ui.getVolume = () => audio.volume;
 ui.setVolume = value => { audio.volume = value; if (audio.master) audio.master.gain.value = value; };
 ui.onCommand = (command, queue = false) => {

@@ -19,13 +19,19 @@ Reference: Blizzard's [Special Commands](https://classic.battle.net/war3/basics/
 - Right-clicking a friendly or neutral mobile unit follows its current position. Followers wait nearby, resume when the leader moves, and do not acquire unrelated enemies. They join the leader's attack if already in weapon range. A dead or removed leader releases the follow order.
 - Queued movement and follow route updates use the automatic pathfinding budget. Stop/new orders cancel stale scheduled routes. Movement queued during a cast starts after the cast finishes, ahead of resuming its previous attack.
 
+## Implemented: subgroup cycling and inventory keys
+
+- Tab and Shift+Tab cycle selected unit types without changing the group receiving basic orders. Hero types lead the cycle. The active type is highlighted and drives the portrait/card; clicking another type in the group panel activates it, then clicking an active type's member selects that unit alone.
+- Numpad 7/8, 4/5 and 1/2 activate inventory slots 1–6 through the same handler as mouse clicks. Physical key codes keep this working with Num Lock off, repeated keydown events do not repeatedly spend items, and targeted items arm the cursor. Hero inventory keys are inactive when another subgroup is active.
+- The scoreboard is accessible from F10 → Scoreboard and closes with Escape or its Close button. Tab is reserved for subgroups.
+
 ## Remaining work, in priority order
 
 1. **Order queues and smart orders:** explicit friendly attack behavior, queued spell/item actions, and graphical waypoint previews. Shift+ability currently uses the old learning behavior.
-2. **Subgroups and hotkeys:** Tab/Shift+Tab subgroup cycling (Tab currently shows the scoreboard), non-hero spell cards, inventory numpad hotkeys, and complete hero/group selection conventions.
+2. **Subgroups and hotkeys:** non-hero spell cards, full spellcaster/level/inventory-based subgroup ordering and splitting, the configurable subgroup-order modifier, and remaining hero/group selection conventions.
 3. **Camera and minimap:** minimap orders and camera navigation, alert history/Space behavior, and removal of the default hero-follow camera behavior in favor of WCIII camera controls.
 4. **Targeting feedback:** keep invalid casts aimed until canceled or successfully issued, show errors at the cursor/console, and improve target-validity previews.
-5. **Group presentation:** unit portraits/health in the group panel, WCIII subgroup highlighting, formation placement, and exact selection prioritization where units/buildings share a drag box. Current group buttons use names.
+5. **Group presentation:** unit portraits/health in the group panel, formation placement, and exact selection prioritization where units/buildings share a drag box. Current group buttons use names.
 
 ## Verification
 

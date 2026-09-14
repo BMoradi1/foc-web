@@ -239,7 +239,17 @@ export class UI {
    * drop.  Empty slots are still drawn, because knowing how much room is left is
    * half of what an inventory is for.
    */
+  activateItem(slot) {
+    if (!Number.isInteger(slot) || slot < 0 || slot > 5 || this.inventoryHero?.alive === false || this.canUseItems?.() === false) return;
+    const it = this.inventoryHero?.items?.[slot];
+    if (!it) return;
+    this.beforeUseItem?.();
+    if (it.targeted && this.onAimItem) this.onAimItem(slot, it);
+    else this.net.send({ t: 'useItem', slot });
+  }
+
   renderInventory(h) {
+    this.inventoryHero = h;
     queueMicrotask(() => this.placeCard());
     const box = $('inventory');
     if (!box) return;
@@ -251,14 +261,11 @@ export class UI {
       if (it) {
         cell.innerHTML = `<img src="${icon(it.icon)}" onerror="this.style.opacity=.2">` +
                          (it.charges > 0 ? `<b class="chg">${it.charges}</b>` : '');
-        cell.dataset.tooltip = `${it.name}${it.charges > 0 ? ` (${it.charges} charges)` : ''}` +
+        cell.dataset.tooltip = `${it.name} (Numpad ${[7,8,4,5,1,2][i]})${it.charges > 0 ? ` (${it.charges} charges)` : ''}` +
                      (it.targeted ? '\nclick then click a target · right-click to drop'
                                   : '\nclick to use · right-click to drop');
         // an item aimed at a unit arms the cursor instead of firing at once
-        cell.onclick = () => {
-          if (it.targeted && this.onAimItem) this.onAimItem(i, it);
-          else this.net.send({ t: 'useItem', slot: i });
-        };
+        cell.onclick = () => this.activateItem(i);
         // right-click drops; shift+right-click sells it back. Warcraft III sells
         // by dragging the item onto a shop, which a single canvas cannot offer,
         // so the gesture is ours -- the refund and the event it fires are not.
@@ -273,6 +280,7 @@ export class UI {
 
   renderSelected(ent) {
     this.unitSel = ent;
+    this.inventoryHero = null;
     $('respawn').classList.add('hidden');
     $('pname2').textContent = ent.name || ent.u || '';
     $('heroClass').textContent = '';
@@ -461,13 +469,17 @@ export class UI {
     const s = $('score');
     if (!show) { s.classList.add('hidden'); return; }
     s.classList.remove('hidden');
+    const close = () => {
+      const button = document.createElement('button'); button.textContent = 'Close (Esc)';
+      button.onclick = () => this.onShowScore?.(false); s.appendChild(button);
+    };
     // prefer the map's own scoreboard when it built one
     if (this.board?.kind === 'multiboard' && this.board.rows.length) {
       const [head, ...body] = this.board.rows;
       s.innerHTML = `<table><caption>${esc(this.board.title)}</caption><tr>${
         head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>${
         body.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`;
-      return;
+      close(); return;
     }
     const rows = this.players.map((p) => {
       const h = this.heroes.find((x) => x.id === p.heroId);
@@ -475,6 +487,7 @@ export class UI {
               <td>Team ${p.team + 1}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`;
     }).join('');
     s.innerHTML = `<table><tr><th>Player</th><th>Hero</th><th>Team</th><th>K</th><th>D</th></tr>${rows}</table>`;
+    close();
   }
 
   drawMinimap(bounds, ents, youId, terrainImg) {

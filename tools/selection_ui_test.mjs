@@ -17,10 +17,10 @@ try {
   await page.evaluate(async () => {
     const {S,net,view} = FOC;
     net.ws.onmessage = () => {};
-    window.sent = []; net.send = m => sent.push(m);
+    window.sent = []; net.send = m => { if (m.t !== 'ping') sent.push(m); };
     const hero = S.ents.get(S.hero.id);
     window.ids = [hero.i, 990001, 990002];
-    S.ents.set(ids[1], {...hero,i:ids[1],u:'hfoo',name:'Owned unit'});
+    S.ents.set(ids[1], {...hero,i:ids[1],u:'hfoo',k:2,name:'Owned unit'});
     S.ents.set(ids[2], {...hero,i:ids[2],p:S.slot+1,t:99,name:'Enemy'});
     view.pickEntity = nx => ({id: nx < -.2 ? ids[0] : nx < .3 ? ids[1] : ids[2]});
     view.pickItem = () => null; view.pickGround = () => ({x:100,y:100});
@@ -43,6 +43,41 @@ try {
   await page.keyboard.down('Shift'); await page.mouse.click(700,300); await page.keyboard.up('Shift');
   assert.equal(await page.evaluate(() => sent.at(-1).queue),true,'aimed command queues on Shift-click');
 
+  await page.keyboard.press('Tab');
+  assert.equal(await page.$eval('#pname2',e=>e.textContent),'Owned unit','Tab activates next type');
+  assert.equal(await page.$$eval('.selection-group button',nodes=>nodes.length),2,'Tab keeps whole selection');
+  assert.equal(await page.$$eval('.active-subgroup',nodes=>nodes.map(n=>Number(n.dataset.unitId))).then(ids=>ids[0]),ids[1]);
+  m = await order(); assert.deepEqual(m.unitIds,[ids[0],ids[1]],'subgroup retains group-wide basic commands');
+  await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
+  assert.equal(await page.evaluate(() => FOC.ui.unitSel),null,'Shift+Tab restores hero card');
+  // All six physical numpad keys use inventory slots even with navigation key values.
+  await page.evaluate(() => {
+    FOC.S.hero.items = Array.from({length:6},(_,slot)=>({slot,id:'test-item-'+slot,name:'Item '+slot,charges:1,targeted:slot===0}));
+    FOC.ui.updateHero(FOC.S.hero);
+    window.itemKey = (code,key='Home',repeat=false) => dispatchEvent(new KeyboardEvent('keydown',{code,key,repeat,bubbles:true,cancelable:true}));
+  });
+  const beforeItem=await page.evaluate(()=>sent.length);
+  await page.evaluate(()=>itemKey('Numpad7'));
+  assert.equal(await page.evaluate(()=>FOC.S.itemPending),0,'Numpad7 arms a targeted item with Num Lock off');
+  assert.equal(await page.evaluate(()=>sent.length),beforeItem,'aimed item is not used before targeting');
+  await page.keyboard.press('Escape');
+  for (const [code,slot] of [['Numpad8',1],['Numpad4',2],['Numpad5',3],['Numpad1',4],['Numpad2',5]]) {
+    await page.evaluate(code=>itemKey(code,'1'),code);
+    assert.deepEqual(await page.evaluate(()=>sent.at(-1)),{t:'useItem',slot});
+  }
+  let itemCount=await page.evaluate(()=>sent.length);
+  await page.evaluate(()=>itemKey('Numpad8','8',true));
+  assert.equal(await page.evaluate(()=>sent.length),itemCount,'held key does not repeatedly use items');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.$eval('#pname2',e=>e.textContent),'Owned unit');
+  await page.evaluate(()=>itemKey('Numpad8','8'));
+  assert.equal(await page.evaluate(()=>sent.length),itemCount,'inactive hero inventory cannot be used');
+  await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
+  await page.keyboard.press('F10');
+  await page.evaluate(()=>[...document.querySelectorAll('#wcDialog button')].find(b=>b.textContent==='Scoreboard').click());
+  assert.equal(await page.$eval('#score',e=>e.classList.contains('hidden')),false,'scoreboard remains accessible through menu');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.$eval('#score',e=>e.classList.contains('hidden')),true);
   await page.keyboard.down('Control'); await page.keyboard.press('1'); await page.keyboard.up('Control');
   await page.mouse.click(600,300);
   m = await order(); assert.deepEqual(m.unitIds,[ids[1]],'nonhero can receive orders');

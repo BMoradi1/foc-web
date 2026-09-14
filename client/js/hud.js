@@ -57,6 +57,8 @@ export function initHud(ui) {
     } else if (kind === 'Allies') {
       for (const player of ui.players) text(`${player.name} — Team ${player.team + 1}`);
     } else {
+      const score = text('Scoreboard', 'button');
+      score.onclick = () => { ui.closeDialog(); ui.onShowScore?.(true); };
       const label = text('Sound Volume', 'label');
       const volume = document.createElement('input'); volume.type = 'range'; volume.min = 0; volume.max = 1; volume.step = .05;
       volume.value = ui.getVolume?.() ?? .55; volume.setAttribute('aria-label', 'Sound volume');
