@@ -2285,6 +2285,19 @@ export class Renderer {
     if (k >= 1) this.scriptPan = null;
     return true;
   }
+  /** Minimap outline on the camera focus plane; avoids terrain mesh raycasts. */
+  cameraFootprint() {
+    const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.camTarget.y);
+    const points = [], bottom = -1 + 2 * this.consoleFrac;
+    for (const [x, y] of [[-1,1],[1,1],[1,bottom],[-1,bottom]]) {
+      ray.setFromCamera(new THREE.Vector2(x,y),this.camera);
+      const point=ray.ray.intersectPlane(plane,new THREE.Vector3());
+      if (!point) return [];
+      points.push({x:point.x,y:-point.z});
+    }
+    return points;
+  }
+
   clampCam(b) {
     if (!b) return;
     this.camTarget.x = Math.max(b.minX, Math.min(b.maxX, this.camTarget.x));

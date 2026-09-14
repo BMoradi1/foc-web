@@ -490,13 +490,29 @@ export class UI {
     close();
   }
 
-  drawMinimap(bounds, ents, youId, terrainImg) {
+  drawMinimap(bounds, ents, youId, terrainImg, footprint = []) {
     const c = $('mmcanvas'), g = c.getContext('2d');
     const W = c.width, H = c.height;
     g.clearRect(0, 0, W, H);
     if (terrainImg) g.drawImage(terrainImg, 0, 0, W, H);
     else { g.fillStyle = '#0d1017'; g.fillRect(0, 0, W, H); }
     const bx = bounds.maxX - bounds.minX, by = bounds.maxY - bounds.minY;
+    if (footprint.length) {
+      g.save(); g.beginPath(); g.rect(0,0,W,H); g.clip();
+      g.strokeStyle='#fff'; g.lineWidth=1.5;
+      g.beginPath();
+      footprint.forEach((p,i) => {
+        const x=(p.x-bounds.minX)/bx*W,y=(bounds.maxY-p.y)/by*H;
+        if(i) g.lineTo(x,y); else g.moveTo(x,y);
+      });
+      g.closePath(); g.stroke(); g.restore();
+    }
+    if (this.minimapOrder?.until > performance.now()) {
+      const p=this.minimapOrder;
+      g.strokeStyle='#66ff99';g.lineWidth=2;g.beginPath();
+      g.arc((p.x-bounds.minX)/bx*W,(bounds.maxY-p.y)/by*H,6,0,Math.PI*2);g.stroke();
+    }
+
     for (const e of ents) {
       const px = ((e.x - bounds.minX) / bx) * W;
       const py = H - ((e.y - bounds.minY) / by) * H;

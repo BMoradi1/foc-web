@@ -25,14 +25,22 @@ Reference: Blizzard's [Special Commands](https://classic.battle.net/war3/basics/
 - Numpad 7/8, 4/5 and 1/2 activate inventory slots 1–6 through the same handler as mouse clicks. Physical key codes keep this working with Num Lock off, repeated keydown events do not repeatedly spend items, and targeted items arm the cursor. Hero inventory keys are inactive when another subgroup is active.
 - The scoreboard is accessible from F10 → Scoreboard and closes with Escape or its Close button. Tab is reserved for subgroups.
 
+## Implemented: minimap and manual camera controls
+
+- Left-click/drag the minimap to place the camera; right-click issues a Move order to the selection, with Shift queueing. Aimed Move/Attack/Patrol commands accept minimap points (Attack becomes attack-move). Right-click cancels an armed command before issuing another order.
+- Point-target abilities accept minimap locations. Unit-target abilities/items stay armed and ask for a unit in the world instead of silently panning or choosing an arbitrary minimap dot.
+- Arrow keys, screen edges and middle-button drag pan the camera. Input pauses in chat/dialogs/cinematics and is cleared on window blur. Manual navigation cancels a scripted pan; otherwise map-script pans remain supported.
+- The camera centers once on the initial hero and then stays under player/script control. F1 and double-tapped control groups remain explicit centering actions. Space still centers the hero pending alert-history support.
+- The minimap shows an approximate view outline projected onto the camera's focus plane, plus brief order markers. Pointer mapping uses CSS bounds rather than backing pixels, including after resize/high-DPI changes.
+
 ## Remaining work, in priority order
 
 1. **Order queues and smart orders:** explicit friendly attack behavior, queued spell/item actions, and graphical waypoint previews. Shift+ability currently uses the old learning behavior.
 2. **Subgroups and hotkeys:** non-hero spell cards, full spellcaster/level/inventory-based subgroup ordering and splitting, the configurable subgroup-order modifier, and remaining hero/group selection conventions.
-3. **Camera and minimap:** minimap orders and camera navigation, alert history/Space behavior, and removal of the default hero-follow camera behavior in favor of WCIII camera controls.
+3. **Camera and minimap:** alert history/Space behavior, camera settings, and exact per-ability minimap targeting restrictions.
 4. **Targeting feedback:** keep invalid casts aimed until canceled or successfully issued, show errors at the cursor/console, and improve target-validity previews.
 5. **Group presentation:** unit portraits/health in the group panel, formation placement, and exact selection prioritization where units/buildings share a drag box. Current group buttons use names.
 
 ## Verification
 
-`tools/selection_test.mjs` checks the selection limit, group lifecycle, malformed/unauthorized network orders, and orders while the hero is dead. `tools/selection_ui_test.mjs` exercises the real client mouse/keyboard handlers and console using a live match with deterministic selection fixtures. Existing viewport, HUD, morph and movement-order tests cover adjacent behavior. `tools/order_queue_test.mjs` covers queue progression, capacity, death/Stop cancellation, follow and ownership; browser input checks cover Shift-clicks on the world and command card. The pathfinding load regression runs alongside these checks.
+`tools/selection_test.mjs` checks the selection limit, group lifecycle, malformed/unauthorized network orders, and orders while the hero is dead. `tools/selection_ui_test.mjs` exercises the real client mouse/keyboard handlers and console using a live match with deterministic selection fixtures. Existing viewport, HUD, morph and movement-order tests cover adjacent behavior. `tools/order_queue_test.mjs` covers queue progression, capacity, death/Stop cancellation, follow and ownership; browser input checks cover Shift-clicks on the world and command card. The pathfinding load regression runs alongside these checks. `tools/minimap_test.mjs` and `tools/minimap_ui_test.mjs` cover coordinate mapping, resize/high-DPI input, navigation, queueing, cancellation, manual camera control and blur/chat handling.

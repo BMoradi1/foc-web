@@ -15,6 +15,7 @@ try {
   await page.click('#btnReady');
   await page.waitForFunction(() => FOC.S.hero && FOC.S.ents.has(FOC.S.hero.id), {timeout:60000});
   await page.evaluate(async () => {
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     const {S,net,view} = FOC;
     net.ws.onmessage = () => {};
     window.sent = []; net.send = m => { if (m.t !== 'ping') sent.push(m); };

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Selection } from './selection.js';
+import { minimapPoint } from './minimap.js';
 import { Net } from './net.js';
 import { Renderer, toX, toZ } from './render.js';
 import { UI, Lang } from './ui.js';
@@ -130,7 +131,7 @@ net.on(Msg.STATE, (m) => {
   if (m.phase !== was) {
     S.showScore = false; ui.toggleScore(false);
     if (m.phase === Phase.LOBBY) {
-      selection.set([]); selection.groups.clear(); selectionInitialized = false;
+      selection.set([]); selection.groups.clear(); selectionInitialized = false; cameraHeroId = null;
       ui.unitSel = null; ui.clearShop();
     }
     S.castPending = null; S.itemPending = null;
@@ -821,6 +822,7 @@ function shopFor(ent) {
 }
 
 function markMove(g) {
+  ui.minimapOrder = { ...g, until: performance.now() + 700 };
   spawnRing(new THREE.Vector3(toX(g.x), view.heightAt(g.x, g.y) + 4, toZ(g.y)), 0x66ff99, 70);
 }
 
@@ -850,10 +852,13 @@ addEventListener('keydown', (e) => {
     if (!e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) ui.activateItem(itemSlot);
     return;
   }
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault(); cameraKeys.add(e.key); return;
+  }
   if (e.key === 'F1') {
     e.preventDefault(); const already = selection.ids.length === 1 && heroSelected();
     setSelection([S.hero?.id]);
-    const me = S.ents.get(S.hero?.id); if (already && me) view.focus(me.x, me.y, true); return;
+    const me = S.ents.get(S.hero?.id); if (already && me) focusCamera(me.x, me.y); return;
   }
   if (/^[0-9]$/.test(k)) {
     e.preventDefault();
@@ -863,7 +868,7 @@ addEventListener('keydown', (e) => {
       setSelection(selection.ids);
       if (lastGroup.key === k && performance.now() - lastGroup.time < 350) {
         const units = commandIds().map(id => S.ents.get(id));
-        if (units.length) { followHero = false; view.focus(units.reduce((n,u) => n + u.x, 0) / units.length, units.reduce((n,u) => n + u.y, 0) / units.length, true); }
+        if (units.length) { focusCamera(units.reduce((n,u) => n + u.x, 0) / units.length, units.reduce((n,u) => n + u.y, 0) / units.length); }
       }
       lastGroup = { key: k, time: performance.now() };
     }
@@ -911,9 +916,10 @@ addEventListener('keydown', (e) => {
     if (S.hero) ui.updateHero(S.hero);
     if (ui.shopSel) setSelection([S.hero?.id]);
   }
-  else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }
+  else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) focusCamera(me.x, me.y); }
 });
 addEventListener('keyup', (e) => {
+  cameraKeys.delete(e.key);
   if (e.key === 'Alt') S.altHeld = false;
 });
 // Warcraft III shows every visible unit's bar for as long as ALT is held
@@ -969,17 +975,78 @@ function relationTo(e) {
   return e.t === me.t ? 'ally' : 'enemy';
 }
 
-// edge / drag panning
-let dragging = false, lastX = 0, lastY = 0, followHero = true;
-canvas.addEventListener('mousedown', (e) => { if (e.button === 1 && !S.cinematic) { dragging = true; lastX = e.clientX; lastY = e.clientY; } });
-addEventListener('mouseup', () => { dragging = false; });
-addEventListener('mousemove', (e) => {
-  if (!dragging) return;
-  followHero = false;
-  const k = view.camDist / 900;
-  view.panBy(-(e.clientX - lastX) * k, -(e.clientY - lastY) * k);
-  lastX = e.clientX; lastY = e.clientY;
+// Manual camera controls. Only the initial hero spawn centers automatically.
+let dragging = false, lastX = 0, lastY = 0, cameraHeroId = null;
+let minimapDragging = false, cameraPointer = null, cameraActive = true;
+const cameraKeys = new Set();
+const minimapCanvas = document.getElementById('mmcanvas');
+function cameraInputAllowed() {
+  return cameraActive && S.phase === Phase.PLAYING && !S.cinematic && !S.showScore &&
+    !document.getElementById('wcDialog') && document.activeElement?.tagName !== 'INPUT';
+}
+function focusCamera(x, y) {
+  view.scriptPan = null; view.focus(x, y, true); view.clampCam(S.bounds);
+}
+function panCamera(dx, dy) {
+  const c = Math.cos(view.camYaw), s = Math.sin(view.camYaw);
+  view.panBy(dx * c + dy * s, -dx * s + dy * c);
+}
+function stepCameraInput(dt) {
+  if (!cameraInputAllowed() || minimapDragging || dragging) return;
+  let dx = Number(cameraKeys.has('ArrowRight')) - Number(cameraKeys.has('ArrowLeft'));
+  let dy = Number(cameraKeys.has('ArrowDown')) - Number(cameraKeys.has('ArrowUp'));
+  if (cameraPointer && !cameraPointer.overMinimap) {
+    dx += cameraPointer.x < 8 ? -1 : cameraPointer.x > innerWidth - 8 ? 1 : 0;
+    dy += cameraPointer.y < 8 ? -1 : cameraPointer.y > innerHeight - 8 ? 1 : 0;
+  }
+  if (dx || dy) {
+    const length = Math.hypot(dx, dy), speed = Math.max(700, view.camDist * .8) * Math.min(dt, .05);
+    panCamera(dx / length * speed, dy / length * speed);
+  }
+}
+function minimapLocation(e) { return minimapPoint(S.bounds, minimapCanvas.getBoundingClientRect(), e.clientX, e.clientY); }
+minimapCanvas.addEventListener('contextmenu', e => e.preventDefault());
+minimapCanvas.addEventListener('mousedown', e => {
+  if (!cameraInputAllowed()) return;
+  e.preventDefault();
+  const point = minimapLocation(e); if (!point) return;
+  if (e.button === 2) {
+    if (ui.orderPending || S.castPending != null || S.itemPending != null) {
+      ui.beforeUseItem(); return;
+    }
+    if (commandIds().length) { sendOrder({t:Msg.MOVE,...point},e.shiftKey); markMove(point); }
+  } else if (e.button === 0) {
+    if (ui.orderPending) {
+      sendOrder({t:Msg.MOVE,...point,attack:ui.orderPending==='attack',patrol:ui.orderPending==='patrol'},e.shiftKey);
+      ui.orderPending=null; canvas.style.cursor='default'; markMove(point); return;
+    }
+    if (S.castPending != null) {
+      const ability=S.hero?.abilities?.[S.castPending];
+      if (ability?.targetMode === 'unit') { ui.log('Choose a unit in the world for this ability.','lvl'); return; }
+      net.send({t:Msg.CAST,slot:S.castPending,...point});
+      S.castPending=null; canvas.style.cursor='default'; return;
+    }
+    if (S.itemPending != null) { ui.log('Choose a unit in the world for this item.','lvl'); return; }
+    minimapDragging=true; focusCamera(point.x,point.y);
+  }
 });
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 1 && cameraInputAllowed()) { e.preventDefault(); dragging=true; lastX=e.clientX; lastY=e.clientY; }
+});
+addEventListener('mouseup', () => { dragging=false; minimapDragging=false; });
+addEventListener('mousemove', e => {
+  cameraPointer={x:e.clientX,y:e.clientY,overMinimap:!!e.target.closest?.('#minimap')};
+  if (!cameraInputAllowed()) return;
+  if (minimapDragging) { const p=minimapLocation(e); if(p) focusCamera(p.x,p.y); }
+  if (!dragging) return;
+  const k=view.camDist/900;
+  panCamera(-(e.clientX-lastX)*k,-(e.clientY-lastY)*k);
+  lastX=e.clientX; lastY=e.clientY;
+});
+addEventListener('blur', () => { cameraActive=false; cameraKeys.clear(); cameraPointer=null; dragging=false; minimapDragging=false; });
+addEventListener('focus', () => { cameraActive=true; });
+document.addEventListener('mouseleave', () => { cameraPointer=null; });
+
 canvas.addEventListener('dblclick', e => {
   if (S.phase !== Phase.PLAYING || S.cinematic || ui.orderPending || S.castPending != null) return;
   const picked = view.pickEntity(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2);
@@ -1067,14 +1134,17 @@ function frame() {
   }
   const tInterp = performance.now();
   const me = S.ents.get(S.hero?.id);
-  // a scripted pan owns the camera while it runs, so the hero-follow does not
-  // fight it back to the hero one frame at a time
-  if (!view.stepPan(dt) && me && followHero) view.focus(me.x, me.y);
+  if (S.booted && S.phase === Phase.PLAYING && me && cameraHeroId !== S.hero.id) {
+    cameraHeroId = S.hero.id;
+    if (!view.scriptPan) focusCamera(me.x, me.y);
+  }
+  stepCameraInput(dt);
+  view.stepPan(dt);
   if (S.bounds) view.clampCam(S.bounds);
   if (S.phase === Phase.PLAYING) drawUnitUI();
   if (S.phase === Phase.PLAYING && unitPortrait) unitPortrait.step(dt);
   if (S.phase === Phase.PLAYING && S.bounds)
-    ui.drawMinimap(S.bounds, [...S.ents.values()], S.hero?.id, S.minimapImg);
+    ui.drawMinimap(S.bounds, [...S.ents.values()], S.hero?.id, S.minimapImg, view.cameraFootprint());
   if (flashT > 0) { flashT -= dt; document.body.style.boxShadow = `inset 0 0 200px rgba(200,30,30,${flashT * 1.4})`; }
   else document.body.style.boxShadow = '';
   const k = 0.1;
