@@ -2,7 +2,7 @@
 // this layer only relays player intent into it and streams state out.
 import { randomUUID } from 'node:crypto';
 import { World, TYPES, int2id, id2int } from './world.js';
-import { entry as abilEntry, isPassive } from './abilities.js';
+import { entry as abilEntry, isPassive, needsUnitTarget } from './abilities.js';
 import { JassEngine } from './jass/engine.js';
 import { Phase, Msg, TICK_HZ, SNAP_HZ } from '../shared/const.js';
 import { BUILD } from './build.js';
@@ -623,7 +623,15 @@ export class Room {
                maxLvl: ab.maxLvl || (ab.levels || []).length || 1,
                reqLevel: ab.reqLevel || 0, levelSkip: ab.levelSkip || 0,
                innate: isInnate,
-               targetMode: SPELL_TARGETS[aid] || 'point',
+               // The classifier calls almost everything 'point' -- it reads
+               // the map's own triggers, and one map-wide trigger reads
+               // GetSpellTargetLoc on EVERY spell (tools/spell_targets.mjs
+               // documents this). Where the engine's own case cannot run
+               // without a unit under the cursor, that answer is simply wrong,
+               // and the client would let the player click bare ground. The
+               // case is the authority on its own requirement.
+               targetMode: needsUnitTarget(abilEntry(aid)) ? 'unit'
+                           : (SPELL_TARGETS[aid] || 'point'),
                // innate abilities are granted with the unit, never learned
                cap: isInnate ? Math.max(lvl, 1) : learnCap(ab, u.level),
                cdLeft: Math.max(0, (cd - this.world.now) / 1000),

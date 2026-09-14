@@ -79,6 +79,26 @@ const BASE_ALIAS = {
   // about 1.8 s, so a hero was walking 1.2 to 3.2 s early.
   ANsb: 'AHtb',
 };
+/**
+ * Bases whose case cannot do anything without a unit under the cursor.
+ *
+ * Every one of these opens with `if (!t) return { ok:false, reason:'need
+ * target' }`, so a cast aimed at bare ground reaches the effect and does
+ * nothing -- after world.castEffect has already spent the mana and started the
+ * cooldown. Warcraft III never lets that happen: a unit-target spell will not
+ * take a ground order at all, the cursor simply refuses.
+ *
+ * Kept as a list rather than derived, because the thing being declared is what
+ * the CASES require, and a case that grows a `!t` guard should have to say so
+ * here. tools/needtarget_test.mjs asserts the list against the source, so one
+ * added without a line here fails rather than passing quietly.
+ */
+export const NEEDS_UNIT_TARGET = new Set([
+  'AHtb', 'ANtb', 'ANfd', 'ANdr', 'AUdc', 'ANin', 'AEer', 'Amls',
+]);
+/** True when this ability's engine case refuses a cast with no unit target. */
+export function needsUnitTarget(ab) { return !!ab && NEEDS_UNIT_TARGET.has(baseOf(ab)); }
+
 export function baseOf(ab) { return (ab && (BASE_ALIAS[ab.base] || ab.base)) || ''; }
 
 /**

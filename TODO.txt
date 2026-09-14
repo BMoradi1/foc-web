@@ -1986,6 +1986,33 @@ TESTS AND THE END-TO-END HALF
 
 ABILITY DATA SLOTS
 ------------------
+[x] A unit-target spell clicked at bare ground cost its cooldown  (FIXED
+    2026-09-13)
+    Warcraft III refuses the ORDER: the cursor will not take a ground click for
+    a spell that needs a unit, so nothing is spent and the map's own
+    SPELL_EFFECT trigger never runs. Here the cast was accepted, walked its
+    cast point, reached castEffect, spent the mana and started the cooldown,
+    and only then did the case return 'need target' and do nothing -- silently,
+    because nothing reads that result past the hold.
+    It was reachable because the target classifier calls almost everything
+    'point'. That is not a bug in the classifier and tools/spell_targets.mjs
+    says so itself: one map-wide trigger reads GetSpellTargetLoc on EVERY
+    spell's effect, so almost nothing looks unit-only from the script. The
+    engine's own case is the authority on what it needs, and now says so --
+    NEEDS_UNIT_TARGET in server/abilities.js, one entry per case that opens
+    with a `!t` guard.
+    Fixed at both layers. The room reports targetMode 'unit' for these
+    whatever the classifier said, so the client demands a target and warns;
+    castAbility refuses the order before spending anything, as a backstop for
+    any client. Four hero spells were reachable: Yusuke's A025, Gaara's A05K,
+    Rob Lucci's A009 and Byakuya's A011 -- and, since the ANsb alias above,
+    Shiki's A05H would have been a fifth.
+    tools/needtarget_test.mjs derives the list from the source so a case that
+    grows a guard without declaring it fails, and asserts the refusal costs no
+    mana and no cooldown, that the same cast on a real unit still works, and
+    that the hero card the client reads says 'unit' where the classifier says
+    'point'.
+
 [x] Two more bases were in no routing table at all  (FIXED 2026-09-13)
     AbilityData.slk's `code` column is the map editor's own answer to "whose
     fields does this row use", and where it differs from `alias` the row IS

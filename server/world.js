@@ -8,7 +8,7 @@ import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
          auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs,
-         carriedImmolation, baseOf as abilBase } from './abilities.js';
+         carriedImmolation, needsUnitTarget, baseOf as abilBase } from './abilities.js';
 import { chatFor } from './chatalias.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -1806,6 +1806,16 @@ export class World {
     // the game refuses the ORDER for want of mana; the mana itself goes at the effect
     if (u.mana < info.mana) return { ok: false, reason: 'mana' };
     if (targetUnit && !targetUnit.alive) return { ok: false, reason: 'dead target' };
+    // A unit-target spell ordered at bare ground. Warcraft III refuses the
+    // ORDER -- the cursor will not take it -- so nothing is spent and the
+    // map's own SPELL_EFFECT trigger never runs. Here the cast used to be
+    // accepted, walk its cast point, reach castEffect, spend the mana and
+    // start the cooldown, and only then have the case return 'need target'
+    // and do nothing at all. Four of the map's hero spells are reachable this
+    // way, because the target classifier calls almost everything 'point'
+    // (see tools/spell_targets.mjs, which says so itself).
+    if (!targetUnit && needsUnitTarget(abilEntry(this.abilKey(key))))
+      return { ok: false, reason: 'needs a target' };
     // The attack the cast displaces, to pick back up afterwards. The game's
     // idle auto-acquire would find the same target again on its own; a player's
     // hero here has no auto-acquire (stepAI leaves controlled units alone), so
