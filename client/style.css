@@ -76,7 +76,17 @@ input{background:#0d0f15;border:1px solid var(--line);color:var(--txt);
 #lobbyMsg{color:var(--gold);font-size:12px}
 
 /* ---------- HUD ---------- */
-#hud{position:fixed;inset:0;pointer-events:none;z-index:20}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:20;transition:opacity var(--cinefade,.5s)}
+/* Cinematic mode (CinematicModeBJ): the interface fades and letterbox bars
+   close in over the same time. The bars are the game's own cinematic framing;
+   their height is a choice of ours -- no file states it. */
+body.cinematic #hud{opacity:0}
+body.cinematic #hud>*{pointer-events:none}
+#letterbox{position:fixed;inset:0;pointer-events:none;z-index:25}
+#letterbox .bar{position:absolute;left:0;right:0;height:12vh;background:#000;transition:transform var(--cinefade,.5s) ease}
+#letterbox .top{top:0;transform:translateY(-100%)}
+#letterbox .bottom{bottom:0;transform:translateY(100%)}
+body.cinematic #letterbox .bar{transform:none}
 #hud>*{pointer-events:auto}
 /* Below Warcraft III's own top strip, not under it: the resource readout is
    the game's layout and takes the top-right corner, and this score strip is

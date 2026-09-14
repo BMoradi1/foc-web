@@ -54,7 +54,7 @@ const S = {
   ents: new Map(),           // id -> latest server state
   prev: new Map(),           // id -> previous state (for interpolation)
   lastSnap: 0, snapDt: 1 / 15,
-  selected: null, bounds: null, ready: false, showScore: false,
+  selected: null, bounds: null, ready: false, showScore: false, cinematic: false, booted: false,
   castPending: null, itemPending: null, minimapImg: null, debug: false,
   hoverId: null, altHeld: false,
   unitModels: null,          // also feeds the lobby's rotating hero preview
@@ -62,7 +62,20 @@ const S = {
 
 // ------------------------------------------------------------------ networking
 net.on(Msg.WELCOME, (m) => {
+  const wasYou = S.you;
   S.you = m.you; net.you = m.you;
+  net.token = m.token || null;
+  try { sessionStorage.setItem('focs.token', net.token || ''); } catch { /* private mode */ }
+  reconnect.attempts = 0;
+  // A second WELCOME is a reconnect. The terrain, the models and the world are
+  // all still here; the next STATE and SNAPSHOT bring what changed, and the
+  // room resends the permanent tags and the atmosphere on its own.
+  if (S.booted) {
+    ui.hideDisconnected();
+    ui.log(m.you === wasYou ? 'reconnected' : 'rejoined as a new player', 'lvl');
+    S.game = m.game; S.heroes = m.heroes; S.bounds = m.game.bounds;
+    return;
+  }
   S.game = m.game; S.heroes = m.heroes; S.bounds = m.game.bounds;
   // The server decides whether the debugging keys exist at all; the client only
   // binds what it was told about, so nothing here can reach a deployed build.
@@ -74,12 +87,13 @@ net.on(Msg.WELCOME, (m) => {
   }
   ui.setLoading('loading terrain…', 0.35);
   boot(m).then(() => {
+    S.booted = true;
     ui.hideLoading();
     // The room does not wait for anyone's download, so the match can start
     // while the terrain is still loading. This continuation used to put the
     // lobby back up over a running game and nothing took it down again: the
     // server sends STATE when the phase changes, and it already had.
-    if (S.phase === Phase.PLAYING) { ui.startGame(); refitConsole(); }
+    if (S.phase === Phase.PLAYING) { S.cinematic = false; ui.startGame(); refitConsole(); }
     else ui.showLobby(m.game, m.heroes);
   }).catch((err) => {
     // One 404 on terrain.json or heights.bin used to leave the player watching
@@ -106,7 +120,7 @@ net.on(Msg.STATE, (m) => {
       if (d.dead && !g.dead) { g.dead = true; view.setDoodadDead(d.d); }
     }
   }
-  if (m.phase === Phase.PLAYING) ui.startGame();
+  if (m.phase === Phase.PLAYING) { S.cinematic = false; ui.startGame(); }
   if (m.phase === Phase.LOBBY && S.game) ui.showLobby(S.game, S.heroes);
   // Second matches in one room are real now that the room lifecycle is fixed,
   // so the state a match leaves behind has to be cleared on the way out of it:
@@ -193,9 +207,19 @@ net.on(Msg.EVENT, (m) => {
 
 net.on(Msg.CHATMSG, (m) => ui.log(`<b>${escapeHtml(m.from)}:</b> ${escapeHtml(m.text)}`));
 net.on(Msg.ERROR, (m) => ui.log(m.m, 'kill'));
+// The connection is gone: say so, and try to get the seat back. The server
+// holds it for a minute; the attempts back off from a second to eight and give
+// up a little after the seat would have, at which point the Refresh button is
+// what is left.
+function reconnect() {
+  if (++reconnect.attempts > 12) { ui.showDisconnected('the seat is gone. refresh to join again.'); return; }
+  ui.showDisconnected(`reconnecting… (attempt ${reconnect.attempts})`);
+  setTimeout(() => { if (!net.ws) net.connect(savedName); }, Math.min(8000, 1000 * reconnect.attempts));
+}
+reconnect.attempts = 0;
 net.on('closed', () => {
   ui.log('disconnected from server', 'kill');
-  ui.showDisconnected();
+  reconnect();
 });
 
 /**
@@ -355,6 +379,15 @@ function handleEvent(ev) {
     case 'cineFilter':    overlay.cine.show(ev); break;
     case 'cineFilterOff': overlay.cine.clear(); break;
     case 'animIdx':  view.playUnitAnimIndex(ev.id, ev.i); break;
+    case 'animQueue': view.queueUnitAnim(ev.id, ev.name); break;
+    // CinematicModeBJ, for the players in its force: the interface fades, the
+    // letterbox closes in, and input is ignored until it lifts
+    case 'cinematic':
+      if (ev.players == null || ev.players.includes(S.slot)) {
+        S.cinematic = !!ev.on;
+        ui.setCinematic(S.cinematic, ev.fade);
+      }
+      break;
     case 'sfx':      view.spawnEffect(ev, false); break;
     case 'sfxUnit':  view.spawnEffect(ev, true); break;
     case 'sfxEnd':   view.endEffect(ev.fx); break;
@@ -592,7 +625,7 @@ let KEY_SLOT = {};
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => {
-  if (S.phase !== Phase.PLAYING) return;
+  if (S.phase !== Phase.PLAYING || S.cinematic) return;
   const nx = (e.clientX / innerWidth) * 2 - 1;
   const ny = -(e.clientY / innerHeight) * 2 + 1;
   if (e.button === 0) {
@@ -707,13 +740,14 @@ function markMove(g) {
 }
 
 canvas.addEventListener('wheel', (e) => {
+  if (S.cinematic) return;
   view.camDist = Math.max(700, Math.min(4200, view.camDist * (1 + Math.sign(e.deltaY) * 0.1)));
 }, { passive: true });
 
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (document.activeElement?.tagName === 'INPUT') return;
-  if (S.phase !== Phase.PLAYING) return;
+  if (S.phase !== Phase.PLAYING || S.cinematic) return;
   if (document.getElementById('wcDialog')) { if (e.key === 'Escape') ui.closeDialog(); return; }
   if (e.key === 'Enter') { e.preventDefault(); ui.openChat(); return; }
   if (e.key === 'F9' || e.key === 'F10' || e.key === 'F11') {
@@ -819,7 +853,7 @@ function relationTo(e) {
 
 // edge / drag panning
 let dragging = false, lastX = 0, lastY = 0, followHero = true;
-canvas.addEventListener('mousedown', (e) => { if (e.button === 1) { dragging = true; lastX = e.clientX; lastY = e.clientY; } });
+canvas.addEventListener('mousedown', (e) => { if (e.button === 1 && !S.cinematic) { dragging = true; lastX = e.clientX; lastY = e.clientY; } });
 addEventListener('mouseup', () => { dragging = false; });
 addEventListener('mousemove', (e) => {
   if (!dragging) return;
@@ -1036,5 +1070,6 @@ window.FOC = { view, S, ui, net, overlay, audio, refitConsole, shopFor,
                get unitPortrait() { return unitPortrait; } };
 
 ui.setLoading('connecting…', 0.1);
+try { net.token = sessionStorage.getItem('focs.token') || null; } catch { /* private mode */ }
 net.connect(savedName);
 frame();

@@ -115,7 +115,31 @@ for rec in uisnd:
                                  if f and f != '0'],
                           prio=int(float(rec.get('Priority', 0) or 0)))
 
+# Every sound label the tables define, for SetSoundParamsFromLabel.
+#
+# The native takes a sound the script already created from a file and applies
+# the row's own volume and pitch on top -- this map does it to the countdown
+# tick (ChatroomTimerTick, 80 of 127), the "Fight!!" sting (QuestNew, 80) and
+# the intro score (CreditsMusic, 120, which lives in DialogSounds rather than
+# UISounds). The labels come from the map's script at run time, so the whole
+# table goes rather than a list picked here; it is a few hundred small rows.
+labels = {}
+for slk in ('UISounds', 'DialogSounds', 'AbilitySounds', 'AmbienceSounds',
+            'EnvironmentSounds', 'UnitAckSounds', 'UnitCombatSounds', 'MIDISounds'):
+    fp = os.path.join(BASE, 'UI/SoundInfo/%s.slk' % slk)
+    if not os.path.exists(fp):
+        continue
+    for rec in parse_slk(fp):
+        name = str(rec.get('SoundName') or '')
+        if not name or name in labels:
+            continue
+        row = dict(vol=float(rec.get('Volume', 127) or 127))
+        if rec.get('Pitch') not in (None, ''):
+            row['pitch'] = float(rec['Pitch'])
+        labels[name] = row
+
 os.makedirs('data', exist_ok=True)
+json.dump(labels, open('data/soundlabels.json', 'w'))
 json.dump(warn, open('data/uisounds.json', 'w'), indent=1)
 json.dump(sets, open('data/soundsets.json', 'w'))
 covered = sum(1 for v in sets.values() if v.get('death'))

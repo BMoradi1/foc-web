@@ -52,6 +52,7 @@
 </div>
 
 <!-- in-game HUD -->
+<div id="letterbox"><div class="bar top"></div><div class="bar bottom"></div></div>
 <div id="hud" class="hidden">
   <!-- Warcraft III's own console, built from ConsoleUI.fdf. First child so it
        sits behind every panel that lives in its slots. -->
@@ -98,7 +99,7 @@
      #hud and #lobby because the connection can go at either. -->
 <div id="disconnected" class="hidden"><div class="box">
   <h2>connection lost</h2>
-  <p>the server closed the connection. refresh to rejoin.</p>
+  <p>reconnecting…</p>
   <button id="btnRejoin">Refresh</button>
 </div></div>
 

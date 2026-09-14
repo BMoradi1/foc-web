@@ -76,7 +76,7 @@ wss.on('connection', (ws, req) => {
     if (!player) {
       if (m.t !== Msg.HELLO) return;
       // join returns null for a full room, having already told the client why
-      player = room.join(ws, m.name);
+      player = room.join(ws, m.name, typeof m.token === 'string' ? m.token.slice(0, 64) : null);
       return;
     }
     try { room.handle(player, m); } catch (e) { console.error('handle', m.t, e.message); }

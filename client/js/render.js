@@ -1048,6 +1048,19 @@ export class Renderer {
         if (view.stateName !== 'stand' || e.action !== view.currentAction) return;
         this.play(view, 'stand', false, true);
       });
+      // A clip the script asked for by name plays once and used to hold its
+      // last frame for good: SetUnitAnimation("spell") left the unit frozen
+      // mid-cast until something else changed its state. Warcraft III returns
+      // to the unit's own stand when the sequence ends -- or to whatever
+      // QueueUnitAnimation asked for, which this map uses for the duel
+      // winner's flourish: "spell", then a queued "stand".
+      view.mixer.addEventListener('finished', (e) => {
+        if (e.action !== view.currentAction || !view.scripted) return;
+        const next = view.queuedAnim;
+        view.queuedAnim = null;
+        if (next) this.playUnitAnim(view.id, next);
+        else this.play(view, view.stateName || 'stand', false, true);
+      });
     }
     this.armGeosetClock(view, meta);
     view.loading = false;
@@ -1258,6 +1271,7 @@ export class Renderer {
     view.current = clip;
     view.currentAction = next;
     view.stateName = state;
+    view.scripted = false;
     view.seqIndex = this.seqIndexOf(view.meta, clip);
     this.applyGeosetVisibility(view, clip);
   }
@@ -2005,6 +2019,12 @@ export class Renderer {
     this.playClip(v, clip, !/^(stand|walk)/.test(clip));
   }
 
+  /** QueueUnitAnimation: what plays when the current one-shot ends. */
+  queueUnitAnim(id, name) {
+    const v = this.views.get(id);
+    if (v) v.queuedAnim = String(name || '') || null;
+  }
+
   /** SetUnitAnimationByIndex. */
   playUnitAnimIndex(id, i) {
     const v = this.views.get(id);
@@ -2024,6 +2044,7 @@ export class Renderer {
     act.fadeIn(0.12).play();
     view.current = clip;
     view.currentAction = act;
+    view.scripted = true;                 // the 'finished' listener returns it to stand
     // The map drives 53 animations by name -- "attack", "birth", "spell",
     // "death". Without this the clip changes but the emitters stay scoped to
     // whatever sequence was playing before, so a script-triggered death plays

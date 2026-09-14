@@ -1,5 +1,6 @@
 // Lobby + match lifecycle. The map's own JASS script owns the game rules;
 // this layer only relays player intent into it and streams state out.
+import { randomUUID } from 'node:crypto';
 import { World, TYPES, int2id, id2int } from './world.js';
 import { entry as abilEntry, isPassive } from './abilities.js';
 import { JassEngine } from './jass/engine.js';
@@ -60,6 +61,11 @@ function teamOfSlot(slot) {
 // it is on, so a deployed build has no way to reach them and no key that quietly
 // does nothing. Turn them on with:  FOC_DEBUG=1 npm start
 const DEBUG = process.env.FOC_DEBUG === '1';
+// How long a dropped player's seat is held for them. Warcraft III has no
+// rejoin at all -- a dropped player has left -- so this is the port's own
+// allowance rather than a figure from the game, sized for a page reload or a
+// wifi blip rather than a walk away. Tests set it short.
+const GRACE_MS = +(process.env.FOC_REJOIN_GRACE_MS || 60000);
 
 let nextPlayer = 1;
 
@@ -108,12 +114,36 @@ export class Room {
   get list() {
     return [...this.players.values()].map((p) => ({
       id: p.id, name: p.name, team: p.team, heroId: p.heroId,
-      ready: p.ready, connected: !!p.ws, entId: p.entId ?? null,
+      ready: p.ready, connected: !!p.ws, away: !!p.dropTimer, entId: p.entId ?? null,
       kills: p.kills, deaths: p.deaths, slot: p.slot,
     }));
   }
 
-  join(ws, name) {
+  join(ws, name, token) {
+    // A dropped player coming back inside the grace period gets their own
+    // seat, hero and match back rather than a new seat: the token is the one
+    // the WELCOME handed them, and only a socketless seat can be reclaimed.
+    if (token) {
+      const back = [...this.players.values()].find((x) => !x.ws && x.token === token);
+      if (back) {
+        back.ws = ws;
+        if (back.dropTimer) { clearTimeout(back.dropTimer); back.dropTimer = null; }
+        // the permanent tags and the atmosphere go out again with the next
+        // snapshot, as they do for anyone who was not there when they were set
+        back.tagsSent = false;
+        this.welcome(back);
+        this.broadcastState();
+        if (this.phase === Phase.PLAYING) this.sendHero(back);
+        return back;
+      }
+    }
+    // A match with nobody connected is being held for the people who dropped
+    // out of it, not against a stranger: someone new arriving at it -- no
+    // token, or one the grace period has voided -- would otherwise be seated
+    // into a running game of ghosts with no lobby in sight. They take the room
+    // back to the lobby; the absent players' seats go with it, and a token
+    // they come back with after this is a fresh seat like anyone else's.
+    if (this.phase !== Phase.LOBBY && ![...this.players.values()].some((x) => x.ws)) this.reset();
     // team membership comes from the map's own config() (SetPlayerTeam)
     // Alternate sides rather than filling slot 0 upwards. The map's slots are
     // 0-3 for one team and 4-7 for the other, so filling in numeric order puts
@@ -138,32 +168,57 @@ export class Room {
       return null;
     }
     const p = { id: nextPlayer++, ws, name: (name || 'Player').slice(0, 18),
-                slot: chosen, team: teamOfSlot(chosen),
-                heroId: null, ready: false, entId: null, kills: 0, deaths: 0 };
+                slot: chosen, team: teamOfSlot(chosen), token: randomUUID(),
+                heroId: null, ready: false, entId: null, kills: 0, deaths: 0, dropTimer: null };
     this.players.set(p.id, p);
-    this.send(ws, {
-      t: Msg.WELCOME, you: p.id, phase: this.phase, build: BUILD, debug: DEBUG,
+    this.welcome(p);
+    this.broadcastState();
+    return p;
+  }
+
+  welcome(p) {
+    this.send(p.ws, {
+      t: Msg.WELCOME, you: p.id, token: p.token, phase: this.phase, build: BUILD, debug: DEBUG,
       game: { meta: GAME.meta, bounds: GAME.bounds, shops: GAME.shops, spawns: GAME.spawns,
               // every item type, so the client can draw whatever it finds lying
               // in the world -- a recipe result is in no shop's stock list
               items: GAME.items, sfx: GAME.sfx },
       heroes: GAME.heroes.map(heroSummary),
     });
-    this.broadcastState();
-    return p;
   }
 
+  /**
+   * A socket closed. In the lobby that is a player gone. In a match the seat
+   * is held for GRACE_MS -- the hero keeps standing where it was, the script
+   * is told nothing -- and only when nobody has come back for it does it
+   * become what Warcraft III would have made of the drop in the first place:
+   * EVENT_PLAYER_LEAVE, which the map's own triggers act on.
+   */
   leave(p) {
     if (!p) return;
     p.ws = null;
+    if (this.eng && this.phase === Phase.PLAYING) {
+      if (!p.dropTimer) p.dropTimer = setTimeout(() => this.forfeit(p), GRACE_MS);
+      this.broadcastState();
+      return;
+    }
+    if (this.phase === Phase.LOBBY) this.players.delete(p.id);
+    this.broadcastState();
+    if (![...this.players.values()].some((x) => x.ws)) this.reset();
+  }
+
+  forfeit(p) {
+    p.dropTimer = null;
+    if (p.ws) return;                          // came back in time
+    p.token = null;                            // the seat is no longer theirs to reclaim
     if (this.eng && this.phase === Phase.PLAYING) {
       const ph = this.eng.players[p.slot];
       const key = this.eng.eventId('EVENT_PLAYER_LEAVE');
       if (key != null) this.eng.fire(key, { player: ph });
     }
-    if (this.phase === Phase.LOBBY) this.players.delete(p.id);
     this.broadcastState();
-    if (![...this.players.values()].some((x) => x.ws)) this.reset();
+    // a match nobody is connected to and nobody can come back to is over
+    if (![...this.players.values()].some((x) => x.ws || x.dropTimer)) this.reset();
   }
 
   reset() {
@@ -174,6 +229,7 @@ export class Room {
     this.resetTimer = null;
     this.loop = null; this.world = null; this.eng = null; this.phase = Phase.LOBBY;
     for (const p of this.players.values()) {
+      if (p.dropTimer) { clearTimeout(p.dropTimer); p.dropTimer = null; }
       // Somebody who left during the match was kept so the script could still
       // see their player; back in the lobby there is nothing to keep. Holding
       // them was what filled the room: every finished match left its players
@@ -484,6 +540,20 @@ export class Room {
             if (k && p.entId === k.id) p.kills++;
           }
         }
+      }
+      // The map selecting a unit for a player: Warcraft III's way of handing
+      // over a hero it swapped (Yusuke's demon form is a new unit carrying the
+      // old one's stats) or brought back from hiding. A player controls one
+      // unit here, so the one selected for them is the one they control from
+      // now on. Ownership is checked: the script only ever selects a player's
+      // own hero, and nobody else's is handed across.
+      for (const ev of scriptEvents) {
+        if (ev.t !== 'select') continue;
+        const u = this.world.units.get(ev.id);
+        const p = [...this.players.values()].find((x) => x.slot === ev.player);
+        if (!u || !p || !u.isHero || u.playerIndex !== p.slot || p.entId === u.id) continue;
+        p.entId = u.id;
+        this.sendHero(p);
       }
       const all = events.concat(scriptEvents);
       // the map declares the winner itself

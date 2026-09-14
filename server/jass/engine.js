@@ -325,6 +325,7 @@ function loadIndex(files) {
   return {};
 }
 let SOUND_INDEX = null, IMPORT_INDEX = null, MUSIC_LIST = null, AMBIENCE = null;
+let SOUND_LABELS = null;   // every SoundInfo row's volume and pitch, for SetSoundParamsFromLabel
 /**
  * The ambient themes, rendered by tools/ambience.py.
  *
@@ -655,7 +656,9 @@ function installNatives(vm, eng) {
     SetUnitInvulnerable: (u, on) => { if (u) u.invulnerable = !!on; },
     SetUnitAnimation: (u, s) => eng.emit({ t: 'anim', id: u && u.id, name: s }),
     SetUnitAnimationByIndex: (u, i) => eng.emit({ t: 'animIdx', id: u && u.id, i }),
-    QueueUnitAnimation: () => {},
+    // "spell" then a queued "stand": the winner's flourish after a duel. The
+    // client plays the queued clip when the current one-shot ends.
+    QueueUnitAnimation: (u, s) => eng.emit({ t: 'animQueue', id: u && u.id, name: s }),
     // Animation speed. Blizzard.j's SetUnitTimeScalePercent divides by 100
     // before this, so what arrives is already a multiplier: this map asks for
     // 36 of them between 0 and 2, and two of those are 0 -- a unit frozen mid
@@ -1112,7 +1115,19 @@ function installNatives(vm, eng) {
       if (s && s.snd) eng.emit({ t: 'soundStop', snd: s.snd, fade: !!fade });
     },
     KillSoundWhenDone: () => {},
-    SetSoundParamsFromLabel: () => {}, RegisterStackedSound: () => {},
+    // The row's own volume and pitch on top of a sound the script made from a
+    // file. This map applies it to the countdown tick (ChatroomTimerTick, 80
+    // of 127), the "Fight!!" sting (QuestNew, 80) and the intro score
+    // (CreditsMusic, 120). Volume is in the same 0..127 the sound already
+    // carries, so PlaySound's division by 127 applies unchanged.
+    SetSoundParamsFromLabel: (s, label) => {
+      if (!SOUND_LABELS) SOUND_LABELS = loadIndex(['data/soundlabels.json', 'public/data/soundlabels.json']);
+      const row = SOUND_LABELS[String(label || '')];
+      if (!s || !row) return;
+      s.volume = row.vol;
+      if (row.pitch != null) s.pitch = row.pitch;
+    },
+    RegisterStackedSound: () => {},
     // ---- ambience and music
     //
     // Warcraft III crossfades between the day theme and the night theme as the
@@ -1233,11 +1248,39 @@ function installNatives(vm, eng) {
       eng.emit({ t: 'cineFilter', tex: f.tex, blend: f.blend,
                  from: f.from, to: f.to, dur: f.dur });
     },
-    CinematicModeBJ: () => {}, ShowInterface: () => {},
+    // Every match opens inside cinematic mode: CinematicModeBJ(true) before the
+    // 3-2-1 countdown and (false) after "Fight!!". Blizzard.j does the
+    // player-visible half under `if IsPlayerInForce(GetLocalPlayer(), force)`,
+    // and there is no local player on a shared server (see
+    // PanCameraToTimedLocForPlayer), so the BJ is answered here with the force
+    // still known and the client does the rest: the interface fades out over
+    // bj_CINEMODE_INTERFACEFADE (0.50 s), letterbox bars close in, and the
+    // player's control goes with it. The global half -- game speed lock, fog
+    // off, dawn/dusk off, a fixed random seed -- has nothing to act on here:
+    // no fog of war, no speed setting, and the clock does not turn. Not
+    // carried: the BJ fades instantly before bj_gameStarted, which this map
+    // never reaches -- the countdown is well after the start.
+    CinematicModeBJ: (on, force) => {
+      const players = force && force.players ? [...force.players].map((p) => p.index) : null;
+      eng.emit({ t: 'cinematic', on: !!on, fade: 0.5, players });
+    },
+    ShowInterface: () => {},
     EnableUserControl: () => {}, EnableUserUI: () => {},
     EnableOcclusion: () => {}, EnableSelect: () => {}, EnableDragSelect: () => {},
     ForceUIKey: () => {}, ForceUICancel: () => {},
     ClearSelection: () => {}, SelectUnit: () => {},
+    // All four of the map's calls hand a player a hero it just swapped or
+    // brought back: Yusuke's H00T -> Eidm at 250 STR and AGI copies the stats
+    // and items onto a NEW unit and removes the old one, and the other three
+    // re-show a hero that ShowUnitHide had deselected. Blizzard.j's body is
+    // gated on GetLocalPlayer, which answers Player(0) here, so the BJ is
+    // overridden with the player still known. The room takes it from there:
+    // the unit selected for a player is the unit that player controls, which
+    // is how the port learns of the swap at all -- nothing else re-points a
+    // player at a new hero once the match has started.
+    SelectUnitForPlayerSingle: (u, p) => {
+      if (u && p) eng.emit({ t: 'select', player: p.index, id: u.id });
+    },
     SetUnitSelectionScale: () => {},
     // The two DNC models are not scenery: each holds one light, FDirectSun,
     // whose colour and ambient colour are animated across a sequence that IS
@@ -1403,7 +1446,12 @@ function installNatives(vm, eng) {
     CustomDefeatBJ: (p, msg) => { eng.emit({ t: 'defeat', player: p && p.index, msg }); },
     EndGame: () => {}, PauseGame: () => {},
     GetGameState: () => 0, SetGameState: () => {},
-    GetFloatGameState: () => 0, SetFloatGameState: () => {},
+    // GAME_STATE_TIME_OF_DAY is ConvertFGameState(2). The BJs GetTimeOfDay and
+    // SetTimeOfDay go through these and the engine answers those by name, so
+    // only a caller of the raw native reaches here -- but a clock with two
+    // answers is a defect waiting, so the raw one reads the same clock.
+    GetFloatGameState: (st) => (st && st.v === 2 ? N.GetTimeOfDay() : 0),
+    SetFloatGameState: (st, v) => { if (st && st.v === 2) N.SetTimeOfDay(v); },
     VersionGet: () => C('version')(1),
     VersionCompatible: () => true, VersionSupported: () => true,
     GetHandleId: (h) => handleId(h),

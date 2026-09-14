@@ -1402,9 +1402,77 @@ GAMEPLAY / INPUT
     hid, and this is the rest of that class.
     Was 244 of 515 natives stubbed, 71 reached across 442 call sites. After the
     camera, time scale and cinematic filter below: 233 of 511, 63 across 336.
-    After the music, the fog and the three below: 222 of 509, 58 across 328. Run
-    the tool for the full table; what follows is what a player would notice, with
-    the false alarms named so nobody spends an evening on them twice.
+    After the music, the fog and the three below: 222 of 509, 58 across 328.
+    After the five of 2026-09-12 below: 200 of 507, 44 across 291. Run the tool
+    for the full table; what follows is what a player would notice, with the
+    false alarms named so nobody spends an evening on them twice.
+
+    DONE 2026-09-12, tools/stubs_test.mjs (27 checks, no server) and
+    tools/cinemode_test.mjs (11, browser):
+      SelectUnitForPlayerSingle  4 sites, and not the cosmetic "auto-reselect"
+                               the old row below called it. All four hand a
+                               player a hero the script has just swapped or
+                               brought back, and one of them is a NEW unit:
+                               Yusuke (H00T) at 250 STR and 250 AGI creates an
+                               Eidm, copies the stats, level, XP and six item
+                               slots onto it, removes the old unit, and selects
+                               the new one for its owner. Nothing in the port
+                               re-pointed a player at a new hero once a match
+                               was running -- buyHero does it only when a
+                               player has no unit -- so the demon form left
+                               the player holding a removed unit: no hero
+                               card, no orders, for the rest of the match.
+                               Blizzard.j's body is gated on GetLocalPlayer,
+                               which answers Player(0) here, so the BJ is
+                               overridden with the player still known (the
+                               PanCameraToTimedLocForPlayer pattern) and the
+                               room takes it from there: the unit selected for
+                               a player is the unit that player controls.
+                               Ownership and hero-ness are checked; the room
+                               test tries to hand across another player's
+                               hero and a creep, and neither moves.
+      CinematicModeBJ          2 sites, and they bracket every match: (true)
+                               before the 3-2-1 countdown, (false) after
+                               "Fight !!". Same GetLocalPlayer gate, same
+                               override. The client fades the interface out
+                               over bj_CINEMODE_INTERFACEFADE (0.50 s), closes
+                               letterbox bars in, and ignores orders, hotkeys,
+                               wheel and drag until it lifts. The global half
+                               of the BJ -- speed lock, fog off, dawn/dusk
+                               off, a fixed random seed -- has nothing to act
+                               on here. The bars' height (12% of the view) is
+                               a figure of ours; no file states it. Every
+                               sub-native the BJ reaches (ShowInterface,
+                               EnableUserControl, EnableUserUI, EnableOcclusion,
+                               ClearTextMessages, CameraSetSmoothingFactor,
+                               SetGameSpeed, SetMapFlag, VolumeGroupReset,
+                               FogEnable, FogMaskEnable, IsFog*) is subsumed by
+                               the override and stays a stub on purpose.
+                               Asserted end to end: a two-seat match stepped
+                               in-process opens cinematic mode at 294 s and
+                               closes it 7.5 s later.
+      QueueUnitAnimation       2, the duel winner's flourish: "spell", then a
+                               queued "stand". Found something larger on the
+                               way: a clip the script asked for by name
+                               (SetUnitAnimation, 53 sites) played once and
+                               HELD its last frame, because playClip never
+                               changed the state the per-frame loop compares
+                               against. Warcraft III returns to stand when the
+                               sequence ends. Now a scripted one-shot returns
+                               to the unit's own stand, or to what was queued.
+      SetSoundParamsFromLabel  3, all in the countdown: ChatroomTimerTick and
+                               QuestNew are 80 of 127 in UISounds.slk, and
+                               CreditsMusic is 120 -- in DialogSounds.slk, not
+                               UISounds. tools/soundsets.py now compiles every
+                               SoundInfo row's volume and pitch (3934 labels)
+                               into data/soundlabels.json, since the labels
+                               come from the map's script at run time. The
+                               ticks and the sting were playing at 127.
+      GetFloatGameState        4, via GetTimeOfDay -- which the engine answers
+                               by name, so in practice unreached; made to read
+                               the same clock so a raw caller cannot get a
+                               second answer.
+
 
     DONE since this was written:
       PanCameraToTimed         39 sites, one per trigger. The map never calls
@@ -1578,18 +1646,22 @@ GAMEPLAY / INPUT
                               is no reverb model here to set.
 
     Player-visible, still open:
-      ClearSelection/SelectUnit 4 each, via SelectUnitForPlayerSingle. The
-                               auto-reselect after an event.
-      SetSoundParamsFromLabel  3. The three handles already carry their paths
-                               from CreateSound, so the label would only add the
-                               row's volume and pitch. Small.
-      VolumeGroupSetVolume     6, all from CustomVictoryBJ and CustomDefeatBJ,
-                               which duck the world at the end of a match. There
-                               is no volume-group model here to duck.
-      TerrainDeformRipple      2, via TerrainDeformationRippleBJ. The crater
-                               half of this is done; the ripple is not.
-      cinematic framing        ShowInterface 2, EnableUserControl 6,
-                               EnableUserUI 8, CinematicModeBJ 2.
+      TerrainDeformRipple      2, via TerrainDeformationRippleBJ: a 1 s ring
+                               wave, radius 300, depth 100, under two spells.
+                               The crater half of this is done; the ripple is
+                               not, and it has the crater's problem twice over
+                               -- the wave's profile is in no extracted file.
+      SetCameraBounds          2, and correct as a stub: tools/compile_game.py
+                               reads the bounds out of that very call and the
+                               client clamps the camera to them. GetCameraMargin
+                               answers 0 where the game insets the playable
+                               area by a margin; the margin values are not in
+                               the archives we read.
+    Subsumed, not stubs in practice:
+      VolumeGroupSetVolume, PauseGame, EndGame, DialogSetMessage,
+      DialogDisplay, EnableUserUI, EnableUserControl  -- all reached only
+      through CustomVictoryBJ and CustomDefeatBJ, which the engine overrides
+      with the port's own game-over flow. The audit counts them statically.
 
     Not cosmetic, and all three DONE 2026-09-03:
       UnitStripHeroLevel       2, via SetHeroLevelBJ, which calls it whenever the
@@ -2211,13 +2283,23 @@ FIXED -- metamorphosis (kept for the reasoning; delete once it has bedded in)
 
 NETWORK
 -------
-[ ] No rejoin, only a reload
-    A dropped socket now says so and offers a refresh, which is what the review
-    asked for as a minimum. Actually rejoining means the server holding the slot
-    for a moment rather than dropping the player on close, and the client
-    replaying WELCOME and the next snapshot onto the world it already has. The
-    room already knows how to evict a player with no socket, so the missing
-    half is the grace period and the client-side re-attach.
+[x] No rejoin, only a reload  (FIXED 2026-09-13)
+    Both halves the old note named. WELCOME carries a seat token; a socket
+    closing mid-match leaves the seat held for FOC_REJOIN_GRACE_MS (60 s -- a
+    figure of ours, Warcraft III has no rejoin at all) with the hero standing
+    where it was and the script told nothing. HELLO with the token inside that
+    window reclaims the seat: same player id, same hero, the permanent tags and
+    the atmosphere replayed as for any late arrival, and the next full snapshot
+    reconciles the world the client already has -- the terrain and models are
+    not reloaded, and the client's second WELCOME says "reconnected" rather
+    than booting. Only when nobody comes back does the drop become
+    EVENT_PLAYER_LEAVE for the map's triggers, the token is voided, and a match
+    nobody is in or coming back to is reset. In the lobby a drop is still a
+    leave at once. The client reconnects on its own with backoff (1 s to 8 s,
+    twelve tries) and the Refresh button stays for the case where the seat is
+    gone. tools/rejoin_test.mjs, 21 checks: the room in-process with fake
+    sockets and a 400 ms grace for the expiry, then a real client's socket
+    closed against a live server.
 
 HOUSEKEEPING
 ------------

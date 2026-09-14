@@ -129,7 +129,20 @@ export class UI {
     $('btnTeam1').classList.toggle('on', players.find((p) => p.id === you)?.team === 1);
   }
 
+  /**
+   * Cinematic mode, as CinematicModeBJ asks for it: the interface fades out
+   * over `fade` seconds and letterbox bars close in over the same time; the
+   * player's control goes with it (main.js gates its input on S.cinematic).
+   * The bars are Warcraft III's own framing for a cinematic; their height is
+   * a figure of ours, not one from any file (see style.css).
+   */
+  setCinematic(on, fade = 0.5) {
+    document.body.style.setProperty('--cinefade', `${Math.max(0, +fade || 0)}s`);
+    document.body.classList.toggle('cinematic', !!on);
+  }
+
   startGame() {
+    this.setCinematic(false, 0);
     $('lobby').classList.add('hidden');
     $('hud').classList.remove('hidden');
     // Nothing ever re-hid this, so the second match in a room was played under
@@ -347,19 +360,20 @@ export class UI {
   }
 
   /**
-   * The connection is gone.
-   *
-   * Rejoining properly means the server keeping the slot and the client
-   * replaying state onto it; until that exists, the honest thing is to say so
-   * rather than leave a frozen battlefield looking playable.
+   * The connection is gone. The client is trying to get its seat back (see
+   * reconnect in main.js) and says so; the Refresh button stays for when the
+   * seat is gone, because a fresh page is then the only way in.
    */
-  showDisconnected() {
+  showDisconnected(msg) {
     const d = $('disconnected');
-    if (!d || !d.classList.contains('hidden')) return;
+    if (!d) return;
+    const t = d.querySelector('p');
+    if (t && msg) t.textContent = msg;
     d.classList.remove('hidden');
     const b = $('btnRejoin');
     if (b) b.onclick = () => location.reload();
   }
+  hideDisconnected() { $('disconnected')?.classList.add('hidden'); }
 
   log(text, cls) {
     this.logLines.push({ text, cls, t: performance.now() });

@@ -18,6 +18,9 @@ if os.path.exists('data/daynight.json'):
     shutil.copy('data/daynight.json', PUB + '/data/daynight.json')
 if os.path.exists('data/uisounds.json'):
     shutil.copy('data/uisounds.json', PUB + '/data/uisounds.json')
+# every sound label's volume and pitch, for SetSoundParamsFromLabel
+if os.path.exists('data/soundlabels.json'):
+    shutil.copy('data/soundlabels.json', PUB + '/data/soundlabels.json')
 # the model a buff hangs on a unit, and where it hangs it
 if os.path.exists('data/buffart.json'):
     shutil.copy('data/buffart.json', PUB + '/data/buffart.json')
