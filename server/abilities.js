@@ -241,8 +241,22 @@ function morphInto(w, caster, i, dur, hpBonus) {
  * @param {number} lvl
  * @param {object} o       {target, x, y}
  */
+const MAGICAL_EFFECTS = new Set([
+  'AHtb', 'ANtb', 'AUfn', 'AHtc', 'AOws', 'AUcs', 'AOsh', 'AUim', 'ANcs',
+  'ANbf', 'AEfk', 'ACtb', 'AOcl', 'AEch', 'AHbz', 'ANrf', 'AHfs', 'AEer',
+  'Amls', 'ANsi', 'ACsi', 'ANsl', 'AUsl', 'ACsw', 'ACro', 'ANbr',
+  'AUfa', 'AUfu', 'ACfa', 'ANdr', 'ANpi', 'AEim', 'AIcf',
+]);
+export const isMagicalEffect = ab => MAGICAL_EFFECTS.has(baseOf(ab));
+// Explicit native ultimate families; do not infer this from a custom learn level.
+const UNIVERSAL_DAMAGE = new Set(['AEsf', 'AOww', 'ANst', 'ANfd', 'ANin', 'AUin']);
+
 export function execute(w, caster, ab, lvl, o = {}) {
   if (!ab || !caster) return { ok: false, reason: 'no ability' };
+  if (o.target && (needsUnitTarget(ab) || ['AUfa', 'AUfu', 'ACfa'].includes(baseOf(ab))) &&
+      w.magicImmune(o.target) && isMagicalEffect(ab))
+    return { ok: false, reason: 'magic immune' };
+  const damageOptions = { spell: true, damageType: UNIVERSAL_DAMAGE.has(baseOf(ab)) ? 26 : 14 };
   const i = levelInfo(ab, lvl);
   const tx = o.x ?? (o.target ? o.target.x : caster.x);
   const ty = o.y ?? (o.target ? o.target.y : caster.y);
@@ -274,7 +288,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     (targets.trim() ? true : w.hostile(caster, e));
   const affected = (x, y, r) => w.enumInRange(x, y, r).filter(eligible);
   const channel = (source, x, y, radius, damage, waves, interval, follow = false) =>
-    w.channel(source, x, y, radius, damage, waves, interval, follow, eligible);
+    w.channel(source, x, y, radius, damage, waves, interval, follow, eligible, damageOptions);
   const B = baseOf(ab);
 
   switch (B) {
@@ -282,7 +296,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'AHtb': case 'ANtb': {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
-      w.damage(caster, t, slot(d1, 100), { spell: true });
+      w.damage(caster, t, slot(d1, 100), damageOptions);
       if (dur > 0) w.applyBuff(t, { kind: 'stun', code: i.buff || null, until: w.now + dur * 1000 });
       return { ok: true };
     }
@@ -315,7 +329,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       for (const e of affected(tx, ty, area || 200)) {
         const primary = !!o.target && e === o.target;
         const dmg = primary ? slot(d2, slot(d1, 100)) : slot(d1, 50);
-        w.damage(caster, e, dmg, { spell: true });
+        w.damage(caster, e, dmg, damageOptions);
         if (dur > 0) w.applyBuff(e, { kind: 'slow', pct: 0.4, code: i.buff || null, until: w.now + dur * 1000 });
       }
       return { ok: true };
@@ -323,7 +337,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // ---- caster-centred AoE + slow (Thunder Clap / War Stomp)
     case 'AHtc': case 'AOws': {
       for (const e of affected(caster.x, caster.y, area || 300)) {
-        w.damage(caster, e, slot(d1, 80), { spell: true });
+        w.damage(caster, e, slot(d1, 80), damageOptions);
         // A duration of 0.01 is this map saying "the base does nothing here,
         // the trigger does the work" -- the same reading the silence case below
         // already applies.  Flooring it to a second gave four War Stomps a
@@ -412,7 +426,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
         if (spent >= cap) break;
         const hit = Math.min(slot(d1, 80), cap - spent);
         spent += hit;
-        w.damage(caster, e, hit, { spell: true });
+        w.damage(caster, e, hit, damageOptions);
         // Nbf5 is a Damage Per Second the breath leaves behind; only Itachi's
         // 화둔-호화구의 술 carries one on this map.
         if (slot(d5, 0) > 0 && dur > 0) w.dotUnit(caster, e, d5, dur, 1);
@@ -442,7 +456,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     }
     // ---- caster AoE nuke (Fan of Knives, Cluster Rockets, Cyclone-likes)
     case 'AEfk': case 'ACtb': {
-      for (const e of affected(caster.x, caster.y, area || 400)) w.damage(caster, e, slot(d1, 100), { spell: true });
+      for (const e of affected(caster.x, caster.y, area || 400)) w.damage(caster, e, slot(d1, 100), damageOptions);
       return { ok: true };
     }
     // ---- chain lightning
@@ -451,7 +465,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const hops = Math.max(1, slot(d2, 4));
       const hit = new Set();
       for (let k = 0; k < hops && t && eligible(t); k++) {
-        w.damage(caster, t, dmg, { spell: true });
+        w.damage(caster, t, dmg, damageOptions);
         hit.add(t.id);
         dmg *= 0.75;
         let next = null, bd = Infinity;
@@ -547,7 +561,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // and it was read by nothing, so every infernal on the map lived the 60
     // seconds of our fallback instead of the 0.01 to 5 the map wrote.
     case 'AUin': {
-      for (const e of affected(tx, ty, area || 200)) w.damage(caster, e, slot(d1, 50), { spell: true });
+      for (const e of affected(tx, ty, area || 200)) w.damage(caster, e, slot(d1, 50), damageOptions);
       // the map can re-skin what Inferno drops; its own UnitID says which
       w.summon(caster, i.unit || 'ninf', tx, ty, slot(d2, dur || 60));
       return { ok: true };
@@ -636,7 +650,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'ANfd': {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
-      if (d3 > 0) w.damage(caster, t, d3, { spell: true });
+      if (d3 > 0) w.damage(caster, t, d3, damageOptions);
       return { ok: true };
     }
     // ---- Flame Strike: a burning circle on the ground, not a bolt at a unit
@@ -677,7 +691,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'ANdr': case 'AUdc': case 'ANin': {
       const t = o.target;
       if (!t) return { ok: false, reason: 'need target' };
-      w.damage(caster, t, slot(d1, 120), { spell: true });
+      w.damage(caster, t, slot(d1, 120), damageOptions);
       if (B === 'ANdr') w.heal(caster, slot(d1, 120));
       return { ok: true };
     }
@@ -790,8 +804,8 @@ export function execute(w, caster, ab, lvl, o = {}) {
       // Data-driven fallback: an active ability with a damage value hits what it
       // targets; area if it has one, otherwise the single target.
       if (d1 > 0) {
-        if (area > 0) { for (const e of affected(tx, ty, area)) w.damage(caster, e, d1, { spell: true }); return { ok: true }; }
-        if (o.target && w.hostile(caster, o.target)) { w.damage(caster, o.target, d1, { spell: true }); return { ok: true }; }
+        if (area > 0) { for (const e of affected(tx, ty, area)) w.damage(caster, e, d1, damageOptions); return { ok: true }; }
+        if (o.target && w.hostile(caster, o.target)) { w.damage(caster, o.target, d1, damageOptions); return { ok: true }; }
       }
       return { ok: false, reason: 'no engine behaviour for ' + B };
     }

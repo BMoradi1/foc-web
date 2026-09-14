@@ -307,3 +307,37 @@ range, levels, target restrictions, item non-stacking, regen in the simulation,
 recalculation and native speed changes. All 14 targeted suites pass: aura_stats,
 gameplay_parity, carried, ranklock, passive_fire, area_target_rules, spellshape,
 passive, casttime, proc, movement_orders, turn_rate, match and wincond.
+
+
+## Permanent spell-immunity follow-up
+
+Runtime immunity now reads live Amim-family abilities (Amim, ACmi, ACm2, ACm3,
+AImx), including item sources. Native ability add/remove is immediately visible,
+and IsUnitType(MAGIC_IMMUNE) uses common.j's type 26. Magic weapons cannot select
+immune targets. DAMAGE_TYPE_MAGIC (14) and normal damage from magic attacks are
+blocked at impact; physical and explicit universal damage retain their routes.
+Invulnerability remains separate and still blocks universal damage.
+
+Supported magical spell families reject immune unit targets before resource
+commitment and exclude them from native damage/buffs, including delayed area
+waves. Gaining immunity during a pending cast interrupts it. Friendly auras
+remain eligible. Native ultimate damage families explicitly use universal damage;
+custom required level is not used to infer immunity bypass. An incidental immune
+unit under the cursor does not cancel an entire area spell.
+
+[Blizzard's spell categories](https://classic.battle.net/war3/basics/spellbasics.shtml)
+distinguish magical effects from physical/universal effects and friendly auras.
+The shared native damage behavior is also supported by
+[damage-type implementation discussion](https://www.hiveworkshop.com/threads/attacktypes-and-damagetypes-getunitattacktype.276389/).
+
+Temporary immunity sources such as Avatar/Bladestorm, complete classification of
+all ability exceptions, dispel-on-immunity behavior, and less-common elemental
+native damage types remain open. This does not certify every Warcraft III
+immunity edge case.
+
+`tools/magic_immunity_test.mjs` adds 32 checks for native enum handles, ability
+lifecycle, damage routes, cast interruption, weapon eligibility, magical area
+effects, friendly auras and universal channel damage. All 14 targeted suites
+pass: magic_immunity, gameplay_parity, area_target_rules, aura_stats, passive_fire,
+spell_target_rules, weapon_targets, spellshape, carried, ranklock, casttime, proc,
+match and wincond.

@@ -8,7 +8,7 @@ import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
          auraEffects, auraSources, itemBonuses, itemUse, abilityBonuses, attackProcs,
-         carriedImmolation, needsUnitTarget, baseOf as abilBase } from './abilities.js';
+         carriedImmolation, isMagicalEffect, needsUnitTarget, baseOf as abilBase } from './abilities.js';
 import { chatFor } from './chatalias.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -56,6 +56,7 @@ const BUFF_ART = (() => {
 const HEIGHTS = new Float32Array(fs.readFileSync(path.join(ROOT, 'public/data/heights.bin')).buffer);
 
 // common.j: NORMAL (0) is spell attack type; MELEE (1) is normal weapon damage.
+const MAGIC_IMMUNITY_BASES = new Set(['Amim', 'ACmi', 'ACm2', 'ACm3', 'AImx']);
 const ATTACK_TYPES = ['spells', 'normal', 'pierce', 'siege', 'magic', 'chaos', 'hero'];
 const DEG = Math.PI / 180;
 const ART_TTL = 2200;            // how long an ability's own one-shot art lives
@@ -970,6 +971,16 @@ export class World {
     return lvl;
   }
 
+  /** Query live abilities so native add/remove and morph grants take effect immediately. */
+  magicImmune(u) {
+    if (!u) return false;
+    for (const [key, level] of u.abilities || [])
+      if (level > 0 && MAGIC_IMMUNITY_BASES.has(abilEntry(this.abilKey(key))?.base)) return true;
+    for (const item of u.items || []) for (const key of item.abilities || [])
+      if (MAGIC_IMMUNITY_BASES.has(abilEntry(this.abilKey(key))?.base)) return true;
+    return false;
+  }
+
   /** common.j unittype ids. */
   isUnitType(u, t) {
     if (!u) return false;
@@ -981,6 +992,7 @@ export class World {
       case 4: return u.movementType !== 'fly';       // GROUND
       case 7: return (u.atkRange || 0) <= 200; // MELEE_ATTACKER
       case 8: return (u.atkRange || 0) > 200;  // RANGED_ATTACKER
+      case 26: return this.magicImmune(u); // MAGIC_IMMUNE
       case 10: return !!u.summonedBy;     // SUMMONED
       case 11: return this.stunned(u);    // STUNNED
       default: return false;
@@ -1001,6 +1013,7 @@ export class World {
       const at = opts.attackType != null ? ATTACK_TYPES[opts.attackType?.v ?? opts.attackType]
         : opts.spell ? 'spells' : (src?.atkType ?? 'normal');
       const dt = opts.damageType?.v ?? opts.damageType ?? (opts.spell ? 14 : 4);
+      if (this.magicImmune(tgt) && (dt === 14 || (dt === 4 && at === 'magic'))) return 0;
       dmg *= typeBonus(at, tgt.armorType);
       if (dt === 4) dmg *= armorFactor(tgt.armorTotal ?? tgt.armor ?? 0);
     }
@@ -1751,10 +1764,10 @@ export class World {
     this.burns = this.burns.filter((b) => this.now < b.until);
   }
 
-  channel(caster, x, y, radius, perWave, waves, interval, followCaster = false, eligible = null) {
+  channel(caster, x, y, radius, perWave, waves, interval, followCaster = false, eligible = null, damageOptions = { spell: true }) {
     this.channels = this.channels || [];
     this.channels.push({ caster, x, y, radius, perWave, left: waves,
-                         nextAt: this.now, interval: interval * 1000, followCaster, eligible });
+                         nextAt: this.now, interval: interval * 1000, followCaster, eligible, damageOptions });
   }
 
   /**
@@ -1802,7 +1815,7 @@ export class World {
       const cx = c.followCaster ? c.caster.x : c.x;
       const cy = c.followCaster ? c.caster.y : c.y;
       for (const e of (c.eligible ? this.enumInRange(cx, cy, c.radius).filter(c.eligible) : this.enemiesInRange(c.caster, cx, cy, c.radius)))
-        this.damage(c.caster, e, c.perWave, { spell: true });
+        this.damage(c.caster, e, c.perWave, c.damageOptions);
       this.emit({ t: 'aoe', x: Math.round(cx), y: Math.round(cy), r: Math.round(c.radius) });
     }
     this.channels = this.channels.filter((c) => c.left > 0);
@@ -1912,6 +1925,7 @@ export class World {
   /** Authored unit-target filters, evaluated again before the effect commits. */
   validSpellTarget(u, target, abil, lvl) {
     if (!target || target.hidden || this.isLocust(target)) return false;
+    if (this.magicImmune(target) && isMagicalEffect(abil)) return false;
     const flags = new Set((levelInfo(abil, lvl).targets ?? abil?.targets ?? '')
       .toLowerCase().split(',').map(s => s.trim()).filter(Boolean));
     const has = (...names) => names.some(n => flags.has(n));
@@ -2636,6 +2650,7 @@ export class World {
       .toLowerCase().split(',').map(s => s.trim()));
     for (const [bit, weapon] of [[1, u], [2, u.weapon2]]) {
       if (!(u.attacksEnabled & bit) || !weapon) continue;
+      if (weapon.atkType === 'magic' && this.magicImmune(t)) continue;
       const flags = new Set((weapon.atkTargetsAllowed ?? '').toLowerCase().split(',').map(s => s.trim()));
       if (![...kinds].some(k => flags.has(k))) continue;
       // Map weapon lists can also narrow relationships and unit classes.
