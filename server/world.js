@@ -308,6 +308,7 @@ export class World {
       if (keep.has(c) || still.has(c)) continue;
       if (this.walk[c] !== 1) { this.walk[c] = 1; opened++; }
     }
+    if (opened) this.grid.invalidate();
     const flight = FLY_DESTS.find(r => r.d === d.index);
     if (flight) {
       const claimed = new Set();
@@ -316,6 +317,7 @@ export class World {
         for (const c of (alive ? r.c : r.k || [])) claimed.add(c);
       }
       for (const c of flight.w) if (!claimed.has(c)) this.fly[c] = 1;
+      this.flyGrid.invalidate();
     }
     this.emit({ t: 'destDead', d: d.index, id: d.id, opened });
     // deathSnd names a label -- TreeWallDeath -- and animsounds.json is keyed by
@@ -1050,6 +1052,8 @@ export class World {
   order(u, o) {
     if (!u || !u.alive || u.paused) return false;
     if (o.target && ['attack', 'smart'].includes(o.type) && !this.weaponFor(u, o.target)) return false;
+    u.repathAt = 0;
+    this.pendingMovementPaths?.delete(u);
     this.cancelAttack(u);
     // any order breaks off a cast in progress, as the game's does
     this.interruptCast(u);
@@ -2043,7 +2047,7 @@ export class World {
       // a range of 0 is a self or instant cast; anything else is walked into
       const range = c.info.range || 0;
       if (range > 0 && this.castDistance(u, c) > range) {
-        if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
+        if (!u.path?.length || (u.repathAt ?? 0) <= this.now) {
           const gx = c.target ? c.target.x : c.x, gy = c.target ? c.target.y : c.y;
           u.path = this.routeUnit(u, gx, gy);
           u.repathAt = this.now + 400;
@@ -2277,6 +2281,7 @@ export class World {
     this.now += this.dt * 1000;
     this.tick++;
     this.rebuildBins();
+    this.stepMovementPaths();
     this.stepMissiles();
     this.stepItems();
     this.stepCasts();
@@ -2472,13 +2477,13 @@ export class World {
         if (u.order.targetId) { delete u.order.targetId; u.path = null; }
       }
       if (target) {
-        if (u.order.targetId !== target.id) u.path = null;
+        if (u.order.targetId !== target.id) { u.path = null; u.repathAt = 0; }
         u.order.targetId = target.id;
         if (Math.hypot(target.x - u.x, target.y - u.y) <= this.weaponFor(u, target).atkRange + target.radius) {
           u.path = null; return;
         }
-        if (!u.path || (u.repathAt ?? 0) < this.now) {
-          u.path = this.routeUnit(u, target.x, target.y); u.repathAt = this.now + 400;
+        if ((u.repathAt ?? 0) <= this.now) {
+          this.requestMovementPath(u, target.x, target.y);
         }
       } else {
         if (u.order.targetId) { delete u.order.targetId; u.path = null; }
@@ -2488,7 +2493,9 @@ export class World {
             [u.order.x, u.order.fromX] = [u.order.fromX, u.order.x];
             [u.order.y, u.order.fromY] = [u.order.fromY, u.order.y];
           }
-          u.path = this.routeUnit(u, u.order.x, u.order.y);
+          if ((u.repathAt ?? 0) <= this.now) {
+            this.requestMovementPath(u, u.order.x, u.order.y);
+          }
         }
       }
     }
@@ -2499,16 +2506,14 @@ export class World {
       if (!weapon) { u.path = null; u.order = { type: 'idle' }; return; }
       if (t && t.alive && t.isDest) {
         if (this.destRange(t, u.x, u.y) > weapon.atkRange) {
-          if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
-            u.path = this.routeUnit(u, t.x, t.y);
-            u.repathAt = this.now + 400;
+          if ((u.repathAt ?? 0) <= this.now) {
+            this.requestMovementPath(u, t.x, t.y);
           }
         } else u.path = null;
       } else if (t && t.alive) {
         if (Math.hypot(t.x - u.x, t.y - u.y) > weapon.atkRange + t.radius) {
-          if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
-            u.path = this.routeUnit(u, t.x, t.y);
-            u.repathAt = this.now + 400;
+          if ((u.repathAt ?? 0) <= this.now) {
+            this.requestMovementPath(u, t.x, t.y);
           }
         } else {
           u.path = null;               // in range: hold position and fight
@@ -2523,13 +2528,11 @@ export class World {
     const stepLen = u.moveSpeed * this.dt;
     const fraction = d > 0 ? Math.min(1, stepLen / d) : 0;
     const nx = u.x + dx * fraction, ny = u.y + dy * fraction;
-    const blockers = this.movementBlockers(u);
+    const blockers = this.movementBlockers(u, nx, ny);
     if (!this.canAdvance(u, nx, ny, blockers)) {
       if ((u.bodyRepathAt ?? 0) <= this.now) {
         const goal = u.path[u.path.length - 1];
-        const detour = this.movementPath(u, goal[0], goal[1], blockers);
-        if (detour?.length) u.path = detour;
-        u.bodyRepathAt = this.now + 250;
+        this.requestMovementPath(u, goal[0], goal[1], true);
       }
       return;
     }
@@ -2800,9 +2803,51 @@ export class World {
   movementGrid(u) { return u.movementType === 'fly' ? this.flyGrid : this.grid; }
   routeUnit(u, x, y) { return this.movementPath(u, x, y, []); }
 
-  movementBlockers(u) {
+  /** FIFO keeps a wave's automatic pursuit/detour searches from all running
+   * on one tick. Explicit player orders still get their initial route at once.
+   * The time budget is soft: finish one search before yielding to the next tick. */
+  requestMovementPath(u, x, y, body = false) {
+    this.pendingMovementPaths ||= new Map();
+    if (!this.pendingMovementPaths.has(u))
+      this.pendingMovementPaths.set(u, { x, y, body, order: u.order, targetId: u.order.targetId });
+  }
+
+  stepMovementPaths() {
+    if (!this.pendingMovementPaths?.size) return;
+    const started = performance.now();
+    let searched = 0;
+    for (const [u, request] of this.pendingMovementPaths) {
+      if (searched >= 16 || (searched && performance.now() - started >= 6)) break;
+      this.pendingMovementPaths.delete(u);
+      if (!u.alive || u.removed || u.paused || (u.cast && (!request.body || u.cast.phase !== 'approach')) || u.order !== request.order || u.order.targetId !== request.targetId) continue;
+      const target = request.targetId != null ? this.target(request.targetId) : null;
+      if (request.targetId != null && !target?.alive) continue;
+      const x = target?.x ?? request.x, y = target?.y ?? request.y;
+      const path = request.body ? this.movementPath(u, x, y, this.movementBlockers(u)) : this.routeUnit(u, x, y);
+      if (request.body) {
+        if (path?.length) u.path = path;
+        u.bodyRepathAt = this.now + 250;
+      } else {
+        u.path = path;
+        u.repathAt = this.now + 400;
+      }
+      searched++;
+    }
+  }
+
+  movementBlockers(u, x = null, y = null) {
     if (!this.blocksMovement(u)) return [];
-    return [...this.units.values()].filter(t => t !== u && this.blocksMovement(t) && (t.movementType === 'fly') === (u.movementType === 'fly'));
+    const out = [], flying = u.movementType === 'fly';
+    for (const t of this.units.values()) {
+      if (t === u || (t.movementType === 'fly') !== flying) continue;
+      // Only bodies intersecting the swept bounds can obstruct this step.
+      // Route searches omit the endpoints and receive all candidate bodies.
+      const radius = u.radius + t.radius;
+      if (x != null && (t.x < Math.min(u.x, x) - radius || t.x > Math.max(u.x, x) + radius ||
+        t.y < Math.min(u.y, y) - radius || t.y > Math.max(u.y, y) + radius)) continue;
+      if (this.blocksMovement(t)) out.push(t);
+    }
+    return out;
   }
 
   /** Test the whole swept segment, not just its endpoint (fast units must not
@@ -2827,13 +2872,28 @@ export class World {
     const circles = blockers.map(t => ({ x: t.x, y: t.y,
       r2: Math.min((u.radius + t.radius) ** 2, (u.x - t.x) ** 2 + (u.y - t.y) ** 2) }));
     const grid = this.movementGrid(u), radius = u.pathingOff ? 0 : u.radius;
-    const pass = (px, py) => grid.clearFootprint(px, py, px, py, radius) && circles.every(t =>
-      (px - t.x) ** 2 + (py - t.y) ** 2 >= t.r2 - 1e-6);
+    // A cell test should inspect nearby bodies, not the entire spawned wave.
+    const bucketSize = 128, buckets = new Map();
+    const key = (cx, cy) => `${cx},${cy}`;
+    for (const circle of circles) {
+      const r = Math.sqrt(circle.r2);
+      for (let cy = Math.floor((circle.y - r) / bucketSize); cy <= Math.floor((circle.y + r) / bucketSize); cy++)
+        for (let cx = Math.floor((circle.x - r) / bucketSize); cx <= Math.floor((circle.x + r) / bucketSize); cx++) {
+          const k = key(cx, cy), bucket = buckets.get(k);
+          if (bucket) bucket.push(circle); else buckets.set(k, [circle]);
+        }
+    }
+    const occupancy = (px, py) => {
+      const bucket = buckets.get(key(Math.floor(px / bucketSize), Math.floor(py / bucketSize)));
+      return !bucket || bucket.every(t => (px - t.x) ** 2 + (py - t.y) ** 2 >= t.r2 - 1e-6);
+    };
+    const pass = (px, py) => grid.clearFootprint(px, py, px, py, radius) && occupancy(px, py);
+    if (this.canAdvance(u, x, y, blockers)) return [[x, y]];
     const cell = grid.nearestWalkable(u.x, u.y, 24, pass);
     if (!cell) return null;
     const entry = grid.toWorld(...cell);
     if (!this.canAdvance(u, entry[0], entry[1], blockers)) return null;
-    const route = grid.path(entry[0], entry[1], x, y, 20000, pass, radius);
+    const route = grid.path(entry[0], entry[1], x, y, 20000, circles.length ? occupancy : null, radius);
     return route ? [entry, ...route] : null;
   }
 
