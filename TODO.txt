@@ -1995,6 +1995,30 @@ TESTS AND THE END-TO-END HALF
 
 ABILITY DATA SLOTS
 ------------------
+[x] IsUnitIllusion was declared and implemented nowhere  (FIXED 2026-09-13)
+    A different species from a missing case, and the one PORTING.md calls the
+    real danger: a JASS condition gated on an unimplemented BOOLEAN native is
+    false for every unit forever, and fails closed without a word.
+    Itachi's 사륜안 (A03Y) is built entirely on it. Its trigger enumerates
+    units near the target point through a filter that is "enemy AND illusion"
+    and marks each one overhead. With the native false the group was always
+    empty, so a 30-second-cooldown ability marked nothing. It was not quite
+    dead -- the cast succeeded, set the cooldown and played two effects, which
+    is why nothing ever looked wrong -- but its whole payload was gone.
+    The answer needed nothing from the archives: this engine makes illusions
+    itself. world.summon takes { image: true } for the Mirror Image family
+    (AOmi) and stamps u.isImage there, with the Omi2 and Omi3 damage-dealt and
+    damage-taken factors that are the only difference between an image and the
+    hero. So the native reads our own model.
+    Worth remembering how it hid: tools/stub_audit.mjs ranks natives with
+    EMPTY BODIES, and this one had no body at all -- it was never declared to
+    the engine, only to the script. The interpreter does count it (engine.js
+    pre-registers a counted no-op and reports the list), so the information
+    was there; nothing was reading it against the map's own conditions.
+    tools/illusion_test.mjs, 12 checks, including that the interpreter no
+    longer counts it and that an enemy which is NOT an illusion still fails
+    the filter.
+
 [x] A numeric order force-cast a hero's first ability  (FIXED 2026-09-13)
     The script orders by raw id and OrderId() here is a hash of ours that can
     never match a literal the script passes, so the port cannot tell one

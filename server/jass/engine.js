@@ -644,6 +644,17 @@ function installNatives(vm, eng) {
     UnitResetCooldown: (u) => W().resetCooldowns(u),
     IsUnitType: (u, t) => W().isUnitType(u, t && t.v),
     IsUnit: (a, b) => a === b,
+    // An illusion is a unit this engine made as one: world.summon takes
+    // { image: true } for the Mirror Image family (AOmi) and stamps u.isImage
+    // there, along with the Omi2/Omi3 damage-dealt and damage-taken factors
+    // that are the whole difference between an image and the hero. So the
+    // answer is in our own model and needs nothing from the archives.
+    // It was declared in common.j and implemented nowhere, which means it
+    // returned false for every unit forever -- and a JASS condition that is
+    // always false fails closed silently. Itachi's 사륜안 is exactly that: its
+    // whole payload is an enumeration filtered on this native, so the ability
+    // marked nothing, and a 30-second cooldown bought a puff of art.
+    IsUnitIllusion: (u) => !!(u && u.isImage),
     IsUnitAlly: (u, p) => !!u && W().isAlly(eng.players[u.playerIndex], p),
     IsUnitEnemy: (u, p) => !!u && !W().isAlly(eng.players[u.playerIndex], p),
     IsUnitInRange: (a, b, r) => !!a && !!b && Math.hypot(a.x - b.x, a.y - b.y) <= r,
