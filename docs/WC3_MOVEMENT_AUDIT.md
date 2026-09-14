@@ -278,3 +278,32 @@ excluded target categories, radius, non-hero carriers, source removal and active
 Immolation preservation. All 11 targeted suites pass: passive_fire, carried,
 ranklock, area_target_rules, spell_target_rules, gameplay_parity, spellshape,
 passive, slot, match and wincond.
+
+
+## Aura stat follow-up
+
+Devotion, Brilliance, Endurance and Unholy aura families now affect runtime stats,
+including the creep/item aliases identified by AbilityData.slk's code column.
+Authored level data supplies radius, targets and bonuses. Same-family stat
+contributions use the strongest value; distinct families combine. Effects are
+removed/reapplied without accumulation, including through hero recalculation and
+native movement-speed changes. Ordinary units receive the same aura overlays
+without being recalculated as heroes. Hidden/dead sources stop contributing.
+
+[Blizzard's aura rules](https://classic.battle.net/war3/basics/spellbasics.shtml)
+describe self-benefit and duplicate-aura non-stacking; its
+[item rules](https://classic.battle.net/war3/basics/heroitemspermanent.shtml)
+also specify non-stacking with hero auras. The map supplies numerical values,
+including Brilliance's flat mana regeneration and both Endurance/Unholy bonuses.
+
+This batch covers flat armor/regen and movement/attack-speed bonuses. Percentage
+armor/regen variants, damage/lifesteal/Thorns aura families, buff icons/art and
+retail pulse/linger timing remain open. Aura eligibility refreshes once per
+simulation tick, rather than claiming exact retail linger behavior. Spell
+immunity remains separate work.
+
+`tools/aura_stats_test.mjs` adds 36 checks for heroes/non-heroes, source lifecycle,
+range, levels, target restrictions, item non-stacking, regen in the simulation,
+recalculation and native speed changes. All 14 targeted suites pass: aura_stats,
+gameplay_parity, carried, ranklock, passive_fire, area_target_rules, spellshape,
+passive, casttime, proc, movement_orders, turn_rate, match and wincond.

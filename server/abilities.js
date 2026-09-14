@@ -25,6 +25,7 @@ export const PASSIVE_BASES = new Set(['Aloc', 'Avul', 'Aneu', 'Apig', 'Abds', 'A
 
 const AURA_BASES = {
   AOae: { kind: 'speed', pct: 0.10 },        // Endurance Aura
+  AHab: { kind: 'mana' },
   AHad: { kind: 'armor', flat: 1.5 },        // Devotion Aura
   AUav: { kind: 'vampiric', pct: 0.15 },     // Vampiric Aura
   AUau: { kind: 'regen', pct: 0.02 },        // Unholy Aura
@@ -155,7 +156,7 @@ export function levelInfo(ab, lvl) {
 export function isPassive(ab) {
   if (!ab) return true;
   if (PASSIVE_BASES.has(ab.base)) return true;
-  if (AURA_BASES[ab.base]) return true;
+  if (AURA_BASES[ab.base] || STAT_AURA_FAMILY[ab.base]) return true;
   // Warcraft III gives its passive skills an order string too, so the icon is
   // the tell: passive art lives under ReplaceableTextures\PassiveButtons.
   if (ab.passiveArt) return true;
@@ -1036,19 +1037,47 @@ export function attackProcs(w, u) {
   return out;
 }
 
-export function auraEffects(w, u) {
-  const out = { speed: 0, armor: 0, damage: 0, regen: 0, vampiric: 0 };
-  for (const a of w.allUnits()) {
-    if (!a.abilities || a.abilities.size === 0) continue;
-    if (w.hostile(u, a)) continue;
-    if (Math.hypot(a.x - u.x, a.y - u.y) > 900) continue;
-    for (const [key, lvl] of a.abilities) {
-      const ab = ABILS[w.abilKey(key)];
-      const spec = ab && AURA_BASES[ab.base];
-      if (!spec) continue;
-      if (spec.pct) out[spec.kind] += spec.pct;
-      if (spec.flat) out[spec.kind] += spec.flat;
+// AbilityData.slk's code column identifies item/creep aliases.
+const STAT_AURA_FAMILY = {
+  AHad: 'armor', ACav: 'armor', AIad: 'armor',
+  AHab: 'mana', ACba: 'mana', AIba: 'mana',
+  AOae: 'endurance', AOr2: 'endurance', SCae: 'endurance', AIae: 'endurance',
+  AUau: 'unholy', ACua: 'unholy', AIau: 'unholy',
+};
+
+export function auraSources(w) {
+  const out = [];
+  for (const source of w.allUnits()) {
+    if (!source.alive || source.hidden || source.pickerProp) continue;
+    const abilities = [...(source.abilities || [])];
+    for (const item of source.items || []) for (const key of item.abilities || []) abilities.push([key, 1]);
+    for (const [key, lvl] of abilities) {
+      const ab = ABILS[w.abilKey(key)], family = ab && STAT_AURA_FAMILY[ab.base];
+      if (!family || lvl < 1) continue;
+      out.push({ source, ab, lvl, family, info: levelInfo(ab, lvl) });
     }
   }
+  return out;
+}
+
+export function auraEffects(w, u, sources = auraSources(w)) {
+  const families = new Map();
+  for (const { source, ab, lvl, family, info: d } of sources) {
+    if (!u.alive || Math.hypot(source.x - u.x, source.y - u.y) > (d.area || 0)) continue;
+    if (!w.validSpellTarget(source, u, ab, lvl)) continue;
+    let effect;
+    // Percentage armor/regen variants require separate formula verification.
+    if (family === 'armor') effect = d.data2 ? {} : { armorTotal: d.data1 || 0 };
+    if (family === 'mana') effect = d.data2 ? {} : { manaReg: d.data1 || 0 };
+    if (family === 'endurance') effect = { movePct: d.data1 || 0, attackSpeedMul: d.data2 || 0 };
+    if (family === 'unholy') effect = { movePct: d.data1 || 0, hpReg: d.data3 ? 0 : d.data2 || 0 };
+    const best = families.get(family) || {};
+    for (const [stat, value] of Object.entries(effect))
+      if (!(stat in best) || value > best[stat]) best[stat] = value;
+    families.set(family, best);
+  }
+  const out = {};
+  for (const effect of families.values()) for (const [stat, value] of Object.entries(effect))
+    out[stat] = (out[stat] || 0) + value;
   return out;
 }

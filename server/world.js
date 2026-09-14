@@ -7,7 +7,7 @@ import { Grid } from './pathing.js';
 import { DEST_ID } from '../shared/const.js';
 import { Handle } from './jass/vm.js';
 import { ABILS, entry as abilEntry, execute as abilExecute, levelInfo, isPassive,
-         auraEffects, itemBonuses, itemUse, abilityBonuses, attackProcs,
+         auraEffects, auraSources, itemBonuses, itemUse, abilityBonuses, attackProcs,
          carriedImmolation, needsUnitTarget, baseOf as abilBase } from './abilities.js';
 import { chatFor } from './chatalias.js';
 
@@ -674,6 +674,7 @@ export class World {
 
   recalc(u) {
     if (!u) return;
+    this.removeAuraStats(u);
     // A non-hero gets one thing out of this and only one: the burn it carries.
     //
     // Everything below derives life, mana, armour and damage from a HERO's
@@ -690,6 +691,7 @@ export class World {
       const burn = carriedImmolation(this, u);
       if (burn) { u.immolation = burn; u.immolationFromAbility = true; }
       else if (u.immolationFromAbility) { u.immolation = u.activeImmolation || null; u.immolationFromAbility = false; }
+      this.applyAuraStats(u);
       return;
     }
     const lv = Math.max(0, u.level - 1);
@@ -749,8 +751,35 @@ export class World {
       if (b.kind === 'rage' || b.kind === 'morph') { u.dmg *= 1 + b.pct; }
       if (b.kind === 'weaken') u.dmg *= 1 - b.pct;
     }
+    this.applyAuraStats(u);
     u.hp = Math.min(u.hp, u.maxHp);
     u.mana = Math.min(u.mana, u.maxMana);
+  }
+
+  removeAuraStats(u) {
+    for (const [stat, amount] of Object.entries(u.auraApplied || {})) u[stat] -= amount;
+    u.auraApplied = null;
+  }
+
+  applyAuraStats(u) {
+    const applied = {};
+    for (const [stat, amount] of Object.entries(u.auraStats || {})) {
+      const field = stat === 'movePct' ? 'moveSpeed' : stat;
+      const base = u[field] ?? (field === 'armorTotal' ? u.armor || 0 : field === 'attackSpeedMul' ? 1 : 0);
+      const delta = stat === 'movePct' ? base * amount : amount;
+      u[field] = base + delta;
+      applied[field] = delta;
+    }
+    u.auraApplied = applied;
+  }
+
+  stepAuras() {
+    const sources = auraSources(this);
+    for (const u of this.units.values()) {
+      this.removeAuraStats(u);
+      u.auraStats = auraEffects(this, u, sources);
+      this.applyAuraStats(u);
+    }
   }
 
   get maxHeroLevel() { return MAX_HERO_LEVEL; }
@@ -851,6 +880,7 @@ export class World {
     u.xp = 0;
     u.skillPoints = Math.max(0, (u.skillPoints || 0) - lost);
     this.recalc(u);
+    this.applyAuraStats(u);
     u.hp = Math.min(u.hp, u.maxHp);
     u.mana = Math.min(u.mana, u.maxMana);
     this.emit({ t: 'levelup', id: u.id, lvl: u.level });
@@ -2236,6 +2266,7 @@ export class World {
     this.stepMissiles();
     this.stepItems();
     this.stepCasts();
+    this.stepAuras();
     const alive = [];
     for (const u of this.units.values()) {
       if (!u.alive) {

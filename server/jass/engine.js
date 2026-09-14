@@ -682,7 +682,12 @@ function installNatives(vm, eng) {
     SetUnitVertexColor: (u, r, g, b, a) => eng.emit({ t: 'tint', id: u && u.id, r, g, b, a }),
     SetUnitFlyHeight: (u, h) => { if (u) u.flyHeight = h; },
     GetUnitFlyHeight: (u) => (u ? u.flyHeight || 0 : 0),
-    SetUnitMoveSpeed: (u, s) => { if (u) u.moveSpeed = s; },
+    SetUnitMoveSpeed: (u, s) => {
+      if (!u || !Number.isFinite(s)) return;
+      W().removeAuraStats(u);
+      u.baseMoveSpeed = u.moveSpeed = s;
+      W().applyAuraStats(u);
+    },
     GetUnitMoveSpeed: (u) => (u ? u.moveSpeed : 0),
     GetUnitDefaultMoveSpeed: (u) => (u ? u.baseMoveSpeed : 0),
     SetUnitTurnSpeed: (u, rate) => {
