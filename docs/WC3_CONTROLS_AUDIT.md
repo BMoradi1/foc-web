@@ -13,9 +13,15 @@ Reference: Blizzard's [Special Commands](https://classic.battle.net/war3/basics/
 - F1 selects the hero; pressing it while that hero alone is selected centers the camera. A global double-click no longer enables hero following.
 - Hero abilities and items remain associated with the hero card. This batch does not introduce non-hero ability cards or subgroup spell dispatch.
 
+## Implemented: queued basic orders and follow
+
+- Hold Shift while issuing a movement, attack, patrol, stop or hold order to queue it for each selected unit (up to 35 pending orders). The current action remains intact. Normal orders and death clear the queue, dead queued targets are skipped, and the selected unit's pending count appears in the console.
+- Right-clicking a friendly or neutral mobile unit follows its current position. Followers wait nearby, resume when the leader moves, and do not acquire unrelated enemies. They join the leader's attack if already in weapon range. A dead or removed leader releases the follow order.
+- Queued movement and follow route updates use the automatic pathfinding budget. Stop/new orders cancel stale scheduled routes. Movement queued during a cast starts after the cast finishes, ahead of resuming its previous attack.
+
 ## Remaining work, in priority order
 
-1. **Order queues and smart orders:** Shift-queued orders, follow on allied right-click, explicit friendly attack behavior, and queued spell/item actions. Shift+ability currently uses the old learning behavior.
+1. **Order queues and smart orders:** explicit friendly attack behavior, queued spell/item actions, and graphical waypoint previews. Shift+ability currently uses the old learning behavior.
 2. **Subgroups and hotkeys:** Tab/Shift+Tab subgroup cycling (Tab currently shows the scoreboard), non-hero spell cards, inventory numpad hotkeys, and complete hero/group selection conventions.
 3. **Camera and minimap:** minimap orders and camera navigation, alert history/Space behavior, and removal of the default hero-follow camera behavior in favor of WCIII camera controls.
 4. **Targeting feedback:** keep invalid casts aimed until canceled or successfully issued, show errors at the cursor/console, and improve target-validity previews.
@@ -23,4 +29,4 @@ Reference: Blizzard's [Special Commands](https://classic.battle.net/war3/basics/
 
 ## Verification
 
-`tools/selection_test.mjs` checks the selection limit, group lifecycle, malformed/unauthorized network orders, and orders while the hero is dead. `tools/selection_ui_test.mjs` exercises the real client mouse/keyboard handlers and console using a live match with deterministic selection fixtures. Existing viewport, HUD, morph and movement-order tests cover adjacent behavior.
+`tools/selection_test.mjs` checks the selection limit, group lifecycle, malformed/unauthorized network orders, and orders while the hero is dead. `tools/selection_ui_test.mjs` exercises the real client mouse/keyboard handlers and console using a live match with deterministic selection fixtures. Existing viewport, HUD, morph and movement-order tests cover adjacent behavior. `tools/order_queue_test.mjs` covers queue progression, capacity, death/Stop cancellation, follow and ownership; browser input checks cover Shift-clicks on the world and command card. The pathfinding load regression runs alongside these checks.

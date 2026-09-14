@@ -27,13 +27,22 @@ try {
     view.pickDoodad = () => null;
     window.focusCalls = []; const focus = view.focus.bind(view); view.focus = (...args) => { if (args[2]) focusCalls.push(args); return focus(...args); };
   });
-  const order = async () => { await page.mouse.click(600,300,{button:'right'}); return page.evaluate(() => sent.filter(m => ['move','attack'].includes(m.t)).at(-1)); };
+  const order = async () => { await page.mouse.click(600,300,{button:'right'}); return page.evaluate(() => sent.filter(m => ['move','attack','smart'].includes(m.t)).at(-1)); };
   await page.mouse.click(200,300);
   await page.keyboard.down('Shift'); await page.mouse.click(600,300); await page.keyboard.up('Shift');
   let m = await order();
   const ids = await page.evaluate(() => window.ids);
   assert.deepEqual(m.unitIds,[ids[0],ids[1]],'Shift-click adds owned unit to commands');
   assert.equal(await page.$$eval('.selection-group button', b => b.length),2);
+  assert.equal(m.t,'smart','unit right-click uses a smart order');
+  await page.keyboard.down('Shift'); m = await order(); await page.keyboard.up('Shift');
+  assert.equal(m.queue,true,'Shift-right-click queues the smart order');
+  await page.keyboard.down('Shift'); await page.click('[data-command="hold"]'); await page.keyboard.up('Shift');
+  assert.deepEqual(await page.evaluate(() => sent.at(-1)),{t:'hold',unitIds:[ids[0],ids[1]],queue:true});
+  await page.click('[data-command="move"]');
+  await page.keyboard.down('Shift'); await page.mouse.click(700,300); await page.keyboard.up('Shift');
+  assert.equal(await page.evaluate(() => sent.at(-1).queue),true,'aimed command queues on Shift-click');
+
   await page.keyboard.down('Control'); await page.keyboard.press('1'); await page.keyboard.up('Control');
   await page.mouse.click(600,300);
   m = await order(); assert.deepEqual(m.unitIds,[ids[1]],'nonhero can receive orders');

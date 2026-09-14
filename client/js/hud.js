@@ -93,7 +93,7 @@ export function renderCard(ui, h, translate) {
     node.setAttribute('aria-label', label.split('\n')[0]);
     node.setAttribute('aria-disabled', String(disabled));
     if (image) node.style.backgroundImage = `url("${image}")`;
-    node.onclick = () => { if (!disabled) action(); };
+    node.onclick = e => { if (!disabled) action(e); };
     next.appendChild(node);
     return node;
   };
@@ -104,7 +104,7 @@ export function renderCard(ui, h, translate) {
     });
   } else {
     for (const [key, name, hotkey, cell, desc] of COMMANDS) {
-      add(key, `${name} (${hotkey})\n\n${desc}`, art(key), cell, () => ui.onCommand?.(key), !h.alive);
+      add(key, `${name} (${hotkey})\n\n${desc}\nHold Shift to queue.`, art(key), cell, e => ui.onCommand?.(key, e.shiftKey), !h.alive);
     }
     if (h.skillPoints > 0) {
       const n = add('skill', `Hero Abilities (O)\n\nSelect an ability to learn.\nSkill points remaining: ${h.skillPoints}`,

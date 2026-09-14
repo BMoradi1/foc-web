@@ -639,12 +639,13 @@ function canCommand(ent) { return !!ent && !!ent.a && ent.p === S.slot && ent.se
 ui.canCommand = canCommand;
 function commandIds() { return selection.ids.filter(id => canCommand(S.ents.get(id))); }
 function heroSelected() { return S.hero?.id != null && selection.ids[0] === S.hero.id; }
-function sendOrder(message) { const unitIds = commandIds(); if (unitIds.length) net.send({ ...message, unitIds }); }
+function sendOrder(message, queue = false) { const unitIds = commandIds(); if (unitIds.length) net.send({ ...message, unitIds, ...(queue ? { queue: true } : {}) }); }
 function refreshSelection() {
   if (ui.shopSel) { if (S.hero) ui.updateHero(S.hero); return; }
   const primary = S.ents.get(selection.ids[0]);
   if (heroSelected() && S.hero) { ui.unitSel = null; ui.updateHero(S.hero); }
   else ui.renderSelected(primary || { name: '', a: 0 });
+  if (primary?.q) document.getElementById('heroClass').textContent += ` · ${primary.q} queued`;
   if (selection.ids.length > 1) {
     const box = document.getElementById('stats');
     const group = document.createElement('div'); group.className = 'selection-group';
@@ -719,8 +720,8 @@ canvas.addEventListener('mousedown', (e) => {
     if (ui.orderPending) {
       const g = view.pickGround(nx, ny), target = view.pickEntity(nx, ny);
       if (ui.orderPending === 'attack' && target && target.id !== S.hero?.id)
-        sendOrder({ t: Msg.ATTACK, targetId: target.id });
-      else if (g) sendOrder({ t: Msg.MOVE, x: g.x, y: g.y, attack: ui.orderPending === 'attack', patrol: ui.orderPending === 'patrol' });
+        sendOrder({ t: Msg.ATTACK, targetId: target.id }, e.shiftKey);
+      else if (g) sendOrder({ t: Msg.MOVE, x: g.x, y: g.y, attack: ui.orderPending === 'attack', patrol: ui.orderPending === 'patrol' }, e.shiftKey);
       ui.orderPending = null; canvas.style.cursor = 'default'; return;
     }
     // an item aimed at a unit: the Monster Ball is thrown at a creep
@@ -758,7 +759,6 @@ canvas.addEventListener('mousedown', (e) => {
     const gi = view.pickItem(nx, ny);
     if (gi && heroSelected()) { net.send({ t: 'pickup', itemId: gi.id }); markMove({ x: gi.x, y: gi.y }); return; }
     const t = view.pickEntity(nx, ny);
-    const me = S.ents.get(S.hero?.id);
     const te = t ? S.ents.get(t.id) : null;
     // Right-clicking a shop walks to it, as Warcraft III does -- you approach a
     // shop to trade with it. It used to send an attack, because this compared
@@ -766,21 +766,21 @@ canvas.addEventListener('mousedown', (e) => {
     // 1. The server refused the order (world.hostile is false for neutral
     // passive, so nothing was ever damaged) but the hero still ran at the
     // building as though it meant to swing.
-    if (te && te.p === NEUTRAL_PASSIVE) {
-      sendOrder({ t: Msg.MOVE, x: te.x, y: te.y });
+    if (te && te.p === NEUTRAL_PASSIVE && te.k === Ent.SHOP) {
+      sendOrder({ t: Msg.MOVE, x: te.x, y: te.y }, e.shiftKey);
       markMove({ x: te.x, y: te.y });
       return;
     }
-    if (t && t.id !== S.hero?.id && te?.t !== me?.t) {
-      sendOrder({ t: Msg.ATTACK, targetId: t.id });
+    if (t && te) {
+      sendOrder({ t: 'smart', targetId: t.id }, e.shiftKey);
     } else if (pickGate(nx, ny) != null) {
       const di = pickGate(nx, ny);
-      sendOrder({ t: Msg.ATTACK, targetId: DEST_ID + di });
+      sendOrder({ t: Msg.ATTACK, targetId: DEST_ID + di }, e.shiftKey);
       const g = S.dests.get(di);
       if (g) markMove(g);
     } else {
       const g = view.pickGround(nx, ny);
-      if (g) { sendOrder({ t: Msg.MOVE, x: g.x, y: g.y }); markMove(g); }
+      if (g) { sendOrder({ t: Msg.MOVE, x: g.x, y: g.y }, e.shiftKey); markMove(g); }
     }
   }
 });
@@ -844,7 +844,7 @@ addEventListener('keydown', (e) => {
     return;
   }
   if (!heroSelected() && ['m','s','h','a','p'].includes(k)) {
-    ui.onCommand({m:'move',s:'stop',h:'hold',a:'attack',p:'patrol'}[k]); return;
+    ui.onCommand({m:'move',s:'stop',h:'hold',a:'attack',p:'patrol'}[k], e.shiftKey); return;
   }
   if (!heroSelected() && e.key !== 'Escape') return;
   if (ui.skillMenu && k in KEY_SLOT) {
@@ -879,7 +879,7 @@ addEventListener('keydown', (e) => {
     ui.log(`frame stats ${overlay.stats.on ? 'on' : 'off'}`, 'lvl'); }
   else if (k === 'l' && S.debug) net.send({ t: 'debugLevel' });
   else if (k === 'o' && S.hero?.skillPoints > 0) { ui.skillMenu = true; ui.renderAbilities(S.hero); }
-  else if (['m','s','h','a','p'].includes(k)) ui.onCommand({m:'move',s:'stop',h:'hold',a:'attack',p:'patrol'}[k]);
+  else if (['m','s','h','a','p'].includes(k)) ui.onCommand({m:'move',s:'stop',h:'hold',a:'attack',p:'patrol'}[k], e.shiftKey);
   else if (k === 'escape') {
     S.castPending = null; S.itemPending = null; ui.orderPending = null; ui.skillMenu = false; canvas.style.cursor = 'default';
     if (S.hero) ui.updateHero(S.hero);
@@ -897,12 +897,12 @@ addEventListener('keydown', (e) => { if (e.key === 'Alt') S.altHeld = true; });
 addEventListener('blur', () => { S.altHeld = false; });
 ui.getVolume = () => audio.volume;
 ui.setVolume = value => { audio.volume = value; if (audio.master) audio.master.gain.value = value; };
-ui.onCommand = (command) => {
+ui.onCommand = (command, queue = false) => {
   if (!commandIds().length) return;
   S.castPending = null; S.itemPending = null;
   if (command === 'stop' || command === 'hold') {
     ui.orderPending = null; canvas.style.cursor = 'default';
-    sendOrder({ t: command });
+    sendOrder({ t: command }, queue);
   } else {
     ui.orderPending = command; canvas.style.cursor = 'crosshair';
   }

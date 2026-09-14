@@ -282,15 +282,17 @@ export class Room {
   command(p, m) {
     if (!this.world || this.phase !== Phase.PLAYING) return;
     const W = this.world;
-    if ([Msg.MOVE, Msg.STOP, 'hold', Msg.ATTACK].includes(m.t)) {
+    if ([Msg.MOVE, Msg.STOP, 'hold', Msg.ATTACK, 'smart'].includes(m.t)) {
       // Missing selection is the legacy single-hero protocol. An explicit empty
       // or invalid selection must never silently redirect an order to the hero.
       const ids = m.unitIds === undefined ? [p.entId] : Array.isArray(m.unitIds) ? m.unitIds.slice(0, 12) : [];
+      let queueFull = false;
       for (const id of new Set(ids)) {
         const unit = Number.isInteger(id) && W.units.get(id);
         if (!unit || unit.playerIndex !== p.slot || !unit.alive || unit.hidden || unit.removed || unit.pickerProp || W.isLocust(unit)) continue;
         const issue = order => {
-          if (W.order(unit, order)) { unit.controlled = true; unit.returning = false; }
+          if (W.order(unit, order, m.queue === true)) { unit.controlled = true; unit.returning = false; }
+          else if (m.queue === true && unit.orderQueue?.length >= 35) queueFull = true;
         };
         if (m.t === Msg.MOVE) {
           if (Number.isFinite(m.x) && Number.isFinite(m.y))
@@ -298,10 +300,13 @@ export class Room {
         } else if (m.t === Msg.STOP || m.t === 'hold') issue({ type: m.t });
         else {
           const target = W.target(m.targetId);
-          if (target && !target.isDest && !W.hostile(unit, target)) issue({ type: 'move', x: target.x, y: target.y });
+          if (m.t === 'smart' && target && !target.isDest) {
+            if (target !== unit) issue({ type: W.hostile(unit, target) && W.weaponFor(unit, target) ? 'attack' : 'follow', target });
+          } else if (target && !target.isDest && !W.hostile(unit, target)) issue({ type: 'move', x: target.x, y: target.y });
           else if (target && (!target.isDest || target.selectable)) issue({ type: 'attack', target });
         }
       }
+      if (queueFull) this.send(p.ws, { t: Msg.ERROR, m: 'Order queue is full (35 commands).' });
       return;
     }
     const u = W.units.get(p.entId);

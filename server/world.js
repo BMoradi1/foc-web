@@ -588,6 +588,7 @@ export class World {
     if (!u || !u.alive) return;
     this.interruptCast(u);                      // a dying caster stops casting
     u.alive = false; u.hp = 0; u.path = null; u.order = { type: 'idle' };
+    u.orderQueue = []; this.pendingMovementPaths?.delete(u);
     // Warcraft III carries timed life as the BTLF buff, so death disposes of it
     // with every other buff and it cannot outlive the unit. We keep it as a bare
     // timestamp instead, which `u.buffs = []` does not touch -- so a revived hero
@@ -1049,9 +1050,20 @@ export class World {
   }
 
   // ----------------------------------------------------------------- orders
-  order(u, o) {
+  order(u, o, queue = false, preserveQueue = false) {
     if (!u || !u.alive || u.paused) return false;
     if (o.target && ['attack', 'smart'].includes(o.type) && !this.weaponFor(u, o.target)) return false;
+    if (o.type === 'follow' && (!o.target?.alive || o.target === u || o.target.hidden || this.isLocust(o.target))) return false;
+    if (o.x != null && (!Number.isFinite(o.x) || !Number.isFinite(o.y))) return false;
+    if (queue && (u.cast || u.order.type !== 'idle' || u.orderQueue?.length)) {
+      u.orderQueue ||= [];
+      if (u.orderQueue.length >= 35) return false;
+      // Resolve targets again at execution; removed/dead targets are skipped.
+      u.orderQueue.push({ type: o.type, x: o.x, y: o.y, targetId: o.target?.id });
+      return true;
+    }
+    if (!preserveQueue) u.orderQueue = [];
+
     u.repathAt = 0;
     this.pendingMovementPaths?.delete(u);
     this.cancelAttack(u);
@@ -1087,10 +1099,10 @@ export class World {
     if (/stop|halt/i.test(name)) { u.order = { type: 'idle' }; u.path = null; return true; }
     if (name === 'hold') { u.order = { type: 'hold' }; u.path = null; return true; }
     if (o.target) {
-      u.order = { type: 'attack', targetId: o.target.id };
+      u.order = { type: o.type === 'follow' ? 'follow' : 'attack', targetId: o.target.id };
       // a gate is 896 units across and its middle is inside its own footprint,
       // so walk at it rather than at a point nothing can stand on
-      u.path = o.target.isDest ? this.routeUnit(u, o.target.x, o.target.y) : null;
+      u.path = o.target.isDest && !preserveQueue ? this.routeUnit(u, o.target.x, o.target.y) : null;
       if (o.target.isDest) return true;         // no script event names one
       this.fireUnitEvent('EVENT_PLAYER_UNIT_ISSUED_TARGET_ORDER',
         { unit: u, orderTarget: o.target, orderId: o.type, player: this.playerOf(u) });
@@ -1099,13 +1111,31 @@ export class World {
     if (o.x != null) {
       if (!Number.isFinite(o.x) || !Number.isFinite(o.y)) return false;
       const attack = /attack/i.test(name);
-      u.path = this.routeUnit(u, o.x, o.y);
+      u.path = preserveQueue ? null : this.routeUnit(u, o.x, o.y);
       u.order = name === 'patrol'
         ? { type: 'patrol', x: o.x, y: o.y, fromX: u.x, fromY: u.y }
         : { type: attack ? 'attackMove' : 'move', x: o.x, y: o.y };
+      if (preserveQueue) this.requestMovementPath(u, o.x, o.y);
       return true;
     }
     return true;
+  }
+
+  /** Consume completed commands before idle AI can acquire a different enemy. */
+  advanceOrders(u) {
+    if (!u.orderQueue?.length || u.cast || u.paused || !u.alive) return;
+    const type = u.order.type;
+    const target = u.order.targetId != null ? this.target(u.order.targetId) : null;
+    const done = type === 'idle' || (type === 'move' && !u.path?.length && !this.pendingMovementPaths?.has(u))
+      || (['attack', 'follow'].includes(type) && (!target?.alive || target.hidden));
+    if (!done) return;
+    // A bounded queue also bounds the work needed to discard expired targets.
+    while (u.orderQueue.length) {
+      const next = u.orderQueue.shift();
+      const target = next.targetId != null ? this.target(next.targetId) : null;
+      if (next.targetId != null && (!target?.alive || target.hidden)) continue;
+      if (this.order(u, { type: next.type, x: next.x, y: next.y, target }, false, true) && u.order.type !== 'idle') break;
+    }
   }
 
   // ------------------------------------------------------------ enumeration
@@ -1992,6 +2022,7 @@ export class World {
     // Resume the explicit attack/march after casting; idle acquisition handles
     // casts issued when the player had no attack order.
     const prior = u.order && (u.order.type === 'attack' || u.order.type === 'attackMove') ? u.order : null;
+    u.orderQueue = [];
     // a new cast replaces whatever the unit was doing, a cast included
     this.cancelAttack(u);
     this.interruptCast(u);
@@ -2159,7 +2190,7 @@ export class World {
     if (u.order && u.order.type === 'cast') {
       u.path = null;
       const t = c.prior && c.prior.targetId != null ? this.target(c.prior.targetId) : null;
-      u.order = c.prior && u.alive && (c.prior.type === 'attackMove' || (t && t.alive)) ? c.prior : { type: 'idle' };
+      u.order = !u.orderQueue?.length && c.prior && u.alive && (c.prior.type === 'attackMove' || (t && t.alive)) ? c.prior : { type: 'idle' };
     }
   }
 
@@ -2331,6 +2362,7 @@ export class World {
         }
       }
       alive.push(u);
+      this.advanceOrders(u);
       this.stepAI(u);
       this.stepMove(u);
       this.stepAttack(u);
@@ -2466,6 +2498,17 @@ export class World {
   stepMove(u) {
     if (u.attackWindup) return; // movement resumes after release or cancellation
     if (u.order.type === 'hold') { u.path = null; return; }
+    if (u.order.type === 'follow') {
+      const leader = this.target(u.order.targetId);
+      if (!leader?.alive || leader.hidden || this.isLocust(leader)) { u.order = { type: 'idle' }; u.path = null; return; }
+      const enemy = leader.order?.type === 'attack' ? this.target(leader.order.targetId) : leader.attackWindup?.target;
+      const weapon = enemy && this.hostile(u, enemy) && this.weaponFor(u, enemy);
+      if (weapon && Math.hypot(enemy.x - u.x, enemy.y - u.y) <= weapon.atkRange + enemy.radius) {
+        u.order = { type: 'attack', targetId: enemy.id }; u.path = null; u.repathAt = 0;
+      } else if (Math.hypot(leader.x - u.x, leader.y - u.y) <= Math.max(64, u.radius + leader.radius + 16)) {
+        u.path = null; return;
+      } else if ((u.repathAt ?? 0) <= this.now) this.requestMovementPath(u, leader.x, leader.y);
+    }
     if (u.order.type === 'patrol' || u.order.type === 'attackMove') {
       const eligible = t => !!t && t.alive && !t.hidden && !t.invulnerable
         && this.weaponFor(u, t) && this.hostile(u, t);
@@ -3032,6 +3075,7 @@ export class World {
                   h: Math.round(u.hp), H: Math.round(u.maxHp),
                   m: Math.round(u.mana), M: Math.round(u.maxMana),
                   l: u.level, mv: u.path ? 1 : 0 });
+      if (u.orderQueue?.length) ents[ents.length - 1].q = u.orderQueue.length;
       // Warcraft III hangs the buff's model on the unit for as long as the buff
       // is on it. Sent only when there is one, so the common unit costs nothing.
       const art = [];
