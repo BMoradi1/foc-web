@@ -49,6 +49,7 @@ def from_blz(rec):
         # on the frame it was ordered.  A row of '-' has no spells to time and
         # reads as 0.
         castPoint=num(rec.get('castpt'), 0), castBackswing=num(rec.get('castbsw'), 0),
+        attackPoint=num(rec.get('dmgpt1'), 0), attackBackswing=num(rec.get('backSw1'), 0),
         bountyDice=num(rec.get('bountydice'), 0), bountySides=num(rec.get('bountysides'), 0),
         bountyPlus=num(rec.get('bountyplus'), 0),
         isBuilding=int(num(rec.get('isbldg'), 0)),
@@ -95,6 +96,7 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  # reading ucbs as collision gave every hero the map's 0.1s backswing as its
  # size, and dropped the real ucol overrides entirely
  'ucbs': 'castBackswing', 'ucpt': 'castPoint',
+ 'udp1': 'attackPoint', 'ubs1': 'attackBackswing',
  'ulev': 'level', 'urac': 'race', 'upra': 'primary', 'ustr': 'str_', 'ustp': 'strLvl',
  'uagi': 'agi', 'uagp': 'agiLvl', 'uint': 'int_', 'uinp': 'intLvl',
  'ubdi': 'bountyDice', 'ubsi': 'bountySides', 'ubba': 'bountyPlus',

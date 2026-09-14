@@ -118,6 +118,8 @@ if (atk && vic) {
     attacker.order = { type: 'attack', targetId: victim.id };
     const before = victim.hp;
     world.stepAttack(attacker);
+    // Advance through the authored attack windup before inspecting impact.
+    for (let i = 0; attacker.attackWindup && i < 300; i++) world.stepAttack(attacker);
     Math.random = realRandom;
     return before - victim.hp;
   };

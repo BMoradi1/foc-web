@@ -19,21 +19,23 @@ export class Grid {
   walkableAt(x, y) { const [cx, cy] = this.toCell(x, y); return this.walkable(cx, cy); }
 
   /** Nearest walkable cell to a world point (bounded spiral search). */
-  nearestWalkable(x, y, maxR = 24) {
+  nearestWalkable(x, y, maxR = 24, pass = null) {
+    const passable = (cx, cy) => this.walkable(cx, cy) && (!pass || pass(...this.toWorld(cx, cy)));
     let [cx, cy] = this.toCell(x, y);
-    if (this.walkable(cx, cy)) return [cx, cy];
+    if (passable(cx, cy)) return [cx, cy];
     for (let r = 1; r <= maxR; r++) {
       for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        if (this.walkable(cx + dx, cy + dy)) return [cx + dx, cy + dy];
+        if (passable(cx + dx, cy + dy)) return [cx + dx, cy + dy];
       }
     }
     return null;
   }
 
   /** A* returning a list of world-space waypoints, or null. */
-  path(sx, sy, tx, ty, limit = 20000) {
-    const s = this.nearestWalkable(sx, sy), t = this.nearestWalkable(tx, ty);
+  path(sx, sy, tx, ty, limit = 20000, pass = null) {
+    const passable = (cx, cy) => this.walkable(cx, cy) && (!pass || pass(...this.toWorld(cx, cy)));
+    const s = this.nearestWalkable(sx, sy), t = this.nearestWalkable(tx, ty, 24, pass);
     if (!s || !t) return null;
     const [s0, s1] = s, [t0, t1] = t;
     if (s0 === t0 && s1 === t1) return [this.toWorld(t0, t1)];
@@ -55,15 +57,15 @@ export class Grid {
       for (let i = 1; i < open.length; i++) if (f[open[i]] < f[open[bi]]) bi = i;
       const cur = open.splice(bi, 1)[0];
       inOpen[cur] = 0;
-      if (cur === goal) return this._trace(from, cur);
+      if (cur === goal) return this._trace(from, cur, pass);
       closed[cur] = 1;
       if (++expanded > limit) break;
       const cx = cur % W, cy = (cur - cx) / W;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const nx = cx + dx, ny = cy + dy;
-        if (!this.walkable(nx, ny)) continue;
-        if (dx && dy && (!this.walkable(cx + dx, cy) || !this.walkable(cx, cy + dy))) continue;
+        if (!passable(nx, ny)) continue;
+        if (dx && dy && (!passable(cx + dx, cy) || !passable(cx, cy + dy))) continue;
         const ni = ny * W + nx;
         if (closed[ni]) continue;
         const ng = g[cur] + (dx && dy ? Math.SQRT2 : 1);
@@ -75,7 +77,7 @@ export class Grid {
     }
     return null;
   }
-  _trace(from, cur) {
+  _trace(from, cur, pass = null) {
     const cells = [];
     while (cur !== -1) { cells.push(cur); cur = from[cur]; }
     cells.reverse();
@@ -85,19 +87,20 @@ export class Grid {
     const out = [pts[0]];
     let anchor = 0;
     for (let i = 2; i < pts.length; i++) {
-      if (!this.clearLine(pts[anchor][0], pts[anchor][1], pts[i][0], pts[i][1])) {
+      if (!this.clearLine(pts[anchor][0], pts[anchor][1], pts[i][0], pts[i][1], pass)) {
         out.push(pts[i - 1]); anchor = i - 1;
       }
     }
     out.push(pts[pts.length - 1]);
     return out.slice(1);
   }
-  clearLine(x0, y0, x1, y1) {
+  clearLine(x0, y0, x1, y1, pass = null) {
     const d = Math.hypot(x1 - x0, y1 - y0);
     const steps = Math.ceil(d / (PATH_CELL * 0.5));
     for (let i = 0; i <= steps; i++) {
       const t = steps ? i / steps : 0;
-      if (!this.walkableAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return false;
+      const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+      if (!this.walkableAt(x, y) || (pass && !pass(x, y))) return false;
     }
     return true;
   }

@@ -98,7 +98,8 @@ check('the caster\'s unit type carries a cast point from UnitWeapons.slk',
   const fin = log.slice(n).find((e) => e.ev === 'FINISH'), end = log.slice(n).find((e) => e.ev === 'ENDCAST');
   check('an instant spell finishes and ends on the effect\'s own tick',
         fin && end && fin.t === eff.t && end.t === eff.t, `${eff && eff.t} ${fin && fin.t} ${end && end.t}`);
-  check('and the caster is idle again', !A.cast && A.order.type === 'idle', A.order.type);
+  check('and the caster resumes combat through idle acquisition',
+        !A.cast && A.order.type === 'attack' && world.hostile(A, world.target(A.order.targetId)), A.order.type);
   // cast mid-fight: the attack the cast displaced is picked back up
   reset();
   world.order(A, { type: 'attack', target: B });

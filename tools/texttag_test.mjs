@@ -203,6 +203,8 @@ if (A && B) {
     A.order = { type: 'attack', targetId: B.id };
     world.flushEvents();
     world.stepAttack(A);
+    // Advance through the authored attack windup before inspecting impact.
+    for (let i = 0; A.attackWindup && i < 300; i++) world.stepAttack(A);
     Math.random = realRandom;
     return world.flushEvents();
   };

@@ -693,8 +693,9 @@ function installNatives(vm, eng) {
     GetUnitUserData: (u) => (u ? u.userData || 0 : 0),
     UnitDamageTarget: (src, tgt, amt, attack, ranged, at, dt, wt) =>
       W().damage(src, tgt, amt, { attackType: at, damageType: dt }) > 0,
-    UnitDamagePoint: (src, delay, radius, x, y, amt) => {
-      for (const u of W().enumInRange(x, y, radius)) W().damage(src, u, amt, {});
+    UnitDamagePoint: (src, delay, radius, x, y, amt, attack, ranged, at, dt, wt) => {
+      for (const u of W().enumInRange(x, y, radius))
+        W().damage(src, u, amt, { attackType: at, damageType: dt });
       return true;
     },
     UnitApplyTimedLife: (u, buffId, dur) => { if (u) u.expireAt = eng.now + dur * 1000; },
