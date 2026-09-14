@@ -38,7 +38,7 @@ Reference: Blizzard's [Special Commands](https://classic.battle.net/war3/basics/
 - Space cycles the latest eight alert locations, newest first, without changing selection or issuing orders. New alerts restart the cycle. Coordinates are saved at event time so moving/dead units do not move the destination. Empty history does nothing; F1 remains hero centering.
 - Positive enemy damage to owned units creates an under-attack text alert. Own/allied hero deaths also enter history. Healing/zero damage, friendly damage and enemy victims do not create attack alerts. Events require their units in the client snapshot.
 - Alerts pulse on the minimap for five seconds. Attack spam suppression is a local policy (one alert within 1,200 world units per ten seconds), not a verified WCIII timing constant. History resets on return to the lobby.
-- Space respects chat, dialogs, scoreboard and cinematic input blocking, ignores key repeat and cancels a scripted camera pan when navigating. Under-attack advisor audio and map-script/building-completion transmission sources remain unimplemented.
+- Space respects chat, dialogs, scoreboard and cinematic input blocking, ignores key repeat and cancels a scripted camera pan when navigating. Accepted attack alerts play the original race-specific unit/town advisor warning, with generic fallback and table volume/flags. Map-script/building-completion transmission sources remain unimplemented.
 
 ## Remaining work, in priority order
 

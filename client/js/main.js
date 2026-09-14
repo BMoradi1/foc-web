@@ -255,16 +255,16 @@ function heroDownWarning(e) {
                : (myTeam != null && e.t === myTeam) ? 'AllyHeroDies'
                : null;
   if (!prefix) return;
-  // matched against the table's own row names rather than a list of races
-  // written out here, so the data stays the thing that decides
+  playAdvisorWarning(prefix, 'HeroDiesGeneric');
+}
+
+function playAdvisorWarning(prefix, fallback = prefix + 'Generic') {
+  const table = S.uiSounds;
+  if (!table) return;
   const want = (prefix + (S.hero?.race || '')).toLowerCase();
-  const key = Object.keys(table).find((k) => k.toLowerCase() === want);
-  // HeroDiesGeneric is the only fallback Warcraft III ships; a race with no row
-  // of its own gets it.
-  const row = table[key] || table.HeroDiesGeneric;
+  const key = Object.keys(table).find(k => k.toLowerCase() === want);
+  const row = table[key] || table[fallback];
   if (!row?.files?.length) return;
-  // bare path: audio.load prefixes /assets/ itself, as it does for every sound
-  // the map's own script plays
   audio.playUI(row.files[Math.floor(Math.random() * row.files.length)],
                row.vol ?? 1, row.flags);
 }
@@ -294,6 +294,7 @@ function recordAlert(kind, e, message) {
   if (!alert) return;
   ui.minimapAlerts = alerts.entries;
   if (message) ui.log(message, 'kill');
+  if (kind === 'attack') playAdvisorWarning(e.isBuilding ? 'TownAttack' : 'UnderAttack');
 }
 
 function handleEvent(ev) {

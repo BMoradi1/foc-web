@@ -105,7 +105,7 @@ export class Audio {
     const gain = Math.max(0, Math.min(1, vol));
     if (gain <= 0.01) return;
     // NODUPLICATES, straight off the row: Warcraft III will not start one of
-    // these while it is already playing. Every warning in the table carries it,
+    // these while it is already playing. Hero-death warnings carry it,
     // and in a map where heroes die constantly it is the difference between a
     // warning and a pile-up. CHANNELFULLPREEMPT is deliberately not honoured --
     // it decides what to evict when a mixer channel is full, and there is no

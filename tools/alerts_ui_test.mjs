@@ -56,6 +56,30 @@ try {
   await page.keyboard.press('Space');near(await target(),{x:100,y:200});
   assert.equal(await page.evaluate(()=>FOC.view.scriptPan),null);
   assert.equal(await page.evaluate(()=>sent.length),0,'alert navigation never issues unit orders');
+  const voices = await page.evaluate(async()=>{
+    const {S,audio}=FOC, played=[];
+    audio.playUI=(path,vol,flags)=>played.push({path,vol,flags});
+    const fire=(x,building=false)=>{
+      unit(990005,x,0,S.slot,team);
+      S.ents.get(990005).isBuilding=building;
+      emit({t:'dmg',id:990005,src:990002,amt:20});
+    };
+    S.hero.race='human';
+    fire(3000); fire(3000); // only accepted alerts speak
+    fire(5000,true);
+    S.hero.race='unknown';fire(7000);
+    const keys=['UnderAttackHuman','TownAttackHuman','UnderAttackGeneric'];
+    return {
+      count:played.length,
+      matches:keys.map((k,i)=>S.uiSounds[k].files.includes(played[i]?.path) &&
+        S.uiSounds[k].vol===played[i]?.vol &&
+        JSON.stringify(S.uiSounds[k].flags)===JSON.stringify(played[i]?.flags)),
+      statuses:await Promise.all(keys.flatMap(k=>S.uiSounds[k].files).map(f=>fetch('/assets/'+f).then(r=>r.status)))
+    };
+  });
+  assert.equal(voices.count,3,'suppressed alerts do not play additional voices');
+  assert.deepEqual(voices.matches,[true,true,true],'race, building, fallback and table parameters');
+  assert.ok(voices.statuses.every(s=>s===200),'advisor audio files are served');
   await page.screenshot({path:'/tmp/wc3-alerts.png'});
   assert.deepEqual(errors,[]);
   console.log('Alert event filtering, saved positions, Space cycling and modal guards passed');

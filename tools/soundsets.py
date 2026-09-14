@@ -97,14 +97,15 @@ sets = {k: v for k, v in sets.items() if v}
 # has a row per race for your own hero and another for an ally's, plus a
 # Generic fallback -- and, tellingly, no row at all for an enemy's, which is
 # why Warcraft III is silent when the other side loses one.
+# Include unit/town attack advisor lines in the same runtime table.
 warn = {}
 for rec in uisnd:
     name = str(rec.get('SoundName') or '')
-    if not (name.startswith('HeroDies') or name.startswith('AllyHeroDies')):
+    if not name.startswith(('HeroDies', 'AllyHeroDies', 'UnderAttack', 'TownAttack')):
         continue
     files = entry_files(rec)
     if files:
-        # Flags matter as much as the file here. Every one of these rows carries
+        # Flags matter as much as the file here. The hero-death rows carry
         # NODUPLICATES, which is what stops "Our hero has fallen" stacking on
         # itself in a fight where heroes die constantly -- which is every fight
         # in this map. MinDistance and MaxDistance are 0, which is the table
@@ -143,7 +144,7 @@ json.dump(labels, open('data/soundlabels.json', 'w'))
 json.dump(warn, open('data/uisounds.json', 'w'), indent=1)
 json.dump(sets, open('data/soundsets.json', 'w'))
 covered = sum(1 for v in sets.values() if v.get('death'))
-print('hero-death warnings: %d  (%s)' % (len(warn), ', '.join(sorted(warn))))
+print('advisor warnings: %d  (%s)' % (len(warn), ', '.join(sorted(warn))))
 print('sound entries with audio: %d' % len(sounds))
 print('unit types with a sound set: %d  (with a death sound: %d)' % (len(sets), covered))
 ex = [u for u in sets if sets[u].get('death')][:5]

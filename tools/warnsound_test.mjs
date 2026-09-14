@@ -32,8 +32,9 @@ check('it carries a row for your own hero and an ally\'s',
       rows.filter((r) => /Human$/.test(r)).join(', '));
 check('and none for an enemy, as Warcraft III has none',
       !rows.some((r) => /enemy/i.test(r)));
-check('the rows carry their flags, not just a file',
-      Object.values(table).every((v) => Array.isArray(v.flags) && v.flags.includes('NODUPLICATES')),
+check('hero-death rows carry their duplicate-suppression flags',
+      Object.entries(table).filter(([k]) => /^(HeroDies|AllyHeroDies)/.test(k))
+        .every(([,v]) => Array.isArray(v.flags) && v.flags.includes('NODUPLICATES')),
       Object.values(table)[0]?.flags?.join(',') || 'no flags compiled');
 check('every row resolves to a real file',
       Object.values(table).every((v) => v.files?.length),
