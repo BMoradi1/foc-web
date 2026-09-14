@@ -146,7 +146,7 @@ for (const cancel of ['stop', 'move', 'stun', 'death', 'targetDeath', 'targetLea
 }
 {
   const { w, u, t } = fixture();
-  u.missileSpeed = 100;
+  u.missileSpeed = 100; u.weaponKind = 'missile';
   start(w, u, t); equal(w.missiles.length, 0, 'projectile not released at attack start');
   finish(w, u); equal(w.missiles.length, 1, 'projectile released at damage point');
   const cooldown = u.atkTimer;

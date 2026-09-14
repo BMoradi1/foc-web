@@ -234,7 +234,7 @@ NUMERIC_TYPES = {'int', 'unreal', 'real', 'bool'}
 # needs; the client gets those from compile_game.py.
 FIELD_SLOT = {'Cool': 'cooldown', 'Cost': 'mana', 'Rng': 'range', 'Area': 'area',
               'Dur': 'duration', 'HeroDur': 'heroDuration', 'Cast': 'castTime',
-              'UnitID': 'unit', 'BuffID': 'buff'}
+              'UnitID': 'unit', 'BuffID': 'buff', 'targs': 'targets'}
 
 
 def blz_levels(base):
@@ -243,7 +243,7 @@ def blz_levels(base):
     n = int(num(r.get('levels'), 1) or 1)
     out = []
     for L in range(1, n + 1):
-        lv = dict(cooldown=num(r.get('Cool%d' % L), 0) or 0,
+        lv = dict(targets=text(r.get('targs%d' % L)) or '', cooldown=num(r.get('Cool%d' % L), 0) or 0,
                   mana=num(r.get('Cost%d' % L), 0) or 0,
                   range=num(r.get('Rng%d' % L), 0) or 0,
                   area=num(r.get('Area%d' % L), 0) or 0,
@@ -284,7 +284,9 @@ def apply_mods(m, levels):
         val = num(raw) if md['type'] in NUMERIC_TYPES else None
         if val is None:
             val = text(raw)
-            if val is None: continue
+            if val is None:
+                if slot == 'targets': val = ''
+                else: continue
         L = int(num(lv, 0) or 0)
         # level 0 (or a field that does not repeat) applies to every level
         idx = range(len(levels)) if (L == 0 or md['repeat'] == 0) else [L - 1]
@@ -333,7 +335,7 @@ for tbl in ('base', 'custom'):
                               # '_' are Blizzard's empty markers in this column
                               # and treating either as a real target list would
                               # make every passive in the file castable.
-                              targets=str(text(m.get('atar:1')) or text(b.get('targs1')) or ''),
+                              targets=levels[0].get('targets', '') if levels else '',
                               # 'aord' is the map's own order-string override.  Exactly one
                               # ability here sets it -- A06D, the captured Monster Ball, which
                               # answers to 'summoning' where its AIrr base says 'roar' -- but
@@ -351,7 +353,7 @@ for tbl in ('base', 'custom'):
 for alias, r in BLZ.items():
     if alias in table: continue
     table[alias] = dict(id=alias, base=alias, name=str(r.get('comments') or alias),
-                        targets=str(r.get('targs') or ''),
+                        targets=text(r.get('targs1')) or '',
                         order=ORDERS.get(alias, ''),
                         passiveArt=alias in PASSIVE_ART,
                         art=art_for(alias, {}, blz_levels(alias)),

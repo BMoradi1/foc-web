@@ -14,10 +14,26 @@ def num(v, d=0.0):
 blz = json.load(open('data/blz_units.json'))
 w3u = json.load(open('data/war3map.w3u.json'))
 
+def weapon_fields(rec, i):
+    return dict(atkTargetsAllowed=str(rec.get('targs%d' % i) or ''),
+                weaponKind=str(rec.get('weapTp%d' % i) or ''),
+                dmgBase=num(rec.get('dmgplus%d' % i)), dmgDice=num(rec.get('dice%d' % i)),
+                dmgSides=num(rec.get('sides%d' % i)), atkCd=num(rec.get('cool%d' % i), 1.5),
+                atkRange=num(rec.get('rangeN%d' % i), 90),
+                atkType=str(rec.get('atkType%d' % i) or 'normal'),
+                attackPoint=num(rec.get('dmgpt%d' % i)), attackBackswing=num(rec.get('backSw%d' % i)))
+
 def from_blz(rec):
     prim = str(rec.get('Primary', '_')).strip()
     return dict(
         primary=prim,
+        **{k + '2': v for k, v in weapon_fields(rec, 2).items()},
+        atkTargetsAllowed=str(rec.get('targs1') or ''),
+        weaponKind=str(rec.get('weapTp1') or ''),
+        movementType=str(rec.get('movetp') or ''),
+        flyHeight=num(rec.get('moveHeight'), 0),
+        targetAs=str(rec.get('targType') or ''),
+        classifications=str(rec.get('type') or ''),
         name=rec.get('_name') or '', icon=rec.get('_icon') or '',
         model=((str(rec.get('file')) + '.mdl') if rec.get('file') and rec.get('file') != '-' else (rec.get('_model') or '')),
         hp=num(rec.get('HP'), 100), mana=num(rec.get('manaN'), 0),
@@ -88,6 +104,7 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'udef': 'armor', 'udty': 'armorType', 'ua1b': 'dmgBase', 'ua1d': 'dmgDice',
  'ua1s': 'dmgSides', 'ua1c': 'atkCd', 'ua1r': 'atkRange', 'ua1t': 'atkType',
  'uaen': 'attacksEnabled',
+ 'umvt': 'movementType', 'utar': 'targetAs', 'utyp': 'classifications',
  'umvs': 'moveSpeed', 'umvr': 'turnRate', 'ucol': 'collision', 'usca': 'scale',
  'ussc': 'selectScale', 'uslz': 'selZ',
  'ushu': 'shadow', 'ushb': 'shadow', 'ushw': 'shadowW', 'ushh': 'shadowH',
@@ -123,6 +140,14 @@ W3U_MAP = {                       # w3u modification id -> normalized field
  'ua1h': 'splashArea',
  'uhab': 'heroAbilities', 'umh1': 'missileHoming',
 }
+
+# Keep the second weapon independent, including map overrides.
+for fid, field in list(W3U_MAP.items()):
+    if fid.startswith('ua1'):
+        W3U_MAP['ua2' + fid[3:]] = field + '2'
+for fid, field in [('udp2', 'attackPoint2'), ('ubs2', 'attackBackswing2'),
+                   ('uma2', 'missileArc2'), ('umh2', 'missileHoming2')]:
+    W3U_MAP[fid] = field
 
 def unit_func():
     """Units\\*UnitFunc.txt -> {unitId: {field: value}}.
@@ -172,7 +197,13 @@ def func_defaults(uid):
         if v is None:
             continue
         # missile art is a path and animProps a token list; the rest are numbers
-        out[field] = v if field in ('missile', 'animProps') else num(v, 0)
+        if field == 'animProps':
+            out[field] = v
+        else:
+            parts = str(v).split(',')
+            out[field] = parts[0] if field == 'missile' else num(parts[0], 0)
+            second = parts[1] if len(parts) > 1 else parts[0]
+            out[field + '2'] = second if field == 'missile' else num(second, 0)
     return out
 
 
@@ -189,11 +220,11 @@ def apply_mods(t, mods):
         if not f: continue
         if f in ('abilities', 'heroAbilities', 'sellItems', 'sellUnits'):
             t[f] = [x.strip() for x in str(v).split(',') if x.strip() and x.strip() != '_']
-        elif f in ('name', 'properName', 'suffix', 'model', 'icon', 'race', 'armorType', 'primary',
+        elif f.removesuffix('2') in ('name', 'properName', 'suffix', 'model', 'icon', 'race', 'armorType', 'primary',
                    'atkType', 'missile', 'soundSet', 'tip', 'ubertip', 'weaponType', 'weaponKind',
                    'uberSplat',
                    'animProps',
-                   'atkTargetsAllowed'):
+                   'atkTargetsAllowed', 'movementType', 'targetAs', 'classifications'):
             t[f] = v
         else:
             t[f] = num(v, t.get(f, 0)) if not isinstance(v, str) else num(v, t.get(f, 0))

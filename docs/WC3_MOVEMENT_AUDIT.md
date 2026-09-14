@@ -13,7 +13,56 @@ targeted suites passed: movement_orders, gameplay_parity, pathblock, casttime,
 carried, proc, spellshape, numorder, match, victory, wincond. The existing 92
 shared-gameplay checks still pass. Source and local runtime copies are synced.
 
-Findings 1, 3, 5 and 6 remain open. Collision still uses the port's circular
+Follow-up: finding 6's reproduced unit-target casting bugs are fixed. The
+compiler now retains stock and per-level target lists (644 populated abilities,
+previously 196), including explicit empty overrides. Required unit-target spell
+cases validate relationships, target categories, life/invulnerability and
+organic/mechanical restrictions before ordering and during casting. Invalid
+orders preserve the current order, mana and cooldown. Direct script damage is
+unchanged. Point/area spell filtering and cursor feedback remain separate work;
+this does not certify every ability's special targeting rules.
+
+Finding 5's flight metadata is restored: movement type, initial height, target
+classification and unit classifications survive extraction, creation and morphs.
+IsUnitType(FLYING) uses movement type, so lifting a ground unit no longer turns
+it into a flying unit. Weapon target selection now preserves both weapons and their enable mask,
+range, damage/dice, attack type, damage point, backswing and missile settings.
+Acquisition, pursuit and attack release use the eligible weapon. Ineligible
+explicit attack orders are refused; changing target category before release
+cancels that windup. Ground-only units skip flying targets, while a Gargoyle
+uses its melee air weapon and ranged ground weapon independently. The
+[Blizzard Gargoyle reference](https://classic.battle.net/war3/undead/units/gargoyle.shtml)
+confirms these distinct weapons; map data supplies the actual values.
+
+`tools/weapon_targets_test.mjs` adds 41 checks, including enable masks, attack
+orders, pursuit range, projectile damage type and morph restoration. The existing
+92 gameplay checks and 27 movement checks still pass. Special weapon behavior such as artillery splash and secondary impact sounds
+are not completed by the weapon change.
+
+`tools/spell_target_rules_test.mjs` adds 44 regression checks. Existing target,
+cast-time, passive, alias, combat, movement and match suites pass.
+
+Movement follow-up: finding 3's reproduced missing-clearance case is fixed
+using the port's circular footprint. Planning, A* edge validation, path smoothing
+and movement all check swept disk clearance against blocked cells and map bounds.
+A 64-unit-wide hero cannot route through a 32-unit opening. Existing routes are
+validated before each movement step, including fast and final-waypoint movement.
+This is not a claim about retail collision-size quantization.
+
+Flight movement now has its own staged bitmap: WPM's 0x04 restriction and the
+green channel of destructable pathing textures. Destruction releases owned flight
+cells while preserving terrain restrictions, overlapping blockers and death
+footprints. Ground bodies and air bodies occupy separate movement layers.
+Spawn placement, movement orders, pursuit, cast approach and return routes select
+the unit's movement layer; visual height alone does not change it. The format
+flag is also documented in the [w3z editor constants](https://github.com/LeoYawoo/w3z-editor/blob/master/War3TypesAndConstants.h).
+
+`tools/terrain_clearance_test.mjs` adds 23 checks using synthetic corridors,
+production flight data, and real World movement/destruction. All 14 targeted
+suites pass, including the previous movement, combat, targeting and match tests.
+
+Finding 1 (turning), exact retail footprint/avoidance behavior, and the remaining
+spell/weapon special cases above remain open. Collision still uses the port's circular
 footprints; these fixes do not claim exact retail collision geometry, friendly
 yielding, or unit-size clearance against terrain.
 

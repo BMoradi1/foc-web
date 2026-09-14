@@ -41,7 +41,7 @@ cells = np.array(p['cells'], np.uint8)
 walk = ((cells & 0x02) == 0).astype(np.uint8)      # 0x02 = no-walk
 
 
-def stamp_destructable_pathing(walk, pw, ph):
+def stamp_destructable_pathing(walk, pw, ph, channel=0):
     """Block the cells the map's destructables stand on.
 
     war3map.wpm is the *terrain's* pathing, and the World Editor bakes ordinary
@@ -53,8 +53,7 @@ def stamp_destructable_pathing(walk, pw, ph):
     The footprint is a TGA named per type in pathTex, one pixel per 32-unit
     pathing cell, with the flags in the colour channels -- red unwalkable, green
     unflyable, blue unbuildable. So a 10x2 StoneWall1Path is a 320x64 bar and
-    Gate2Path is a 22x22 diagonal band. Only red is read here; the port has
-    nothing that flies and nothing that builds.
+    Gate2Path is a 22x22 diagonal band. Red and green are staged separately for ground and flight movement.
 
     Warcraft III keeps a stamped footprint square to the grid, so the rotation
     is taken to the nearest quarter turn rather than interpolated.
@@ -120,7 +119,7 @@ def stamp_destructable_pathing(walk, pw, ph):
         for ext in ('.tga', '.blp', '.png'):
             if os.path.exists(cand + ext):
                 a = np.asarray(_Image.open(cand + ext).convert('RGB'))
-                m = a[:, :, 0] > 127            # red channel: unwalkable
+                m = a[:, :, channel] > 127            # red: unwalkable; green: unflyable
                 break
         masks[rel] = m
         return m
@@ -188,7 +187,7 @@ def stamp_destructable_pathing(walk, pw, ph):
         stamps.append(rec)
     if missing:
         print('WARNING no pathing footprint for:', sorted(missing)[:4])
-    json.dump(stamps, open(PUB + '/data/destructables.json', 'w'), separators=(',', ':'))
+    json.dump(stamps, open(PUB + ('/data/flydestructables.json' if channel else '/data/destructables.json'), 'w'), separators=(',', ':'))
     sel = sum(1 for s in stamps if s['sel'])
     print('destructables: %d placements stamped, %d cells newly blocked, %d selectable'
           % (placed_n, blocked, sel))
@@ -197,6 +196,9 @@ def stamp_destructable_pathing(walk, pw, ph):
 
 walk = stamp_destructable_pathing(walk, p['width'], p['height'])
 open(PUB + '/data/walk.bin', 'wb').write(walk.tobytes())
+fly = ((cells & 0x04) == 0).astype(np.uint8)
+fly = stamp_destructable_pathing(fly, p['width'], p['height'], channel=1)
+open(PUB + '/data/fly.bin', 'wb').write(fly.tobytes())
 
 # Water: the w3e flag nibble sets bit 0x4 on a submerged vertex, and a tile
 # shows water when any of its four corners is flagged.  This map's two bases sit

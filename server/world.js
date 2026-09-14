@@ -17,6 +17,8 @@ const readJSON = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), 'utf8'));
 export const TERR = readJSON('public/data/terrain.json');
 export const TYPES = readJSON('data/unittypes.json');
 const WALK = new Uint8Array(fs.readFileSync(path.join(ROOT, 'public/data/walk.bin')));
+const FLY = new Uint8Array(fs.readFileSync(path.join(ROOT, 'public/data/fly.bin')));
+const FLY_DESTS = readJSON('public/data/flydestructables.json');
 // The map's destructables, with the pathing cells each one claims. walk.bin
 // already has them stamped in; this is what is needed to take one back out
 // again when it dies, which is the only way a closed gate ever opens.
@@ -183,7 +185,13 @@ const REINCARNATE = new Set(['AOre', 'ACrn', 'ANrn']);
  */
 const CHANNEL_HOLDS = new Set(['AHbz', 'ACbz', 'ANrf', 'ACrf', 'AEsf', 'ANst', 'ANcs', 'Amls']);
 
-const MORPH_FIELDS = ['typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
+const WEAPON_FIELDS = ['atkTargetsAllowed', 'weaponKind', 'dmgBase', 'dmgDice', 'dmgSides',
+  'atkCd', 'atkRange', 'atkType', 'attackPoint', 'attackBackswing',
+  'missile', 'missileSpeed', 'missileArc', 'missileHoming'];
+const secondWeapon = t => t ? Object.fromEntries(WEAPON_FIELDS.map(k => [k, t[k + '2']])) : null;
+
+const MORPH_FIELDS = ['atkTargetsAllowed', 'weaponKind', 'weapon2', 'typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
+  'movementType', 'targetAs', 'classifications', 'flyHeight',
   'attackPoint', 'attackBackswing', 'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'attacksEnabled', 'missile',
   'missileSpeed', 'missileArc', 'missileHoming', 'baseMoveSpeed', 'radius',
   'renderScale', 'hpReg', 'manaReg', 'str', 'strLvl', 'agi', 'agiLvl',
@@ -195,6 +203,8 @@ export class World {
     // world's broken gate must not be broken in the next match as well
     this.walk = new Uint8Array(WALK);
     this.grid = new Grid(this.walk, TERR.pathWidth, TERR.pathHeight, TERR.offsetX, TERR.offsetY);
+    this.fly = new Uint8Array(FLY);
+    this.flyGrid = new Grid(this.fly, TERR.pathWidth, TERR.pathHeight, TERR.offsetX, TERR.offsetY);
     this.units = new Map();
     this.dests = new Map();
     this.items = new Map();
@@ -297,6 +307,15 @@ export class World {
       if (keep.has(c) || still.has(c)) continue;
       if (this.walk[c] !== 1) { this.walk[c] = 1; opened++; }
     }
+    const flight = FLY_DESTS.find(r => r.d === d.index);
+    if (flight) {
+      const claimed = new Set();
+      for (const r of FLY_DESTS) {
+        const alive = this.dests.get(DEST_ID + r.d)?.alive;
+        for (const c of (alive ? r.c : r.k || [])) claimed.add(c);
+      }
+      for (const c of flight.w) if (!claimed.has(c)) this.fly[c] = 1;
+    }
     this.emit({ t: 'destDead', d: d.index, id: d.id, opened });
     // deathSnd names a label -- TreeWallDeath -- and animsounds.json is keyed by
     // MDX event id, not by label, so there is nothing yet to resolve it against.
@@ -389,7 +408,7 @@ export class World {
     const typeId = typeof typeIdRaw === 'number' ? typeIdRaw : id2int(typeIdRaw);
     const pidx = playerHandle ? playerHandle.index : 12;
     const radius = t ? Math.max(8, t.collision) : 24;
-    const [ux, uy] = this.freeSpotNear(x, y, radius);
+    const [ux, uy] = this.freeSpotNear(x, y, radius, t?.movementType);
     const maxHp = t ? Math.max(1, t.hp) : 100;
     const maxMana = t ? t.mana : 0;
     const u = new Handle('unit', {
@@ -404,6 +423,8 @@ export class World {
       hpReg: t ? t.hpReg : 0, manaReg: t ? t.manaReg : 0.01,
       armor: t ? t.armor : 0,
       armorType: t ? (t.armorType || 'none') : 'none',
+      atkTargetsAllowed: t?.atkTargetsAllowed ?? '', weaponKind: t?.weaponKind || '',
+      weapon2: secondWeapon(t),
       atkType: t ? (t.atkType || 'normal') : 'normal',
       dmgBase: t ? t.dmgBase : 0, dmgDice: t ? t.dmgDice : 1, dmgSides: t ? t.dmgSides : 1,
       attackPoint: t?.attackPoint ?? 0, attackBackswing: t?.attackBackswing ?? 0,
@@ -439,7 +460,9 @@ export class World {
       // how far into the spell animation a cast takes effect, and how long the
       // animation runs on after it (UnitWeapons.slk castpt / castbsw)
       castPoint: t ? t.castPoint || 0 : 0, castBackswing: t ? t.castBackswing || 0 : 0,
-      flyHeight: 0, expireAt: 0, bounty: t ? t.bountyPlus : 0,
+      movementType: t?.movementType || '', targetAs: t?.targetAs || '',
+      classifications: t?.classifications || '',
+      flyHeight: t?.flyHeight || 0, expireAt: 0, bounty: t ? t.bountyPlus : 0,
       kills: 0, deaths: 0, sellUnits: t ? t.sellUnits || [] : [],
       sellItems: t ? t.sellItems || [] : [],
       // hero-shaped units owned by neutral-passive are the map's in-world hero
@@ -465,18 +488,19 @@ export class World {
    * A walkable spot near (x,y) that is not already occupied. Warcraft III spreads
    * units created at the same point instead of stacking them.
    */
-  freeSpotNear(x, y, radius) {
+  freeSpotNear(x, y, radius, movementType = '') {
+    const grid = movementType === 'fly' ? this.flyGrid : this.grid;
     const clear = (px, py) => {
-      if (!this.grid.walkableAt(px, py)) return false;
+      if (!grid.clearFootprint(px, py, px, py, radius)) return false;
       for (const o of this.units.values()) {
-        if (!o.alive || o.isBuilding || o.hidden) continue;
+        if (!o.alive || o.isBuilding || o.hidden || (o.movementType === 'fly') !== (movementType === 'fly')) continue;
         const need = radius + o.radius;
         if ((o.x - px) ** 2 + (o.y - py) ** 2 < need * need) return false;
       }
       return true;
     };
-    const c0 = this.grid.nearestWalkable(x, y);
-    const [bx, by] = c0 ? this.grid.toWorld(c0[0], c0[1]) : [x, y];
+    const c0 = grid.nearestWalkable(x, y, 24, (px, py) => grid.clearFootprint(px, py, px, py, radius));
+    const [bx, by] = c0 ? grid.toWorld(c0[0], c0[1]) : [x, y];
     if (clear(bx, by)) return [bx, by];
     const step = Math.max(24, radius * 1.8);
     for (let ring = 1; ring <= 8; ring++) {
@@ -923,8 +947,8 @@ export class World {
       case 0: return !!u.isHero;          // UNIT_TYPE_HERO
       case 1: return !u.alive;            // UNIT_TYPE_DEAD
       case 2: return !!u.isBuilding;      // UNIT_TYPE_STRUCTURE
-      case 3: return (u.flyHeight || 0) > 0;   // FLYING
-      case 4: return !(u.flyHeight > 0);       // GROUND
+      case 3: return u.movementType === 'fly';   // FLYING
+      case 4: return u.movementType !== 'fly';       // GROUND
       case 7: return (u.atkRange || 0) <= 200; // MELEE_ATTACKER
       case 8: return (u.atkRange || 0) > 200;  // RANGED_ATTACKER
       case 10: return !!u.summonedBy;     // SUMMONED
@@ -982,6 +1006,7 @@ export class World {
   // ----------------------------------------------------------------- orders
   order(u, o) {
     if (!u || !u.alive || u.paused) return false;
+    if (o.target && ['attack', 'smart'].includes(o.type) && !this.weaponFor(u, o.target)) return false;
     this.cancelAttack(u);
     // any order breaks off a cast in progress, as the game's does
     this.interruptCast(u);
@@ -1018,7 +1043,7 @@ export class World {
       u.order = { type: 'attack', targetId: o.target.id };
       // a gate is 896 units across and its middle is inside its own footprint,
       // so walk at it rather than at a point nothing can stand on
-      u.path = o.target.isDest ? this.grid.path(u.x, u.y, o.target.x, o.target.y) : null;
+      u.path = o.target.isDest ? this.routeUnit(u, o.target.x, o.target.y) : null;
       if (o.target.isDest) return true;         // no script event names one
       this.fireUnitEvent('EVENT_PLAYER_UNIT_ISSUED_TARGET_ORDER',
         { unit: u, orderTarget: o.target, orderId: o.type, player: this.playerOf(u) });
@@ -1027,7 +1052,7 @@ export class World {
     if (o.x != null) {
       if (!Number.isFinite(o.x) || !Number.isFinite(o.y)) return false;
       const attack = /attack/i.test(name);
-      u.path = this.grid.path(u.x, u.y, o.x, o.y);
+      u.path = this.routeUnit(u, o.x, o.y);
       u.order = name === 'patrol'
         ? { type: 'patrol', x: o.x, y: o.y, fromX: u.x, fromY: u.y }
         : { type: attack ? 'attackMove' : 'move', x: o.x, y: o.y };
@@ -1232,7 +1257,7 @@ export class World {
     if (!u || !u.alive || !it || it.owner || it.hidden) return false;
     if (Math.hypot(it.x - u.x, it.y - u.y) > FOLLOW_ITEM_RANGE) return false;
     if (this.reachesItem(u, it)) return this.takeItem(u, it);
-    u.path = this.grid.path(u.x, u.y, it.x, it.y);
+    u.path = this.routeUnit(u, it.x, it.y);
     u.order = { type: 'pickup', itemId: it.id, x: it.x, y: it.y };
     // Warcraft III issues this as a targeted order like any other
     this.fireUnitEvent('EVENT_PLAYER_UNIT_ISSUED_TARGET_ORDER',
@@ -1462,12 +1487,19 @@ export class World {
     u.attackPoint = t.attackPoint ?? 0;
     u.attackBackswing = t.attackBackswing ?? 0;
     u.atkCd = Math.max(0.2, t.atkCd || 1.5);
+    u.atkTargetsAllowed = t.atkTargetsAllowed ?? '';
+    u.weaponKind = t.weaponKind || '';
+    u.weapon2 = secondWeapon(t);
     u.attacksEnabled = t.attacksEnabled ?? 1;
     u.atkRange = t.atkRange || 90;
     u.missile = t.missile || null;
     u.missileSpeed = t.missileSpeed || 0;
     u.missileArc = t.missileArc || 0;
     u.missileHoming = t.missileHoming || 0;
+    u.movementType = t.movementType || '';
+    u.targetAs = t.targetAs || '';
+    u.classifications = t.classifications || '';
+    u.flyHeight = t.flyHeight || 0;
     u.baseMoveSpeed = t.moveSpeed || u.baseMoveSpeed;
     u.radius = Math.max(8, t.collision || u.radius);
     u.renderScale = t.scale || 1;
@@ -1846,6 +1878,42 @@ export class World {
    * it, and which bases hold their caster (CHANNEL_HOLDS).  tools/casttime_test.mjs
    * asserts each of the map's own expectations listed above.
    */
+  /** Authored unit-target filters, evaluated again before the effect commits. */
+  validSpellTarget(u, target, abil, lvl) {
+    if (!target || target.hidden || this.isLocust(target)) return false;
+    const flags = new Set((levelInfo(abil, lvl).targets ?? abil?.targets ?? '')
+      .toLowerCase().split(',').map(s => s.trim()).filter(Boolean));
+    const has = (...names) => names.some(n => flags.has(n));
+    if (has('none')) return false;
+    if (!target.alive && !has('dead')) return false;
+    if (target.alive && has('dead') && !has('alive')) return false;
+    if (target.invulnerable && !has('invulnerable', 'invu')) return false;
+    if (!target.invulnerable && has('invulnerable', 'invu') && !has('vulnerable', 'vuln')) return false;
+    if (has('notself') && target === u) return false;
+    const enemy = this.hostile(u, target);
+    const ally = this.isAlly(this.playerOf(u), this.playerOf(target));
+    if (has('self', 'player', 'friend', 'allies', 'enemy', 'enemies', 'neutral') && !(
+      (has('self') && target === u) ||
+      (has('player') && target.playerIndex === u.playerIndex) ||
+      (has('friend', 'allies') && ally) ||
+      (has('enemy', 'enemies') && enemy) ||
+      (has('neutral') && !enemy && !ally))) return false;
+    const kinds = new Set((target.targetAs || (target.isBuilding ? 'structure' :
+      target.movementType === 'fly' ? 'air' : 'ground')).toLowerCase().split(',').map(s => s.trim()));
+    if (has('air', 'ground', 'structure', 'ward', 'item', 'debris', 'tree', 'wall', 'bridge') &&
+        ![...kinds].some(k => flags.has(k))) return false;
+    const types = new Set((target.classifications || '').toLowerCase().split(',').map(s => s.trim()));
+    for (const [yes, no, value] of [
+      ['mechanical', 'organic', types.has('mechanical')],
+      ['hero', 'nonhero', !!target.isHero],
+      ['ancient', 'nonancient', types.has('ancient')],
+      ['sapper', 'nonsapper', types.has('sapper')],
+    ]) {
+      if (has(yes, no) && !has(value ? yes : no)) return false;
+    }
+    return true;
+  }
+
   castAbility(u, abilId, targetUnit, tx, ty) {
     if (!u || !u.alive || !this.jass) return { ok: false, reason: 'dead' };
     const key = typeof abilId === 'number' ? abilId : id2int(abilId);
@@ -1857,7 +1925,11 @@ export class World {
     const info = this.abilityInfo(key, lvl);
     // the game refuses the ORDER for want of mana; the mana itself goes at the effect
     if (u.mana < info.mana) return { ok: false, reason: 'mana' };
-    if (targetUnit && !targetUnit.alive) return { ok: false, reason: 'dead target' };
+    const targetAbil = abilEntry(this.abilKey(key));
+    if (targetUnit && needsUnitTarget(targetAbil) && !this.validSpellTarget(u, targetUnit, targetAbil, lvl))
+      return { ok: false, reason: 'invalid target' };
+    if (targetUnit && !targetUnit.alive && !needsUnitTarget(targetAbil))
+      return { ok: false, reason: 'dead target' };
     // A unit-target spell ordered at bare ground. Warcraft III refuses the
     // ORDER -- the cursor will not take it -- so nothing is spent and the
     // map's own SPELL_EFFECT trigger never runs. Here the cast used to be
@@ -1915,7 +1987,8 @@ export class World {
   stepCast(u) {
     const c = u.cast;
     if (!c) return;
-    if (c.target && !c.target.alive) {
+    if (c.target && (needsUnitTarget(c.abil)
+      ? !this.validSpellTarget(u, c.target, c.abil, c.lvl) : !c.target.alive)) {
       // the target died: a cast that had not begun is simply dropped, one in
       // progress is broken off
       this.interruptCast(u);
@@ -1927,7 +2000,7 @@ export class World {
       if (range > 0 && this.castDistance(u, c) > range) {
         if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
           const gx = c.target ? c.target.x : c.x, gy = c.target ? c.target.y : c.y;
-          u.path = this.grid.path(u.x, u.y, gx, gy);
+          u.path = this.routeUnit(u, gx, gy);
           u.repathAt = this.now + 400;
           if (!u.path || !u.path.length) { this.interruptCast(u); return; }   // no way there
         }
@@ -1973,6 +2046,11 @@ export class World {
 
   castEffect(u) {
     const c = u.cast;
+    if (!c) return;
+    if (c.target && needsUnitTarget(c.abil) && !this.validSpellTarget(u, c.target, c.abil, c.lvl)) {
+      this.interruptCast(u);
+      return;
+    }
     u.mana = Math.max(0, u.mana - c.info.mana);
     u.cooldowns.set(c.key, this.now + c.info.cooldown * 1000);
     const before = this.channels ? this.channels.length : 0;
@@ -2222,13 +2300,13 @@ export class World {
       // Player heroes acquire normally, but never inherit creep guard leashes.
       if (u.order.type === 'attack') {
         const t = this.target(u.order.targetId);
-        if (t?.alive && !t.hidden) return;
+        if (this.weaponFor(u, t)) return;
         u.order = { type: 'idle' }; u.path = null;
       }
       if (u.order.type !== 'idle' || !u.attacksEnabled || u.cast) return;
       let best = null, distance = Infinity;
       for (const t of this.enumInRange(u.x, u.y, u.acquisitionRange)) {
-        if (!this.hostile(u, t) || t.invulnerable || this.isLocust(t)) continue;
+        if (!this.hostile(u, t) || !this.weaponFor(u, t)) continue;
         const d = Math.hypot(t.x - u.x, t.y - u.y);
         if (d < distance) { best = t; distance = d; }
       }
@@ -2256,14 +2334,14 @@ export class World {
     // around -- otherwise nothing would ever stray far enough to be leashed.
     if (u.order.type === 'attack') {
       const t = this.target(u.order.targetId);
-      if (t && t.alive && !t.hidden) return;
+      if (this.weaponFor(u, t)) return;
       u.order = { type: 'idle' }; u.path = null;
     }
 
     let best = null, bd = Infinity;
     for (const o of this.enumInRange(u.x, u.y, u.acquisitionRange)) {
       if (!o.alive || o === u || o.hidden || o.isBuilding || this.isLocust(o)) continue;
-      if (this.isAlly(this.playerOf(u), this.playerOf(o))) continue;
+      if (this.isAlly(this.playerOf(u), this.playerOf(o)) || !this.weaponFor(u, o)) continue;
       // no point acquiring prey that already stands outside this unit's post
       if (Math.hypot(o.x - u.homeX, o.y - u.homeY) > MAX_GUARD_DIST) continue;
       const d = Math.hypot(o.x - u.x, o.y - u.y);
@@ -2276,7 +2354,7 @@ export class World {
   sendHome(u) {
     u.returning = true; u.strayedAt = 0;
     u.order = { type: 'move', x: u.homeX, y: u.homeY };
-    u.path = this.grid.path(u.x, u.y, u.homeX, u.homeY);
+    u.path = this.routeUnit(u, u.homeX, u.homeY);
   }
 
   stepReturnHome(u) {
@@ -2284,7 +2362,7 @@ export class World {
       u.returning = false; u.order = { type: 'idle' }; u.path = null; return;
     }
     if (u.path && u.path.length) return;
-    u.path = this.grid.path(u.x, u.y, u.homeX, u.homeY);
+    u.path = this.routeUnit(u, u.homeX, u.homeY);
     u.order = { type: 'move', x: u.homeX, y: u.homeY };
     if (!u.path || !u.path.length) { u.returning = false; u.order = { type: 'idle' }; }
   }
@@ -2300,7 +2378,7 @@ export class World {
     for (const o of this.enumInRange(victim.x, victim.y, r)) {
       if (o === victim || !o.alive || o.controlled || o.isBuilding || o.pickerProp) continue;
       if (o.playerIndex === NEUTRAL_PASSIVE || o.returning) continue;
-      if (o.order.type !== 'idle') continue;
+      if (o.order.type !== 'idle' || !this.weaponFor(o, attacker)) continue;
       if (!this.isAlly(this.playerOf(o), this.playerOf(victim))) continue;
       if (Math.hypot(attacker.x - o.homeX, attacker.y - o.homeY) > MAX_GUARD_DIST) continue;
       o.order = { type: 'attack', targetId: attacker.id };
@@ -2312,7 +2390,7 @@ export class World {
     if (u.order.type === 'hold') { u.path = null; return; }
     if (u.order.type === 'patrol' || u.order.type === 'attackMove') {
       const eligible = t => !!t && t.alive && !t.hidden && !t.invulnerable
-        && !this.isLocust(t) && this.hostile(u, t);
+        && this.weaponFor(u, t) && this.hostile(u, t);
       let target = u.attacksEnabled ? this.target(u.order.targetId) : null;
       if (!eligible(target)) {
         target = u.attacksEnabled ? this.enumInRange(u.x, u.y, u.acquisitionRange)
@@ -2323,11 +2401,11 @@ export class World {
       if (target) {
         if (u.order.targetId !== target.id) u.path = null;
         u.order.targetId = target.id;
-        if (Math.hypot(target.x - u.x, target.y - u.y) <= u.atkRange + target.radius) {
+        if (Math.hypot(target.x - u.x, target.y - u.y) <= this.weaponFor(u, target).atkRange + target.radius) {
           u.path = null; return;
         }
         if (!u.path || (u.repathAt ?? 0) < this.now) {
-          u.path = this.grid.path(u.x, u.y, target.x, target.y); u.repathAt = this.now + 400;
+          u.path = this.routeUnit(u, target.x, target.y); u.repathAt = this.now + 400;
         }
       } else {
         if (u.order.targetId) { delete u.order.targetId; u.path = null; }
@@ -2337,24 +2415,26 @@ export class World {
             [u.order.x, u.order.fromX] = [u.order.fromX, u.order.x];
             [u.order.y, u.order.fromY] = [u.order.fromY, u.order.y];
           }
-          u.path = this.grid.path(u.x, u.y, u.order.x, u.order.y);
+          u.path = this.routeUnit(u, u.order.x, u.order.y);
         }
       }
     }
     // Keep the pursuit route current as the target moves out of attack range.
     if (u.order.type === 'attack') {
       const t = this.target(u.order.targetId);
+      const weapon = this.weaponFor(u, t);
+      if (!weapon) { u.path = null; u.order = { type: 'idle' }; return; }
       if (t && t.alive && t.isDest) {
-        if (this.destRange(t, u.x, u.y) > u.atkRange) {
+        if (this.destRange(t, u.x, u.y) > weapon.atkRange) {
           if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
-            u.path = this.grid.path(u.x, u.y, t.x, t.y);
+            u.path = this.routeUnit(u, t.x, t.y);
             u.repathAt = this.now + 400;
           }
         } else u.path = null;
       } else if (t && t.alive) {
-        if (Math.hypot(t.x - u.x, t.y - u.y) > u.atkRange + t.radius) {
+        if (Math.hypot(t.x - u.x, t.y - u.y) > weapon.atkRange + t.radius) {
           if (!u.path || !u.path.length || (u.repathAt ?? 0) < this.now) {
-            u.path = this.grid.path(u.x, u.y, t.x, t.y);
+            u.path = this.routeUnit(u, t.x, t.y);
             u.repathAt = this.now + 400;
           }
         } else {
@@ -2489,6 +2569,31 @@ export class World {
     this.missiles = keep;
   }
 
+  /** Select an enabled weapon without replacing the unit's primary stats. */
+  weaponFor(u, t) {
+    if (!t || !t.alive || t.hidden || t.invulnerable || (!t.isDest && this.isLocust(t))) return null;
+    const kinds = new Set((t.targetAs || t.targType || (t.isBuilding ? 'structure' :
+      t.movementType === 'fly' ? 'air' : t.isDest ? 'debris' : 'ground'))
+      .toLowerCase().split(',').map(s => s.trim()));
+    for (const [bit, weapon] of [[1, u], [2, u.weapon2]]) {
+      if (!(u.attacksEnabled & bit) || !weapon) continue;
+      const flags = new Set((weapon.atkTargetsAllowed ?? '').toLowerCase().split(',').map(s => s.trim()));
+      if (![...kinds].some(k => flags.has(k))) continue;
+      // Map weapon lists can also narrow relationships and unit classes.
+      const types = new Set((t.classifications || '').toLowerCase().split(','));
+      if (flags.has('notself') && t === u) continue;
+      if (flags.has('enemy') || flags.has('enemies')) {
+        if (!this.hostile(u, t)) continue;
+      }
+      if (flags.has('organic') && !flags.has('mechanical') && types.has('mechanical')) continue;
+      if (flags.has('mechanical') && !flags.has('organic') && !types.has('mechanical')) continue;
+      if (flags.has('nonhero') && !flags.has('hero') && t.isHero) continue;
+      if (flags.has('hero') && !flags.has('nonhero') && !t.isHero) continue;
+      return { ...Object.fromEntries(WEAPON_FIELDS.map(k => [k, weapon[k]])), bit };
+    }
+    return null;
+  }
+
   cancelAttack(u) {
     if (!u.attackWindup) return;
     u.attackWindup = null;
@@ -2505,13 +2610,13 @@ export class World {
       const t = pending.target;
       const d = t.isDest ? this.destRange(t, u.x, u.y)
         : Math.hypot(t.x - u.x, t.y - u.y) - t.radius;
-      if (u.order !== pending.order || !t.alive || t.hidden || d > u.atkRange) {
+      if (u.order !== pending.order || this.weaponFor(u, t)?.bit !== pending.weapon.bit || d > pending.weapon.atkRange) {
         this.cancelAttack(u); return;
       }
       pending.remaining -= this.dt;
       if (pending.remaining <= 1e-9) {
         u.attackWindup = null;
-        this.releaseAttack(u, t);
+        this.releaseAttack(u, t, pending.weapon);
       }
       return;
     }
@@ -2522,33 +2627,40 @@ export class World {
       for (const o of this.units.values()) {
         if (!o.alive || o === u || o.hidden || o.invulnerable || this.isLocust(o)) continue;
         if (!this.hostile(u, o)) continue;
+        const weapon = this.weaponFor(u, o);
+        if (!weapon) continue;
         const d = Math.hypot(o.x - u.x, o.y - u.y);
-        if (d < u.atkRange + o.radius + 40 && d < bd) { bd = d; t = o; }
+        if (d < weapon.atkRange + o.radius + 40 && d < bd) { bd = d; t = o; }
       }
       if (!t) return;
     }
     const d = t.isDest ? this.destRange(t, u.x, u.y)
                        : Math.hypot(t.x - u.x, t.y - u.y) - t.radius;
-    if (d > u.atkRange) return;
+    const weapon = this.weaponFor(u, t);
+    if (!weapon || d > weapon.atkRange) return;
     u.facing = Math.atan2(t.y - u.y, t.x - u.x);
     if (u.atkTimer > 0) return;
     const speed = Math.max(0.2, u.attackSpeedMul || 1);
-    u.atkTimer = Math.max(u.atkCd, (u.attackPoint || 0) + (u.attackBackswing || 0)) / speed;
-    const windup = { target: t, order: u.order, remaining: (u.attackPoint || 0) / speed };
+    u.atkTimer = Math.max(weapon.atkCd, (weapon.attackPoint || 0) + (weapon.attackBackswing || 0)) / speed;
+    const windup = { target: t, order: u.order, weapon, remaining: (weapon.attackPoint || 0) / speed };
     u.attackWindup = windup;
     this.emit({ t: 'attack', id: u.id, target: t.id });
     // ATTACKED is raised at swing start; scripts may cancel the attack here.
     this.fireUnitEvent('EVENT_PLAYER_UNIT_ATTACKED', {
       unit: t, attacker: u, player: this.playerOf(t) });
     if (u.attackWindup !== windup) return;
-    if (!u.alive || u.paused || this.stunned(u) || !t.alive) { this.cancelAttack(u); return; }
-    if (windup.remaining <= 0) { u.attackWindup = null; this.releaseAttack(u, t); }
+    if (!u.alive || u.paused || this.stunned(u) || this.weaponFor(u, t)?.bit !== weapon.bit) {
+      this.cancelAttack(u); return;
+    }
+    if (windup.remaining <= 0) { u.attackWindup = null; this.releaseAttack(u, t, weapon); }
   }
 
-  releaseAttack(u, t) {
-    let amount = u.dmg ?? u.dmgBase;
-    for (let i = 0; i < Math.max(0, Math.trunc(u.dmgDice)); i++)
-      amount += Math.floor(Math.random() * Math.max(1, u.dmgSides)) + 1;
+  releaseAttack(u, t, weapon = this.weaponFor(u, t)) {
+    if (!weapon) return;
+    let amount = weapon.dmgBase + ((u.dmg ?? u.dmgBase) - u.dmgBase);
+    for (let i = 0; i < Math.max(0, Math.trunc(weapon.dmgDice)); i++)
+      amount += Math.floor(Math.random() * Math.max(1, weapon.dmgSides)) + 1;
+    const damageOptions = { attackType: ATTACK_TYPES.indexOf(weapon.atkType), damageType: 4 };
     const land = (src, victim) => {
       const hs = this.unitSound(u, 'hit');     // weapon impact, as the engine plays it
       if (hs) this.emit({ t: 'sound', path: hs.path, x: victim.x, y: victim.y,
@@ -2574,7 +2686,7 @@ export class World {
       if (crit) swing *= atk.mult || 1;
       if (src.cleave) {
         for (const e of this.enemiesInRange(src, victim.x, victim.y, 150))
-          if (e !== victim) this.damage(src, e, amount * src.cleave, {});
+          if (e !== victim) this.damage(src, e, amount * src.cleave, damageOptions);
       }
       // Bash: its own roll, its own multiplier, and it stuns what it hits for
       // the ability's own duration.  Independent of the crit roll because the
@@ -2587,7 +2699,7 @@ export class World {
           this.applyBuff(victim, { kind: 'stun', until: this.now + atk.bash.stun * 1000 });
         }
       }
-      const dealt = this.damage(src, victim, swing, {});
+      const dealt = this.damage(src, victim, swing, damageOptions);
       if (bashed && dealt > 0) {
         this.emit({ t: 'crit', id: victim.id, n: Math.round(dealt),
                     x: victim.x, y: victim.y,
@@ -2600,8 +2712,8 @@ export class World {
       }
       if (src.lifesteal && dealt > 0) this.heal(src, dealt * src.lifesteal);
     };
-    if (u.missileSpeed > 0 && this.launchMissile(u, t, {
-          speed: u.missileSpeed, arc: u.missileArc, art: u.missile, onHit: land })) return;
+    if (weapon.weaponKind !== 'normal' && weapon.missileSpeed > 0 && this.launchMissile(u, t, {
+          speed: weapon.missileSpeed, arc: weapon.missileArc, art: weapon.missile, onHit: land })) return;
     land(u, t);                                // melee, or a weapon with no missile
   }
 
@@ -2611,15 +2723,18 @@ export class World {
     return u.alive && !u.hidden && !u.pathingOff && !this.isLocust(u);
   }
 
+  movementGrid(u) { return u.movementType === 'fly' ? this.flyGrid : this.grid; }
+  routeUnit(u, x, y) { return this.movementPath(u, x, y, []); }
+
   movementBlockers(u) {
     if (!this.blocksMovement(u)) return [];
-    return [...this.units.values()].filter(t => t !== u && this.blocksMovement(t));
+    return [...this.units.values()].filter(t => t !== u && this.blocksMovement(t) && (t.movementType === 'fly') === (u.movementType === 'fly'));
   }
 
   /** Test the whole swept segment, not just its endpoint (fast units must not
    * tunnel through a body). Existing scripted overlaps may move apart. */
   canAdvance(u, x, y, blockers) {
-    if (!this.grid.clearLine(u.x, u.y, x, y)) return false;
+    if (!this.movementGrid(u).clearFootprint(u.x, u.y, x, y, u.pathingOff ? 0 : u.radius)) return false;
     const dx = x - u.x, dy = y - u.y, len2 = dx * dx + dy * dy;
     for (const t of blockers) {
       const ax = t.x - u.x, ay = t.y - u.y;
@@ -2637,13 +2752,14 @@ export class World {
     // step still checks live bodies before committing a waypoint.
     const circles = blockers.map(t => ({ x: t.x, y: t.y,
       r2: Math.min((u.radius + t.radius) ** 2, (u.x - t.x) ** 2 + (u.y - t.y) ** 2) }));
-    const pass = (px, py) => circles.every(t =>
+    const grid = this.movementGrid(u), radius = u.pathingOff ? 0 : u.radius;
+    const pass = (px, py) => grid.clearFootprint(px, py, px, py, radius) && circles.every(t =>
       (px - t.x) ** 2 + (py - t.y) ** 2 >= t.r2 - 1e-6);
-    const cell = this.grid.nearestWalkable(u.x, u.y, 24, pass);
+    const cell = grid.nearestWalkable(u.x, u.y, 24, pass);
     if (!cell) return null;
-    const entry = this.grid.toWorld(...cell);
+    const entry = grid.toWorld(...cell);
     if (!this.canAdvance(u, entry[0], entry[1], blockers)) return null;
-    const route = this.grid.path(entry[0], entry[1], x, y, 20000, pass);
+    const route = grid.path(entry[0], entry[1], x, y, 20000, pass, radius);
     return route ? [entry, ...route] : null;
   }
 
