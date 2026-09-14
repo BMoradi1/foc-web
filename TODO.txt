@@ -1986,6 +1986,31 @@ TESTS AND THE END-TO-END HALF
 
 ABILITY DATA SLOTS
 ------------------
+[x] Two more bases were in no routing table at all  (FIXED 2026-09-13)
+    AbilityData.slk's `code` column is the map editor's own answer to "whose
+    fields does this row use", and where it differs from `alias` the row IS
+    the other ability. That is what justified the ANcf -> ANbf line; the
+    second half of the hero sweep found two more of the same shape, both
+    reaching the generic damage fallback, which spends slot 1 and cannot see
+    the rest.
+      ACca -> AUcs   code AUcs, "Carrion Swarm (creep)", and AbilityMetaData
+                     lists ACca on Ucs1..Ucs4 itself. Uryu's 은령호작 fires
+                     about 60 dummies over 3 s, each casting A04L; every one
+                     was a 100-radius blast at a random point 250-600 units
+                     away instead of an 800-long, 125-wide line from the
+                     caster. The per-unit damage was never wrong -- the SHAPE
+                     was, and anything past ~700 units was unhittable.
+      ANsb -> AHtb   code AHtb, "Rexxar - Storm Bolt". Shiki's ultimate
+                     극사나나야 landed its 7000/10000/13000 and silently
+                     dropped the stun the map kept (Dur 5/7/9, HeroDur 3/4/5)
+                     and its B00R buff. Its own trigger pauses the victim for
+                     about 1.8 s, so a hero walked 1.2 to 3.2 s early.
+    tools/slot_test.mjs validates both aliases against the map's own slot
+    labels (115 checks). tools/aliasfix_test.mjs asserts the SHAPE rather than
+    the number, since the number was never what differed: a target 600 units
+    down the line now takes damage, one 400 units to the side does not, and
+    the Storm Bolt stun and buff land.
+
 [x] 34 abilities could never be levelled past rank 1  (FIXED 2026-09-13)
     'alev' is what a map author writes when they want a level count of their
     own, and when they want a single rank they write 1 -- 16 abilities do.

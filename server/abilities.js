@@ -60,6 +60,24 @@ const BASE_ALIAS = {
   // Fan of Knives case, so InuYasha's 800-long cone became a 100-radius ring
   // around his own feet.
   ANcf: 'ANbf',
+  // Two more of the same shape, found by the second half of the hero sweep.
+  // AbilityData.slk's `code` column is the map editor's own answer to "which
+  // ability's fields does this row use", and it is what made the ANcf line
+  // above right.
+  //
+  // ACca's code is AUcs, comment "Carrion Swarm (creep)", and AbilityMetaData
+  // lists ACca on Ucs1..Ucs4 itself. It was in no table at all, so Uryu's
+  // 은령호작 -- whose whole payload is ~60 dummies each casting A04L -- fell to
+  // the damage fallback: a 100-radius blast at a random point 250-600 away
+  // instead of an 800-long, 125-wide line from the caster. Same numbers,
+  // wrong shape, and anything past ~700 units was unhittable.
+  ACca: 'AUcs',
+  // ANsb's code is AHtb, comment "Rexxar - Storm Bolt". The fallback deals
+  // slot 1 and can see nothing else, so Shiki's ultimate 극사나나야 landed its
+  // 7000/10000/13000 and dropped the stun the map kept (Dur 5/7/9, HeroDur
+  // 3/4/5) along with its B00R buff. Its own trigger pauses the victim for
+  // about 1.8 s, so a hero was walking 1.2 to 3.2 s early.
+  ANsb: 'AHtb',
 };
 export function baseOf(ab) { return (ab && (BASE_ALIAS[ab.base] || ab.base)) || ''; }
 
