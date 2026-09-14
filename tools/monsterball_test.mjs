@@ -60,13 +60,27 @@ eng.load(); eng.boot();
 const STEP = 1000 / 30;
 for (let i = 0; i < 30; i++) { eng.update(STEP); world.step(); }
 
-// exactly one item on the map is aimed, and it is this one
+// Three items on the map carry an ability that names unit targets, and this
+// is the only one the map itself listens for.
+//
+// This assertion used to read "the only aimed item on the map", and that was
+// true only because tools/abilities.py read a target column that does not
+// exist, so almost every ability compiled with an empty target list. With that
+// fixed (2026-09-13) two more items report as aimed -- a Throwing Dagger
+// carrying Storm Bolt and 해루석 carrying Soul Burn, both of which Warcraft III
+// really does aim. The count was never the invariant; what this test needs is
+// that the Monster Ball is aimed, because its capture trigger hangs off the
+// spell events an aimed item fires.
 const aimed = Object.keys(items).filter((id) => {
   const it = { abilities: items[id].abilities || [] };
   return !!world.itemSpell(it);
 });
-check('it is the only aimed item on the map', aimed.length === 1 && aimed[0] === 'I006',
-      aimed.join(' ') || 'none');
+check('the Monster Ball is an aimed item', aimed.includes('I006'), aimed.join(' ') || 'none');
+const jass = fs.readFileSync(path.join(ROOT, 'extracted/war3map.formatted.j'), 'utf8');
+const listened = aimed.filter((id) => (items[id].abilities || [])
+  .some((a) => new RegExp(`'${a}'`).test(jass)));
+check('and the only aimed item the map has a spell trigger for',
+      listened.length === 1 && listened[0] === 'I006', listened.join(' ') || 'none');
 
 const hero = [...world.units.values()].find((u) => u.isHero && u.alive);
 hero.playerIndex = 0; hero.team = 0;              // a player's hero, not tavern stock

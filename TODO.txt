@@ -1995,6 +1995,40 @@ TESTS AND THE END-TO-END HALF
 
 ABILITY DATA SLOTS
 ------------------
+[x] `targets` was compiled from a column that does not exist  (FIXED
+    2026-09-13)
+    tools/abilities.py fell back to the SLK's `targs`; the column is
+    targs1..targs4, one per level. So the fallback never fired and `targets`
+    came out empty for 971 of the 1046 abilities.
+    Not cosmetic: isPassive falls through to `targets` when an ability
+    declares no order string, and Blizzard writes Order= for only some
+    abilities, so an ability with neither was read as PASSIVE and execute()
+    returned before doing anything. Zoro's A03H is the one a player meets --
+    alone among the map's three Awfb abilities it sets no atar:1 of its own,
+    so it was the only one that never reached the damage fallback its two
+    siblings do, and it silently dropped its own Htb1 = 100 at ranks 2 and 3.
+    MEASURED BEFORE CHANGING, because this field decides whether an ability
+    runs at all: 121 rows gain a target list, none loses one, and no other
+    field moves. 118 isPassive verdicts flip, every one of them passive ->
+    active, and only ONE is a hero castable (A03H). Of the 45 unit types
+    whose castDummy pick would change, exactly one is ever created by this
+    map (n00T, Zoro's tornado), and nothing ever orders it -- so no unit's
+    cast behaviour actually changes.
+    '-' and '_' are Blizzard's empty markers here and go through text(), or
+    every passive in the file would turn castable. An explicit 'none' is
+    different and is kept: the map writes it itself on A06D.
+    CONSEQUENCE, recorded rather than hidden: two more items now report as
+    aimed -- a Throwing Dagger carrying Storm Bolt and 해루석 carrying Soul
+    Burn, both of which Warcraft III really does aim. No trigger listens for
+    either, so the only visible change is that using them plays their cast
+    art. Their damage still does not land, because useItem never calls
+    execute() for an item ability -- a pre-existing gap this fix makes
+    visible rather than causes. monsterball_test asserted "the only aimed
+    item on the map", which was true only because of this bug; it now asserts
+    what it actually needs, that the Monster Ball is aimed and is the only
+    aimed item the map has a spell trigger for.
+    tools/targets_test.mjs, 13 checks.
+
 [x] IsUnitIllusion was declared and implemented nowhere  (FIXED 2026-09-13)
     A different species from a missing case, and the one PORTING.md calls the
     real danger: a JASS condition gated on an unimplemented BOOLEAN native is

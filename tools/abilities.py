@@ -317,7 +317,23 @@ for tbl in ('base', 'custom'):
             v = num(b.get(col))
             return int(v) if v is not None else dflt
         table[o['id']] = dict(id=o['id'], base=base, name=str(name),
-                              targets=str(m.get('atar:1') or b.get('targs') or ''),
+                              # The SLK column is targs1..targs4, one per level;
+                              # there is no bare 'targs', so this fallback never
+                              # fired and `targets` came out empty for 971 of the
+                              # 1046 abilities. That is not cosmetic: isPassive
+                              # falls through to targets when an ability declares
+                              # no order string, and Blizzard writes Order= for
+                              # only some abilities -- so an ability with neither
+                              # was read as passive and its execute()short-circuited
+                              # before doing anything. Zoro's A03H is the one a
+                              # player meets: alone among the map's three Awfb
+                              # abilities it sets no atar:1, so it lost its own
+                              # 100 damage at ranks 2 and 3.
+                              # text() is used for the blank test because '-' and
+                              # '_' are Blizzard's empty markers in this column
+                              # and treating either as a real target list would
+                              # make every passive in the file castable.
+                              targets=str(text(m.get('atar:1')) or text(b.get('targs1')) or ''),
                               # 'aord' is the map's own order-string override.  Exactly one
                               # ability here sets it -- A06D, the captured Monster Ball, which
                               # answers to 'summoning' where its AIrr base says 'roar' -- but
