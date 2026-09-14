@@ -175,7 +175,22 @@ def ability(aid):
     o = abils.get(aid)
     if not o: return None
     m = o['mods']
-    nlev = lvl_get(m, 'alev', 0, 1) or 1
+    # How many ranks the ability really has.
+    #
+    # 'alev' is what the author writes when they want a count of their own, and
+    # when they want one rank they write 1 -- A05V and A05P both do. When the
+    # field is absent, Warcraft III falls back to the BASE ability's own level
+    # count, and tools/abilities.py has always done that; this table did not,
+    # so it stamped maxLvl 1 on every ability whose author left 'alev' alone.
+    # server/room.js gates learnSkill on THIS number, so 34 abilities across 20
+    # of the 26 heroes -- 11 of them ultimates -- could never be raised past
+    # rank 1, and the trigger that copies a rank onto a dummy always read 1.
+    # The fallback reads the count abilities.py already resolved rather than
+    # re-deriving it, so the two tables cannot drift apart again.
+    nlev = lvl_get(m, 'alev', 0, None)
+    if nlev is None:
+        nlev = len((ABIL_TABLE.get(aid) or {}).get('levels') or []) or 1
+    nlev = int(nlev) or 1
     dprefix = o['origin'][1:] if len(o['origin']) == 4 else o['origin']
     levels = []
     for L in range(1, int(nlev) + 1):

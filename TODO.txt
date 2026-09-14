@@ -1986,6 +1986,48 @@ TESTS AND THE END-TO-END HALF
 
 ABILITY DATA SLOTS
 ------------------
+[x] 34 abilities could never be levelled past rank 1  (FIXED 2026-09-13)
+    'alev' is what a map author writes when they want a level count of their
+    own, and when they want a single rank they write 1 -- 16 abilities do.
+    When the field is absent Warcraft III falls back to the BASE ability's own
+    count, and tools/abilities.py has always done that (:301). The game table
+    did not: tools/compile_game.py read `lvl_get(m,'alev',0,1) or 1` with no
+    fallback, so it stamped maxLvl 1 on every ability whose author left the
+    field alone -- and server/room.js gates skill points on THAT number
+    (learnCap, :91-99), not on data/abilities.json.
+    Measured: 34 abilities across 20 of the 26 heroes, 11 of them ultimates.
+    A player could not spend a second skill point on any of them, and every
+    trigger that copies a rank onto a dummy always read 1. Kimimaro's
+    고사리싹의 춤 is a level-20 ultimate that fires twelve spikes of
+    2000/4000/6000 and was frozen on the first row.
+    The fallback now reads the count abilities.py already resolved rather than
+    re-deriving it, so the two tables cannot drift apart again. Recompiled and
+    staged: exactly 34 rows moved, all 1 -> 3, nothing moved down or above its
+    own compiled count.
+    This was NOT new -- HeroSweep.TXT:2878 recorded it for Rock Lee's A06J and
+    repeats it for A02N and A03R. What was missing was the scope.
+    tools/ranklock_test.mjs drives the real LEARN handler through a real room
+    rather than reading the table.
+
+[x] A carried burn never reached a non-hero  (FIXED 2026-09-13)
+    Cloak of Flames is not a hero ability -- Warcraft III burns whatever holds
+    it -- but the only path to a carried burn ran through world.recalc, which
+    returns immediately for anything that is not a hero. Ace's 불의장벽 is
+    twelve fire emitters whose entire payload is a carried AIcf, and it dealt
+    nothing: a wall of flames that hurt no one.
+    recalc now computes that one thing for a non-hero and nothing else. The
+    rest of the function derives life, mana, armour and damage from a hero's
+    attributes and items, and running it for every creep would rewrite the
+    roster's stats.
+    DELIBERATELY NOT WIDENED past AIcf: Byakuya's petals carry Apig, whose
+    damage interval names no field of its own, and tools/unread_accepted.json
+    already records leaving that unread rather than inventing one. It stays
+    unread. Two other sightings of the same gate are recorded in
+    HeroSweep2.TXT and are not closed by this.
+    Asserted by standing an enemy in the fire and watching its life reach zero,
+    not by checking that a function was called.
+
+------------------
 [x] The engine now has to name every data slot it reads  (tools/slot_test.mjs)
     Warcraft III stores no "damage" field. It stores DataA..DataF, and what each
     one means depends on the base ability. server/abilities.js necessarily reads

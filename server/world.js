@@ -448,6 +448,10 @@ export class World {
     if (t && t.isHero) {
       this.recalc(u);
       u.hp = u.maxHp; u.mana = u.maxMana;
+    } else {
+      // a non-hero's abilities are set above, so this is where a carried burn
+      // is first seen -- the fire-wall units are created and never touched again
+      this.recalc(u);
     }
     this.units.set(u.id, u);
     this.emit({ t: 'spawn', id: u.id });
@@ -640,7 +644,25 @@ export class World {
   }
 
   recalc(u) {
-    if (!u || !u.isHero) return;
+    if (!u) return;
+    // A non-hero gets one thing out of this and only one: the burn it carries.
+    //
+    // Everything below derives life, mana, armour and damage from a HERO's
+    // attributes and items, which a creep has none of -- running it for every
+    // unit would rewrite the whole roster's stats. But Cloak of Flames is not
+    // a hero ability: Warcraft III burns anything that holds it, and this map
+    // relies on that. Ace's 불의장벽 is twelve fire emitters whose entire
+    // payload is a carried AIcf, and it was dealing nothing because the only
+    // path to a carried burn was through this hero-gated function.
+    // Deliberately NOT widened past AIcf: Byakuya's petals carry Apig, whose
+    // damage interval names no field of its own, and tools/unread_accepted.json
+    // records leaving that unread rather than inventing one. That stays unread.
+    if (!u.isHero) {
+      const burn = carriedImmolation(this, u);
+      if (burn) { u.immolation = burn; u.immolationFromAbility = true; }
+      else if (u.immolationFromAbility) { u.immolation = null; u.immolationFromAbility = false; }
+      return;
+    }
     const lv = Math.max(0, u.level - 1);
     const t = this.type(u.typeId) || {};
     u.strTotal = u.str + u.strLvl * lv;
