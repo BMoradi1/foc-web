@@ -281,30 +281,32 @@ export class Room {
 
   command(p, m) {
     if (!this.world || this.phase !== Phase.PLAYING) return;
-    const u = this.world.units.get(p.entId);
-    if (!u || !u.alive) return;
     const W = this.world;
-    switch (m.t) {
-      case Msg.MOVE:   W.order(u, { type: m.patrol ? 'patrol' : m.attack ? 'attack' : 'move', x: m.x, y: m.y }); break;
-      case Msg.STOP:   W.order(u, { type: 'stop' }); break;
-      case 'hold': W.order(u, { type: 'hold' }); break;
-      case Msg.ATTACK: {
-        // either a unit or one of the map's destructables -- only the six gates
-        // carry DestructableData's selectable flag, and a click may not land on
-        // anything else
-        const t = W.target(m.targetId);
-        // A shop, a tavern or a picker prop is Neutral Passive, and world.hostile
-        // refuses to make it an enemy -- so an attack order on one could never
-        // land, but it was still accepted and the hero still ran at the building.
-        // Walking there is what Warcraft III does with that click. The client
-        // sends a move for these now; this is the guard for one that does not.
-        if (t && !t.isDest && !W.hostile(u, t)) {
-          W.order(u, { type: 'move', x: t.x, y: t.y });
-          break;
+    if ([Msg.MOVE, Msg.STOP, 'hold', Msg.ATTACK].includes(m.t)) {
+      // Missing selection is the legacy single-hero protocol. An explicit empty
+      // or invalid selection must never silently redirect an order to the hero.
+      const ids = m.unitIds === undefined ? [p.entId] : Array.isArray(m.unitIds) ? m.unitIds.slice(0, 12) : [];
+      for (const id of new Set(ids)) {
+        const unit = Number.isInteger(id) && W.units.get(id);
+        if (!unit || unit.playerIndex !== p.slot || !unit.alive || unit.hidden || unit.removed || unit.pickerProp || W.isLocust(unit)) continue;
+        const issue = order => {
+          if (W.order(unit, order)) { unit.controlled = true; unit.returning = false; }
+        };
+        if (m.t === Msg.MOVE) {
+          if (Number.isFinite(m.x) && Number.isFinite(m.y))
+            issue({ type: m.patrol ? 'patrol' : m.attack ? 'attack' : 'move', x: m.x, y: m.y });
+        } else if (m.t === Msg.STOP || m.t === 'hold') issue({ type: m.t });
+        else {
+          const target = W.target(m.targetId);
+          if (target && !target.isDest && !W.hostile(unit, target)) issue({ type: 'move', x: target.x, y: target.y });
+          else if (target && (!target.isDest || target.selectable)) issue({ type: 'attack', target });
         }
-        if (t && (!t.isDest || t.selectable)) W.order(u, { type: 'attack', target: t });
-        break;
       }
+      return;
+    }
+    const u = W.units.get(p.entId);
+    if (!u || !u.alive) return;
+    switch (m.t) {
       case Msg.CAST: {
         const abilId = this.slotAbility(p, u, m.slot);
         if (!abilId) return;

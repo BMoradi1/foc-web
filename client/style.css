@@ -315,3 +315,6 @@ body.cinematic #letterbox .bar{transform:none}
 #wcDialog p{white-space:pre-line}
 #wcDialog button{font:inherit;color:#ffcc00;background:#101010;border:2px ridge #9c864e;border-radius:0;display:block;margin:20px auto 0}
 #wcDialog input[type=range]{display:block;width:100%;margin:14px 0;accent-color:#ffcc00}
+
+.selection-group{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;width:100%}
+.selection-group button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;padding:3px;font-size:11px;color:#ffcc00;background:#15191c;border:1px solid #827145}

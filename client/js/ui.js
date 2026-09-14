@@ -273,6 +273,7 @@ export class UI {
 
   renderSelected(ent) {
     this.unitSel = ent;
+    $('respawn').classList.add('hidden');
     $('pname2').textContent = ent.name || ent.u || '';
     $('heroClass').textContent = '';
     for (const [bar, text, value, max] of [['hpbar', 'hptext', ent.h, ent.H], ['mpbar', 'mptext', ent.m, ent.M]]) {
@@ -281,8 +282,9 @@ export class UI {
     }
     $('xpbar').style.width = '0%';
     $('stats').replaceChildren();
-    $('abilities').replaceChildren();
     $('inventory').replaceChildren();
+    if (this.canCommand?.(ent)) this.renderAbilities({ alive: !!ent.a, abilities: [], skillPoints: 0 });
+    else $('abilities').replaceChildren();
   }
 
   renderAbilities(h) {

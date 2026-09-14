@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Selection } from './selection.js';
 import { Net } from './net.js';
 import { Renderer, toX, toZ } from './render.js';
 import { UI, Lang } from './ui.js';
@@ -127,6 +128,10 @@ net.on(Msg.STATE, (m) => {
   // the server drops everyone's ready flag in reset() and the client has to
   // agree, and a half-aimed spell must not survive into the lobby.
   if (m.phase !== was) {
+    if (m.phase === Phase.LOBBY) {
+      selection.set([]); selection.groups.clear(); selectionInitialized = false;
+      ui.unitSel = null; ui.clearShop();
+    }
     S.castPending = null; S.itemPending = null;
     canvas.style.cursor = 'default';
     // The console's two canvases can only be measured once the HUD is on
@@ -174,16 +179,14 @@ net.on(Msg.SNAPSHOT, (m) => {
   if (m.s.board) ui.updateScore(m.s.board, 100);
   ui.updateClock(m.s.clock);
   ui.quests = m.s.quests || [];
-  if (ui.unitSel) {
-    const selected = S.ents.get(ui.unitSel.i);
-    if (selected) ui.renderSelected(selected);
-    else { ui.unitSel = null; if (S.hero) ui.updateHero(S.hero); showUnitPortrait(); }
-  }
+  selection.prune(id => S.ents.has(id) && S.ents.get(id).sel !== false);
+  refreshSelection();
 });
 
 net.on('hero', (m) => {
   const changed = S.hero?.unitId !== m.h.unitId;
   S.hero = m.h;
+  if (!selectionInitialized) { selection.set([m.h.id]); selectionInitialized = true; }
   // before the card is drawn: the labels read the keys this assigns
   KEY_SLOT = resolveHotkeys(m.h.abilities);
   if (topBar) {
@@ -194,7 +197,8 @@ net.on('hero', (m) => {
     topBar.res.get('lumber')?.replaceChildren(String(m.h.lumber ?? 0));
     topBar.res.get('supply')?.replaceChildren('0');
   }
-  ui.updateHero(m.h);
+  ui.hero = m.h;
+  refreshSelection();
   // The console is built during boot, before any hero exists, so the portrait
   // has to be asked for again once there is one -- and again when the unit type
   // underneath it changes, which a metamorphosis does.
@@ -623,6 +627,89 @@ function resolveHotkeys(abilities) {
 
 let KEY_SLOT = {};
 
+const selection = new Selection();
+let selectionInitialized = false, selectionDrag = null, markedSelection = new Set();
+let lastPortraitSelection = null;
+let lastGroup = { key: null, time: 0 };
+const selectionBox = document.createElement('div');
+selectionBox.id = 'selectionBox';
+selectionBox.style.cssText = 'display:none;position:fixed;pointer-events:none;border:1px solid #62ed65;background:#62ed6518;z-index:20';
+document.body.appendChild(selectionBox);
+function canCommand(ent) { return !!ent && !!ent.a && ent.p === S.slot && ent.sel !== false; }
+ui.canCommand = canCommand;
+function commandIds() { return selection.ids.filter(id => canCommand(S.ents.get(id))); }
+function heroSelected() { return S.hero?.id != null && selection.ids[0] === S.hero.id; }
+function sendOrder(message) { const unitIds = commandIds(); if (unitIds.length) net.send({ ...message, unitIds }); }
+function refreshSelection() {
+  if (ui.shopSel) { if (S.hero) ui.updateHero(S.hero); return; }
+  const primary = S.ents.get(selection.ids[0]);
+  if (heroSelected() && S.hero) { ui.unitSel = null; ui.updateHero(S.hero); }
+  else ui.renderSelected(primary || { name: '', a: 0 });
+  if (selection.ids.length > 1) {
+    const box = document.getElementById('stats');
+    const group = document.createElement('div'); group.className = 'selection-group';
+    box.replaceChildren(group);
+    for (const id of selection.ids) {
+      const ent = S.ents.get(id); if (!ent) continue;
+      const button = document.createElement('button');
+      button.textContent = ent.name || ent.u;
+      button.title = 'Click to select; Shift-click to remove';
+      const choose = e => setSelection(e.shiftKey ? selection.ids.filter(i => i !== id) : [id]);
+      button.onpointerdown = e => { if (e.button === 0) { e.preventDefault(); choose(e); } };
+      button.onclick = e => { if (e.detail === 0) choose(e); };
+      group.appendChild(button);
+    }
+  }
+  const portraitKey = `${selection.ids[0]}:${primary?.u}`;
+  if (portraitKey !== lastPortraitSelection) { lastPortraitSelection = portraitKey; showUnitPortrait(); }
+}
+function setSelection(ids) {
+  selection.set(ids.filter(id => S.ents.has(id) && S.ents.get(id).sel !== false));
+  selectionInitialized = true;
+  ui.clearShop(); ui.skillMenu = false; ui.orderPending = null;
+  S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default';
+  refreshSelection(); showUnitPortrait();
+}
+function screenPosition(ent) {
+  const p = new THREE.Vector3(toX(ent.x), view.heightAt(ent.x, ent.y), toZ(ent.y)).project(view.camera);
+  return { x: (p.x + 1) * innerWidth / 2, y: (1 - p.y) * innerHeight / 2, visible: p.z >= -1 && p.z <= 1 && Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 };
+}
+function sameTypeOnScreen(ent) {
+  return [...S.ents.values()].filter(u => canCommand(u) && u.u === ent.u && screenPosition(u).visible).map(u => u.i);
+}
+addEventListener('mousemove', e => {
+  if (!selectionDrag) return;
+  const d = selectionDrag;
+  d.moved ||= Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5;
+  if (d.moved) Object.assign(selectionBox.style, { display: 'block', left: Math.min(d.x, e.clientX) + 'px', top: Math.min(d.y, e.clientY) + 'px', width: Math.abs(e.clientX - d.x) + 'px', height: Math.abs(e.clientY - d.y) + 'px' });
+});
+addEventListener('mouseup', e => {
+  if (e.button !== 0 || !selectionDrag) return;
+  const d = selectionDrag; selectionDrag = null; selectionBox.style.display = 'none';
+  if (S.phase !== Phase.PLAYING || S.cinematic) return;
+  if (d.moved) {
+    const ids = [...S.ents.values()].filter(ent => {
+      if (!canCommand(ent)) return false;
+      const p = screenPosition(ent);
+      return p.visible && p.x >= Math.min(d.x,e.clientX) && p.x <= Math.max(d.x,e.clientX) && p.y >= Math.min(d.y,e.clientY) && p.y <= Math.max(d.y,e.clientY);
+    }).map(ent => ent.i);
+    setSelection(d.shift ? [...commandIds(), ...ids] : ids);
+    return;
+  }
+  const picked = view.pickEntity(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2);
+  const ent = S.ents.get(picked?.id);
+  if (ent?.sel === false) return;
+  const shop = shopFor(picked);
+  if (shop && !d.shift) {
+    setSelection([]); ui.unitSel = null; ui.selectShop(ent || picked, shop); showUnitPortrait(); return;
+  }
+  if (d.ctrl && canCommand(ent)) setSelection(sameTypeOnScreen(ent));
+  else if (d.shift && canCommand(ent)) {
+    selection.set(commandIds()); selection.toggle(ent.i); setSelection(selection.ids);
+  } else if (!d.shift) setSelection(ent ? [ent.i] : []);
+});
+addEventListener('blur', () => { selectionDrag = null; selectionBox.style.display = 'none'; });
+
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => {
   if (S.phase !== Phase.PLAYING || S.cinematic) return;
@@ -632,8 +719,8 @@ canvas.addEventListener('mousedown', (e) => {
     if (ui.orderPending) {
       const g = view.pickGround(nx, ny), target = view.pickEntity(nx, ny);
       if (ui.orderPending === 'attack' && target && target.id !== S.hero?.id)
-        net.send({ t: Msg.ATTACK, targetId: target.id });
-      else if (g) net.send({ t: Msg.MOVE, x: g.x, y: g.y, attack: ui.orderPending === 'attack', patrol: ui.orderPending === 'patrol' });
+        sendOrder({ t: Msg.ATTACK, targetId: target.id });
+      else if (g) sendOrder({ t: Msg.MOVE, x: g.x, y: g.y, attack: ui.orderPending === 'attack', patrol: ui.orderPending === 'patrol' });
       ui.orderPending = null; canvas.style.cursor = 'default'; return;
     }
     // an item aimed at a unit: the Monster Ball is thrown at a creep
@@ -660,32 +747,16 @@ canvas.addEventListener('mousedown', (e) => {
       canvas.style.cursor = 'default';
       return;
     }
-    // Warcraft III selects a shop by clicking it, and the bottom bar becomes
-    // the shop. Clicking anywhere else hands the console back to the hero.
-    const picked = view.pickEntity(nx, ny);
-    const shop = shopFor(picked);
-    if (shop) {
-      ui.unitSel = null; ui.skillMenu = false;
-      ui.selectShop(S.ents.get(picked.id) || picked, shop);
-      showUnitPortrait();
-      return;
-    }
-    if (ui.shopSel) { ui.clearShop(); showUnitPortrait(); }
-    if (picked) {
-      ui.skillMenu = false;
-      if (picked.id === S.hero?.id) { ui.unitSel = null; ui.updateHero(S.hero); }
-      else ui.renderSelected(S.ents.get(picked.id) || picked);
-      showUnitPortrait();
-    }
+    selectionDrag = { x: e.clientX, y: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey, moved: false };
   } else if (e.button === 2) {
     if (ui.orderPending || S.castPending != null || S.itemPending != null) {
       ui.orderPending = null; S.castPending = null; S.itemPending = null; canvas.style.cursor = 'default'; return;
     }
-    if (ui.unitSel) return;
+    if (!commandIds().length) return;
     // Warcraft III's smart order: an item under the cursor beats anything else,
     // and the hero walks to it rather than teleporting it into a slot
     const gi = view.pickItem(nx, ny);
-    if (gi) { net.send({ t: 'pickup', itemId: gi.id }); markMove({ x: gi.x, y: gi.y }); return; }
+    if (gi && heroSelected()) { net.send({ t: 'pickup', itemId: gi.id }); markMove({ x: gi.x, y: gi.y }); return; }
     const t = view.pickEntity(nx, ny);
     const me = S.ents.get(S.hero?.id);
     const te = t ? S.ents.get(t.id) : null;
@@ -696,20 +767,20 @@ canvas.addEventListener('mousedown', (e) => {
     // passive, so nothing was ever damaged) but the hero still ran at the
     // building as though it meant to swing.
     if (te && te.p === NEUTRAL_PASSIVE) {
-      net.send({ t: Msg.MOVE, x: te.x, y: te.y });
+      sendOrder({ t: Msg.MOVE, x: te.x, y: te.y });
       markMove({ x: te.x, y: te.y });
       return;
     }
     if (t && t.id !== S.hero?.id && te?.t !== me?.t) {
-      net.send({ t: Msg.ATTACK, targetId: t.id });
+      sendOrder({ t: Msg.ATTACK, targetId: t.id });
     } else if (pickGate(nx, ny) != null) {
       const di = pickGate(nx, ny);
-      net.send({ t: Msg.ATTACK, targetId: DEST_ID + di });
+      sendOrder({ t: Msg.ATTACK, targetId: DEST_ID + di });
       const g = S.dests.get(di);
       if (g) markMove(g);
     } else {
       const g = view.pickGround(nx, ny);
-      if (g) { net.send({ t: Msg.MOVE, x: g.x, y: g.y }); markMove(g); }
+      if (g) { sendOrder({ t: Msg.MOVE, x: g.x, y: g.y }); markMove(g); }
     }
   }
 });
@@ -754,10 +825,28 @@ addEventListener('keydown', (e) => {
     e.preventDefault(); ui.openDialog({ F9: 'Quests', F10: 'Main Menu', F11: 'Allies' }[e.key]); return;
   }
   if (e.key === 'F1') {
-    e.preventDefault(); ui.unitSel = null; ui.clearShop(); ui.updateHero(S.hero); showUnitPortrait();
-    const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); return;
+    e.preventDefault(); const already = selection.ids.length === 1 && heroSelected();
+    setSelection([S.hero?.id]);
+    const me = S.ents.get(S.hero?.id); if (already && me) view.focus(me.x, me.y, true); return;
   }
-  if (ui.unitSel && e.key !== 'Escape') return;
+  if (/^[0-9]$/.test(k)) {
+    e.preventDefault();
+    if (e.ctrlKey) selection.assign(k, id => canCommand(S.ents.get(id)));
+    else {
+      selection.recall(k, id => canCommand(S.ents.get(id)));
+      setSelection(selection.ids);
+      if (lastGroup.key === k && performance.now() - lastGroup.time < 350) {
+        const units = commandIds().map(id => S.ents.get(id));
+        if (units.length) { followHero = false; view.focus(units.reduce((n,u) => n + u.x, 0) / units.length, units.reduce((n,u) => n + u.y, 0) / units.length, true); }
+      }
+      lastGroup = { key: k, time: performance.now() };
+    }
+    return;
+  }
+  if (!heroSelected() && ['m','s','h','a','p'].includes(k)) {
+    ui.onCommand({m:'move',s:'stop',h:'hold',a:'attack',p:'patrol'}[k]); return;
+  }
+  if (!heroSelected() && e.key !== 'Escape') return;
   if (ui.skillMenu && k in KEY_SLOT) {
     const slot = KEY_SLOT[k], a = S.hero?.abilities?.[slot];
     if (a && !a.innate && S.hero.skillPoints > 0 && a.lvl < a.cap) {
@@ -794,7 +883,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     S.castPending = null; S.itemPending = null; ui.orderPending = null; ui.skillMenu = false; canvas.style.cursor = 'default';
     if (S.hero) ui.updateHero(S.hero);
-    if (ui.shopSel) { ui.clearShop(); showUnitPortrait(); }
+    if (ui.shopSel) setSelection([S.hero?.id]);
   }
   else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) view.focus(me.x, me.y, true); }
   else if (e.key === 'Tab') { e.preventDefault(); S.showScore = true; ui.toggleScore(true); }
@@ -809,15 +898,17 @@ addEventListener('blur', () => { S.altHeld = false; });
 ui.getVolume = () => audio.volume;
 ui.setVolume = value => { audio.volume = value; if (audio.master) audio.master.gain.value = value; };
 ui.onCommand = (command) => {
+  if (!commandIds().length) return;
   S.castPending = null; S.itemPending = null;
   if (command === 'stop' || command === 'hold') {
     ui.orderPending = null; canvas.style.cursor = 'default';
-    net.send({ t: command });
+    sendOrder({ t: command });
   } else {
     ui.orderPending = command; canvas.style.cursor = 'crosshair';
   }
 };
 ui.onCastSlot = (slot) => {
+  if (!heroSelected()) return;
   const a = S.hero?.abilities?.[slot];
   if (!a || a.lvl < 1) return;
   S.castPending = slot; canvas.style.cursor = 'crosshair';
@@ -862,7 +953,12 @@ addEventListener('mousemove', (e) => {
   view.panBy(-(e.clientX - lastX) * k, -(e.clientY - lastY) * k);
   lastX = e.clientX; lastY = e.clientY;
 });
-addEventListener('dblclick', () => { followHero = true; });
+canvas.addEventListener('dblclick', e => {
+  if (S.phase !== Phase.PLAYING || S.cinematic || ui.orderPending || S.castPending != null) return;
+  const picked = view.pickEntity(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2);
+  const ent = S.ents.get(picked?.id);
+  if (canCommand(ent)) setSelection(sameTypeOnScreen(ent));
+});
 
 // lobby buttons
 document.getElementById('btnTeam0').onclick = () => net.send({ t: Msg.JOIN_TEAM, team: 0 });
@@ -982,7 +1078,9 @@ function showUnitPortrait() {
   const h = ui.unitSel ? { id: ui.unitSel.u, name: ui.unitSel.name } : sel ? { id: sel.shop.id, name: sel.shop.name }
           : (S.heroes?.find((x) => x.id === S.hero?.unitId)
              || S.heroes?.find((x) => x.id === ui.selected));
-  if (!cv || !h) return;
+  if (!cv) return;
+  cv.style.visibility = h?.id ? 'visible' : 'hidden';
+  if (!h?.id) return;
   const box = cv.getBoundingClientRect();
   const size = { w: Math.max(48, Math.round(box.width) || 128),
                  h: Math.max(48, Math.round(box.height) || 128) };
@@ -993,23 +1091,14 @@ function showUnitPortrait() {
 const barsShown = new Set();
 function drawUnitUI() {
   const hover = view.pickEntity(mouseNX, mouseNY);
-  const hoverId = hover ? hover.id : null;
-  if (hoverId !== S.hoverId) {
-    if (S.hoverId != null && S.hoverId !== S.hero?.id) view.markSelected(S.hoverId, null);
-    S.hoverId = hoverId ?? null;
-  }
-  // your own hero keeps its circle whatever the pointer is doing
-  if (S.hero?.id != null) view.markSelected(S.hero.id, 'own', S.ents.get(S.hero.id));
-  if (S.hoverId != null && S.hoverId !== S.hero?.id) {
-    const e = S.ents.get(S.hoverId);
-    view.markSelected(S.hoverId, relationTo(e), e);
-  }
+  const next = new Set(selection.ids);
+  if (hover && S.ents.get(hover.id)?.sel !== false) next.add(hover.id);
+  for (const id of markedSelection) if (!next.has(id)) view.markSelected(id, null);
+  for (const id of next) view.markSelected(id, relationTo(S.ents.get(id)), S.ents.get(id));
+  markedSelection = next;
   barsShown.clear();
   if (S.altHeld) for (const id of S.ents.keys()) barsShown.add(id);
-  else {
-    if (S.hero?.id != null) barsShown.add(S.hero.id);
-    if (S.hoverId != null) barsShown.add(S.hoverId);
-  }
+  else for (const id of next) barsShown.add(id);
   overlay.draw(view, S.ents, barsShown);
 }
 

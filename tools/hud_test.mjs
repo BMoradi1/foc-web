@@ -26,6 +26,8 @@ try {
   await page.evaluate(()=>{const {net}=window.FOC;window.hudSent=[];const send=net.send.bind(net);net.send=m=>{window.hudSent.push(m);send(m)};});
   await page.click('#view',{offset:{x:1000,y:350}});
   assert.equal(await page.evaluate(()=>window.hudSent.some(m=>m.t==='move')),false,'left click must not move');
+  // Ground selection now clears the group; explicitly select the hero before ordering.
+  await page.keyboard.press('F1');
   await page.mouse.click(1000,350,{button:'right'});
   assert.equal(await page.evaluate(()=>window.hudSent.some(m=>m.t==='move'&&!m.attack)),true,'right click moves without attack-move');
   await page.click('[data-command="hold"]');

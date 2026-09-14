@@ -2968,7 +2968,7 @@ export class World {
                   // the map may reassign, and it is what the model's replaceable
                   // textures are swapped for.
                   c: this.playerColorOf(u),
-                  a: u.alive ? 1 : 0,
+                  a: u.alive ? 1 : 0, sel: !this.isLocust(u),
                   h: Math.round(u.hp), H: Math.round(u.maxHp),
                   m: Math.round(u.mana), M: Math.round(u.maxMana),
                   l: u.level, mv: u.path ? 1 : 0 });
