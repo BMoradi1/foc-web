@@ -48,7 +48,8 @@ const hero = world.createUnit(P(0), CASTER_TYPE, 0, 0, 0);
 if (!hero) { console.log('  FAIL  no caster could be built'); process.exit(1); }
 hero.x = 0; hero.y = 0;
 
-const DUMMY = Object.keys(TYPES).find((k) => /^h/.test(k));
+// Use an organic ground unit: the first h-prefixed type may be mechanical.
+const DUMMY = 'hfoo';
 const foes = [];
 /** A hostile dummy at an exact point, so a line or a cone has something to hit. */
 function foe(dx, dy) {

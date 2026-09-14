@@ -235,3 +235,25 @@ certify patrol's entire targeting policy or invulnerability's casting rules.
 Body blocking and attack-move first, then target eligibility and flight metadata.
 Turning and terrain clearance should follow with a small retail reference map
 to establish timing and footprint rules, rather than inventing equivalents.
+
+
+## Area-effect targeting follow-up
+
+Native radial, line, cone and chain effects now apply the ability's current-level
+target list before damage or secondary buffs. Channels and burning ground retain
+the filter and recheck targets each tick. Explicit structure categories permit
+building damage; authored lists without relationship restrictions permit friendly
+fire. Empty lists retain the existing hostile-target fallback. Direct JASS damage
+and callers of shared damage helpers without a filter retain their existing rules.
+
+The changes cover active effects implemented in `execute`, not every passive aura,
+carried immolation, damage-over-time status or ability-specific immunity rule.
+Cursor feedback and complete single-target order classification remain open.
+
+`tools/area_target_rules_test.mjs` adds 43 checks for permitted and excluded unit
+classes, hidden/invulnerable/Locust targets, per-level filters and state changes
+between delayed ticks. Existing shape and carried-ability fixtures now use valid
+organic, non-Locust targets; A01B's target is neutral as its map filter requires.
+The original numerical assertions remain. All 12 targeted suites pass: area rules,
+spellshape, carried, slot, targets, casttime, proc, spell_target_rules, turn_rate,
+gameplay_parity, match and wincond.

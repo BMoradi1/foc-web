@@ -1658,13 +1658,13 @@ export class World {
    * numbers -- so the caller resolves the slots and this only draws the line.
    * Returns the units actually hit, for callers that also stun them.
    */
-  lineDamage(caster, tx, ty, damage, length, width, cap = Infinity) {
+  lineDamage(caster, tx, ty, damage, length, width, cap = Infinity, eligible = null) {
     const ang = Math.atan2(ty - caster.y, tx - caster.x);
     const cos = Math.cos(ang), sin = Math.sin(ang);
     const hit = [];
     let total = 0;
     for (const e of this.allUnits()) {
-      if (!this.hostile(caster, e)) continue;
+      if (eligible ? !eligible(e) : !this.hostile(caster, e)) continue;
       const dx = e.x - caster.x, dy = e.y - caster.y;
       const along = dx * cos + dy * sin;
       const side = Math.abs(-dx * sin + dy * cos);
@@ -1690,7 +1690,7 @@ export class World {
    */
   burnGround(caster, x, y, radius, o) {
     this.burns = this.burns || [];
-    this.burns.push({ caster, x, y, radius,
+    this.burns.push({ caster, x, y, radius, eligible: o.eligible || null,
                       full: o.full || 0, fullEvery: Math.max(50, (o.fullEvery || 1) * 1000),
                       half: o.half || 0, halfEvery: Math.max(50, (o.halfEvery || 1) * 1000),
                       fullUntil: this.now + (o.fullSeconds || 0) * 1000,
@@ -1708,7 +1708,7 @@ export class World {
       b.nextAt = this.now + (full ? b.fullEvery : b.halfEvery);
       const per = full ? b.full : b.half;
       if (per <= 0) continue;
-      for (const e of this.enemiesInRange(b.caster, b.x, b.y, b.radius)) {
+      for (const e of (b.eligible ? this.enumInRange(b.x, b.y, b.radius).filter(b.eligible) : this.enemiesInRange(b.caster, b.x, b.y, b.radius))) {
         // the cap counts what the spell asked for, which is the unit the
         // ability's own Hfs1 and Hfs6 are written in -- armour comes off after
         const had = b.dealt.get(e.id) || 0;
@@ -1722,10 +1722,10 @@ export class World {
     this.burns = this.burns.filter((b) => this.now < b.until);
   }
 
-  channel(caster, x, y, radius, perWave, waves, interval, followCaster = false) {
+  channel(caster, x, y, radius, perWave, waves, interval, followCaster = false, eligible = null) {
     this.channels = this.channels || [];
     this.channels.push({ caster, x, y, radius, perWave, left: waves,
-                         nextAt: this.now, interval: interval * 1000, followCaster });
+                         nextAt: this.now, interval: interval * 1000, followCaster, eligible });
   }
 
   /**
@@ -1772,7 +1772,7 @@ export class World {
       if (!c.caster.alive) { c.left = 0; continue; }
       const cx = c.followCaster ? c.caster.x : c.x;
       const cy = c.followCaster ? c.caster.y : c.y;
-      for (const e of this.enemiesInRange(c.caster, cx, cy, c.radius))
+      for (const e of (c.eligible ? this.enumInRange(cx, cy, c.radius).filter(c.eligible) : this.enemiesInRange(c.caster, cx, cy, c.radius)))
         this.damage(c.caster, e, c.perWave, { spell: true });
       this.emit({ t: 'aoe', x: Math.round(cx), y: Math.round(cy), r: Math.round(c.radius) });
     }

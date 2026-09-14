@@ -267,7 +267,13 @@ export function execute(w, caster, ab, lvl, o = {}) {
         d5 = i.data5, d6 = i.data6;
   const area = i.area || 0;
   const dur = i.heroDuration || i.duration || 0;
-  const enemies = (x, y, r) => w.enemiesInRange(caster, x, y, r);
+  // Native effects use the authored list; direct JASS damage remains separate.
+  const targets = i.targets ?? ab.targets ?? '';
+  const eligible = e => w.validSpellTarget(caster, e, ab, lvl) &&
+    (targets.trim() ? true : w.hostile(caster, e));
+  const affected = (x, y, r) => w.enumInRange(x, y, r).filter(eligible);
+  const channel = (source, x, y, radius, damage, waves, interval, follow = false) =>
+    w.channel(source, x, y, radius, damage, waves, interval, follow, eligible);
   const B = baseOf(ab);
 
   switch (B) {
@@ -305,7 +311,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       // the retail Lich carries 50 and 100 in exactly that order, and a nova
       // that splashed harder than it hit would be the wrong way round.  This
       // block had them reversed.
-      for (const e of enemies(tx, ty, area || 200)) {
+      for (const e of affected(tx, ty, area || 200)) {
         const primary = !!o.target && e === o.target;
         const dmg = primary ? slot(d2, slot(d1, 100)) : slot(d1, 50);
         w.damage(caster, e, dmg, { spell: true });
@@ -315,7 +321,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     }
     // ---- caster-centred AoE + slow (Thunder Clap / War Stomp)
     case 'AHtc': case 'AOws': {
-      for (const e of enemies(caster.x, caster.y, area || 300)) {
+      for (const e of affected(caster.x, caster.y, area || 300)) {
         w.damage(caster, e, slot(d1, 80), { spell: true });
         // A duration of 0.01 is this map saying "the base does nothing here,
         // the trigger does the work" -- the same reading the silence case below
@@ -346,7 +352,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // below.
     case 'AUcs': case 'AOsh': {
       w.lineDamage(caster, tx, ty, slot(d1, 100), slot(d3, i.range || 800),
-                   slot(d4, area || 120), d2 > 0 ? d2 : Infinity);
+                   slot(d4, area || 120), d2 > 0 ? d2 : Infinity, eligible);
       return { ok: true };
     }
     // ---- Impale: a line, but its slots are not Carrion Swarm's
@@ -357,7 +363,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // The width is the ability's own area -- Uim has no width field.
     case 'AUim': {
       const hit = w.lineDamage(caster, tx, ty, slot(d3, 100), slot(d1, i.range || 800),
-                               area || 120, Infinity);
+                               area || 120, Infinity, eligible);
       const air = slot(d4, dur);
       if (air > 0) for (const e of hit) w.applyBuff(e, { kind: 'stun', code: i.buff || null, until: w.now + air * 1000 });
       return { ok: true };
@@ -370,7 +376,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // damage cap of 0.3 and it stopped after a single unit.
     case 'ANcs': {
       const shots = Math.max(1, Math.round(slot(d3, 1)));
-      w.channel(caster, tx, ty, area || 200, slot(d1, 100), shots, slot(d2, 0.25));
+      channel(caster, tx, ty, area || 200, slot(d1, 100), shots, slot(d2, 0.25));
       return { ok: true };
     }
     // ---- cone damage (Breath of Fire / Breath of Frost)
@@ -395,7 +401,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       let spent = 0;
       const ang = Math.atan2(ty - caster.y, tx - caster.x);
       for (const e of w.allUnits()) {
-        if (!w.hostile(caster, e)) continue;
+        if (!eligible(e)) continue;
         const d = dist(caster, e);
         if (d > len) continue;
         let da = Math.atan2(e.y - caster.y, e.x - caster.x) - ang;
@@ -429,13 +435,13 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const perSec = Math.max(0.1, slot(d1, 1));
       const secs = i.duration || i.heroDuration || 0;
       if (secs <= 0) return { ok: false, reason: 'no duration in the data' };
-      w.channel(caster, tx, ty, slot(d4, area || 200), slot(d3, 0),
+      channel(caster, tx, ty, slot(d4, area || 200), slot(d3, 0),
                 Math.max(1, Math.round(perSec * secs)), 1 / perSec);
       return { ok: true };
     }
     // ---- caster AoE nuke (Fan of Knives, Cluster Rockets, Cyclone-likes)
     case 'AEfk': case 'ACtb': {
-      for (const e of enemies(caster.x, caster.y, area || 400)) w.damage(caster, e, slot(d1, 100), { spell: true });
+      for (const e of affected(caster.x, caster.y, area || 400)) w.damage(caster, e, slot(d1, 100), { spell: true });
       return { ok: true };
     }
     // ---- chain lightning
@@ -443,13 +449,13 @@ export function execute(w, caster, ab, lvl, o = {}) {
       let t = o.target, dmg = slot(d1, 100);
       const hops = Math.max(1, slot(d2, 4));
       const hit = new Set();
-      for (let k = 0; k < hops && t; k++) {
+      for (let k = 0; k < hops && t && eligible(t); k++) {
         w.damage(caster, t, dmg, { spell: true });
         hit.add(t.id);
         dmg *= 0.75;
         let next = null, bd = Infinity;
         for (const e of w.allUnits()) {
-          if (hit.has(e.id) || !w.hostile(caster, e)) continue;
+          if (hit.has(e.id) || !eligible(e)) continue;
           const d = dist(t, e);
           if (d < 500 && d < bd) { bd = d; next = e; }
         }
@@ -505,7 +511,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const waves = Math.max(1, Math.round(slot(d1, 4)));
       const per = slot(d2, 40);
       const secs = i.duration || i.heroDuration || 0;
-      w.channel(caster, tx, ty, area || 250, per, waves, secs > 0 ? secs / waves : 0);
+      channel(caster, tx, ty, area || 250, per, waves, secs > 0 ? secs / waves : 0);
       return { ok: true };
     }
     // ---- Starfall: its own fields, not Blizzard's
@@ -517,19 +523,19 @@ export function execute(w, caster, ab, lvl, o = {}) {
     case 'AEsf': {
       const every = slot(d2, 1);
       const secs = i.duration || i.heroDuration || 0;
-      w.channel(caster, caster.x, caster.y, area || 250, slot(d1, 40),
+      channel(caster, caster.x, caster.y, area || 250, slot(d1, 40),
                 Math.max(1, Math.round(secs / every)), every, true);
       return { ok: true };
     }
     // ---- Bladestorm: damage everything around the caster for a duration
     case 'AOww': {
-      w.channel(caster, caster.x, caster.y, area || 200, slot(d1, 75),
+      channel(caster, caster.x, caster.y, area || 200, slot(d1, 75),
                 Math.max(1, Math.round(dur || 6)), 1.0, true);
       return { ok: true };
     }
     // ---- Howl of Terror: cut nearby enemies' damage
     case 'ANht': {
-      for (const e of enemies(caster.x, caster.y, area || 500))
+      for (const e of affected(caster.x, caster.y, area || 500))
         w.applyBuff(e, { kind: 'weaken', pct: Math.abs(slot(d1, 25)) / 100, code: i.buff || null,
                          until: w.now + Math.max(5, dur) * 1000 });
       return { ok: true };
@@ -540,7 +546,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // and it was read by nothing, so every infernal on the map lived the 60
     // seconds of our fallback instead of the 0.01 to 5 the map wrote.
     case 'AUin': {
-      for (const e of enemies(tx, ty, area || 200)) w.damage(caster, e, slot(d1, 50), { spell: true });
+      for (const e of affected(tx, ty, area || 200)) w.damage(caster, e, slot(d1, 50), { spell: true });
       // the map can re-skin what Inferno drops; its own UnitID says which
       w.summon(caster, i.unit || 'ninf', tx, ty, slot(d2, dur || 60));
       return { ok: true };
@@ -611,7 +617,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     // Lucci's 『철괴』 -- which carries a zero damage increase and a hundred
     // points of armour -- did nothing at all.
     case 'ACro': case 'ANbr': {
-      for (const a of w.alliesInRange(caster, caster.x, caster.y, area || 500))
+      for (const a of w.alliesInRange(caster, caster.x, caster.y, area || 500).filter(a => w.validSpellTarget(caster, a, ab, lvl)))
         w.applyBuff(a, { kind: 'rage', pct: slot(d1, 25) / 100, code: i.buff || null,
                          armor: slot(d2, 0), regen: slot(d3, 0),
                          until: w.now + Math.max(5, dur) * 1000 });
@@ -657,6 +663,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       const secs = i.duration || i.heroDuration || 0;
       if (secs <= 0) return { ok: false, reason: 'no duration in the data' };
       w.burnGround(caster, tx, ty, area || 200, {
+        eligible,
         full: slot(d1, 0), fullEvery: slot(d2, 1) || 1,
         half: slot(d3, 0), halfEvery: slot(d4, 1) || 1,
         fullSeconds: Math.min(i.heroDuration || secs, secs),
@@ -757,7 +764,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
     }
     case 'ANsi': case 'ACsi': {
       let n = 0;
-      for (const e of enemies(tx, ty, area || 300)) {
+      for (const e of affected(tx, ty, area || 300)) {
         if (dur <= 0.1) break;
         w.applyBuff(e, { kind: 'silence', code: i.buff || null, until: w.now + dur * 1000 });
         n++;
@@ -765,7 +772,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       return { ok: true, silenced: n };
     }
     case 'ANsl': case 'AUsl': case 'ACsw': {
-      for (const e of enemies(tx, ty, area || 250))
+      for (const e of affected(tx, ty, area || 250))
         w.applyBuff(e, { kind: 'slow', pct: slot(d1, 30) / 100, code: i.buff || null,
                         until: w.now + Math.max(4, dur) * 1000 });
       return { ok: true };
@@ -781,7 +788,7 @@ export function execute(w, caster, ab, lvl, o = {}) {
       // Data-driven fallback: an active ability with a damage value hits what it
       // targets; area if it has one, otherwise the single target.
       if (d1 > 0) {
-        if (area > 0) { for (const e of enemies(tx, ty, area)) w.damage(caster, e, d1, { spell: true }); return { ok: true }; }
+        if (area > 0) { for (const e of affected(tx, ty, area)) w.damage(caster, e, d1, { spell: true }); return { ok: true }; }
         if (o.target && w.hostile(caster, o.target)) { w.damage(caster, o.target, d1, { spell: true }); return { ok: true }; }
       }
       return { ok: false, reason: 'no engine behaviour for ' + B };

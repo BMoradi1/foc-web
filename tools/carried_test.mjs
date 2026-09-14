@@ -279,7 +279,7 @@ console.log('\n-- Thunder Clap slows by its own Htc3, not by a constant');
   check('A01P carries a 0.4 movement and 0.4 attack reduction',
         L.data3 === 0.4 && L.data4 === 0.4, `${L.data3} / ${L.data4}`);
   const caster = world.createUnit(P(0), (GAME.heroes[0] || {}).id, 4000, 4000, 0);
-  const victim = world.createUnit(P(6), 'hpea', 4000, 4000, 0);
+  const victim = world.createUnit(P(6), 'hfoo', 4000, 4000, 0);
   if (caster && victim) {
     caster.x = 4000; caster.y = 4000; victim.x = 4100; victim.y = 4000;
     victim.hp = victim.maxHp = 1e9; victim.hpReg = 0;
@@ -334,7 +334,7 @@ console.log('\n-- fields the map filled in that nothing was reading');
 {
   const hero = world.createUnit(P(0), (GAME.heroes[0] || {}).id, 8000, 8000, 0);
   const foe = (dx, dy) => {
-    const u = world.createUnit(P(6), 'hpea', 8000 + dx, 8000 + dy, 0);
+    const u = world.createUnit(P(6), 'hfoo', 8000 + dx, 8000 + dy, 0);
     if (!u) return null;
     u.x = 8000 + dx; u.y = 8000 + dy; u.hp = u.maxHp = 1e9; u.armor = 0; u.hpReg = 0;
     world.binTick = -1; world.rebuildBins();
@@ -346,6 +346,8 @@ console.log('\n-- fields the map filled in that nothing was reading');
     {
       const L = (ABILS.A01B.levels || [])[0];
       const t = foe(100, 0);
+      // A01B targets neutral ground units; hpea is a Locust dummy in this map.
+      if (t) t.playerIndex = 15;
       world.channels = [];
       const hp0 = t ? t.hp : 0;
       execute(world, hero, ABILS.A01B, 1, { x: hero.x, y: hero.y });
