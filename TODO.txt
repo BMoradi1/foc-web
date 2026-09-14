@@ -828,7 +828,12 @@ GAMEPLAY / INPUT
     Six verdicts move, and only one of them was doing harm:
       A00V  종경 백제검, Byakuya      5000 damage, Fire Bolt, no engine case and
                                      no trigger -- it did nothing at all, and
-                                     now takes the data-driven damage fallback
+                                     now takes the data-driven damage fallback.
+                                     Note for anyone comparing it with Storm
+                                     Bolt: Awfb carries NO BuffID in its SLK
+                                     row (AHtb and ANsb both carry BPSE), so
+                                     there is no stun in the data to model for
+                                     this family, whatever Dur1 says.
       A01O  하늘의 쇠사슬            60 damage, Finger of Death, on h02I
       A01G, A00H                     the map's own triggers already ran them
       AIrl, AIpr                     potions; useItem never calls execute
@@ -865,8 +870,11 @@ GAMEPLAY / INPUT
 
     NOT DONE: A020 and A05Y are correctly silent rather than correctly burning.
     Cloak of Flames damages on its own clock, and what the data carries is
-    Area, the damage in Icfd (Blizzard 10; this map 500 on A020 and 850-3000
-    across A05Y's five levels) and a duration of 1. Whether that duration is
+    Area, the damage in Icfd (Blizzard 10; this map 500 on A020 and
+    1000/2000/3000 across A05Y's three levels -- the raw w3a does carry
+    Icfd:4 = 850 and Icfd:5 = 1000, but alev:0 = 3 makes those unreachable,
+    so the "850-3000 across five levels" this note used to say was wrong)
+    and a duration of 1. Whether that duration is
     the interval between bursts is not stated anywhere in AbilityMetaData --
     adur is the generic Duration field every ability shares, so its label
     settles nothing the way Ore1's did for Reincarnation. Guessing it is a
@@ -2328,9 +2336,13 @@ SERVER
     the join instead of inventing a seat. tools/room_test.mjs drives twenty
     match cycles through one room and checks both.
 
-[~] Ichigo's near-death transformation  (engine half FIXED, art half open)
+[x] Ichigo's near-death transformation  (FIXED -- both halves)
     FIXED: he respawns, and the Hollow form grants its AGI x3 attack bonus.
-    OPEN:  the buff's attached art -- see "Buff art" below.
+    The art half is done too and this entry was stale: data/buffart.json
+    carries B001 and B000 with their DeathCoilMissile target art at the head
+    attachment, the snapshot's per-unit buff list reaches syncBuffArt on the
+    client, and tools/buffart_test.mjs asserts the B001 mask attaches at
+    "head". Corrected 2026-09-13 while sweeping the roster.
 
 FIXED -- metamorphosis (kept for the reasoning; delete once it has bedded in)
 ----------------------------------------------------------------------------

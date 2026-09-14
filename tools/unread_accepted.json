@@ -33,7 +33,7 @@
  "A03A|4": "a cap the map set far above any total the spell can reach, so it can never bind",
  "A03A|5": "a factor on damage dealt to STRUCTURES; spell damage to this map's gates goes through damageDest, which has no such factor yet",
  "A03A|6": "how long the barrage's art lives, not how long it damages -- the shot count and interval are read",
- "A03H|1": "reaches the damage fallback, which spends slot 1, and slot 1 here IS a Damage -- so the number is delivered even though no case reads it",
+ "A03H|1": "Awfb slot 1 IS a Damage, but it is NOT delivered: A03H is the only one of the map's three Awfb abilities with no atar:1, so it compiles with empty targets, isPassive returns true and execute short-circuits before the damage fallback. A00V and A00H both have targets and do reach it. So ranks 2-3 silently drop Htb1 = 100. Corrected 2026-09-13; the old reason here claimed the number was delivered, which it never was.",
  "A03O|2": "0.001 is below one simulation tick at 30 Hz; the engine cannot subdivide further and the total is unchanged",
  "A03T|2": "the beasts' own footprint, which matters only if they are drawn as units; the map's art draws them and the damage radius is read",
  "A03T|5": "the pause before a beast's damage lands, inside a wave the channel already spaces by 1/Nst1",
