@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AlertHistory } from './alerts.js';
 import { Selection } from './selection.js';
 import { minimapPoint } from './minimap.js';
 import { Net } from './net.js';
@@ -10,6 +11,7 @@ import { buildConsole, buildTopBar, placeIn } from './console.js';
 import { Audio } from './audio.js';
 import { Msg, Phase, Ent, DEST_ID } from '/shared/const.js';
 
+const alerts = new AlertHistory();
 const net = new Net();
 const ui = new UI(net);
 const view = new Renderer(document.getElementById('view'));
@@ -132,6 +134,7 @@ net.on(Msg.STATE, (m) => {
     S.showScore = false; ui.toggleScore(false);
     if (m.phase === Phase.LOBBY) {
       selection.set([]); selection.groups.clear(); selectionInitialized = false; cameraHeroId = null;
+      alerts.clear(); ui.minimapAlerts = [];
       ui.unitSel = null; ui.clearShop();
     }
     S.castPending = null; S.itemPending = null;
@@ -285,6 +288,14 @@ function findMeta(e) {
   return {};
 }
 
+function recordAlert(kind, e, message) {
+  if (S.phase !== Phase.PLAYING || !e) return;
+  const alert = alerts.add(kind, e.x, e.y);
+  if (!alert) return;
+  ui.minimapAlerts = alerts.entries;
+  if (message) ui.log(message, 'kill');
+}
+
 function handleEvent(ev) {
   switch (ev.t) {
     case 'death': {
@@ -293,6 +304,9 @@ function handleEvent(ev) {
       const e = S.ents.get(ev.id);
       ui.log(`${escapeHtml(e?.name || 'a unit')} was slain`, 'kill');
       heroDownWarning(e);
+      const team = S.ents.get(S.hero?.id)?.t;
+      if (e?.k === Ent.HERO && (e.p === S.slot || (team != null && e.t === team)))
+        recordAlert('death', e);
       break;
     }
     case 'respawn': { const v = view.views.get(ev.id); if (v) view.play(v, 'stand'); break; }
@@ -354,7 +368,14 @@ function handleEvent(ev) {
       if (v) spawnRing(new THREE.Vector3(toX(ev.x), view.heightAt(ev.x, ev.y) + 6, toZ(ev.y)), 0x66ddff, 130);
       break; }
     case 'gameover': ui.gameOver(ev.winner, ev.board); break;
-    case 'dmg': if (ev.id === S.hero?.id && ev.amt > 0) flash(); break;
+    case 'dmg': {
+      if (ev.id === S.hero?.id && ev.amt > 0) flash();
+      const victim = S.ents.get(ev.id), source = S.ents.get(ev.src);
+      if (ev.amt > 0 && S.slot != null && victim?.p === S.slot && source &&
+          source.p !== victim.p && (source.t == null || source.t < 0 || source.t !== victim.t))
+        recordAlert('attack', victim, 'Your units are under attack!');
+      break;
+    }
     case 'destDmg': {
       const g = S.dests?.get(ev.d);
       if (g) { g.hp = ev.hp; g.max = ev.max; }
@@ -841,6 +862,14 @@ addEventListener('keydown', (e) => {
   if (e.key === 'F9' || e.key === 'F10' || e.key === 'F11') {
     e.preventDefault(); ui.openDialog({ F9: 'Quests', F10: 'Main Menu', F11: 'Allies' }[e.key]); return;
   }
+  if (e.code === 'Space' || e.key === ' ') {
+    e.preventDefault();
+    if (!e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const alert = alerts.next();
+      if (alert) focusCamera(alert.x, alert.y);
+    }
+    return;
+  }
   if (e.key === 'Tab') {
     e.preventDefault();
     if (!ui.shopSel && !e.ctrlKey && !e.metaKey) { selection.cycle(S.ents, e.shiftKey ? -1 : 1); changeSubgroup(); }
@@ -916,7 +945,6 @@ addEventListener('keydown', (e) => {
     if (S.hero) ui.updateHero(S.hero);
     if (ui.shopSel) setSelection([S.hero?.id]);
   }
-  else if (k === ' ') { const me = S.ents.get(S.hero?.id); if (me) focusCamera(me.x, me.y); }
 });
 addEventListener('keyup', (e) => {
   cameraKeys.delete(e.key);

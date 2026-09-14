@@ -513,6 +513,17 @@ export class UI {
       g.arc((p.x-bounds.minX)/bx*W,(bounds.maxY-p.y)/by*H,6,0,Math.PI*2);g.stroke();
     }
 
+    for (const alert of this.minimapAlerts || []) {
+      const age = performance.now() - alert.time;
+      if (age < 0 || age > 5000) continue;
+      g.save(); g.globalAlpha = 1 - age / 5000;
+      g.strokeStyle = alert.kind === 'death' ? '#ffd966' : '#ff4433';
+      g.lineWidth = 2; g.beginPath();
+      g.arc((alert.x-bounds.minX)/bx*W, (bounds.maxY-alert.y)/by*H,
+        5 + (age % 1000) / 100, 0, Math.PI*2);
+      g.stroke(); g.restore();
+    }
+
     for (const e of ents) {
       const px = ((e.x - bounds.minX) / bx) * W;
       const py = H - ((e.y - bounds.minY) / by) * H;
