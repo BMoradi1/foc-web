@@ -580,7 +580,8 @@ export function execute(w, caster, ab, lvl, o = {}) {
     }
     // ---- damage-over-time aura the unit carries (Immolation)
     case 'ANpi': case 'AEim': case 'AIim': {
-      caster.immolation = { dps: slot(d1, 10), area: area || 200 };
+      caster.activeImmolation = { dps: slot(d1, 10), area: area || 200, ab, lvl };
+      caster.immolation = caster.activeImmolation;
       return { ok: true };
     }
     // ---- heals / buffs
@@ -924,17 +925,29 @@ export function abilityBonuses(w, u) {
  * burned nobody because only items were ever consulted.
  */
 export function carriedImmolation(w, u) {
-  if (!u || !u.abilities) return null;
-  for (const [key, lvl] of u.abilities) {
-    if (lvl < 1) continue;
+  if (!u) return null;
+  const burn = (key, lvl) => {
+    if (lvl < 1) return null;
     const ab = ABILS[w.abilKey(key)];
-    if (!ab || baseOf(ab) !== 'AIcf') continue;
+    if (!ab || baseOf(ab) !== 'AIcf') return null;
     const d = levelInfo(ab, lvl);
     const secs = d.duration || d.heroDuration || 1;
     const dps = (d.data1 || 0) / (secs > 0 ? secs : 1);
-    if (dps > 0) return { dps, area: d.area || 200 };
+    return dps > 0 ? { dps, area: d.area || 200, ab, lvl } : null;
+  };
+  for (const [key, lvl] of u.abilities || []) {
+    const effect = burn(key, lvl);
+    if (effect) return effect;
   }
-  return null;
+  // Preserve the existing item damage sum, but keep each item's radius and
+  // target restrictions instead of replacing them with a fixed 200 radius.
+  const sources = [];
+  for (const item of u.items || []) for (const key of item.abilities || []) {
+    const effect = burn(key, 1);
+    if (effect) sources.push(effect);
+  }
+  return sources.length ? { sources, dps: sources.reduce((n, e) => n + e.dps, 0),
+    area: Math.max(...sources.map(e => e.area)) } : null;
 }
 
 /**

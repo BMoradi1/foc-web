@@ -689,7 +689,7 @@ export class World {
     if (!u.isHero) {
       const burn = carriedImmolation(this, u);
       if (burn) { u.immolation = burn; u.immolationFromAbility = true; }
-      else if (u.immolationFromAbility) { u.immolation = null; u.immolationFromAbility = false; }
+      else if (u.immolationFromAbility) { u.immolation = u.activeImmolation || null; u.immolationFromAbility = false; }
       return;
     }
     const lv = Math.max(0, u.level - 1);
@@ -727,8 +727,7 @@ export class World {
     // survives a recalc and a morph form's burn ends with the form.
     const carried = carriedImmolation(this, u);
     if (carried) { u.immolation = carried; u.immolationFromAbility = true; }
-    else if (ib.flames) { u.immolation = { dps: ib.flames, area: 200 }; u.immolationFromAbility = false; }
-    else if (u.immolationFromAbility) { u.immolation = null; u.immolationFromAbility = false; }
+    else if (u.immolationFromAbility) { u.immolation = u.activeImmolation || null; u.immolationFromAbility = false; }
     // attack speed: agility plus any item bonus, as Warcraft III stacks them
     const AS_PER_AGI = GP ? GP.agiAttackSpeedBonus : 0.02;
     u.attackSpeedMul = 1 + u.agiTotal * AS_PER_AGI + ib.attackSpeed;
@@ -2272,8 +2271,14 @@ export class World {
       u.mana = Math.min(u.maxMana, u.mana + (u.manaReg ?? 0) * this.dt);
       if (u.paused || this.stunned(u)) { this.stepAttack(u); continue; }
       if (u.immolation) {
-        for (const e of this.enemiesInRange(u, u.x, u.y, u.immolation.area))
-          this.damage(u, e, u.immolation.dps * this.dt, { spell: true });
+        for (const burn of u.immolation.sources || [u.immolation]) {
+          const targets = burn.ab ? (levelInfo(burn.ab, burn.lvl).targets ?? burn.ab.targets ?? '') : '';
+          for (const e of this.enumInRange(u.x, u.y, burn.area)) {
+            if (burn.ab && !this.validSpellTarget(u, e, burn.ab, burn.lvl)) continue;
+            if (!targets.trim() && !this.hostile(u, e)) continue;
+            this.damage(u, e, burn.dps * this.dt, { spell: true });
+          }
+        }
       }
       alive.push(u);
       this.stepAI(u);

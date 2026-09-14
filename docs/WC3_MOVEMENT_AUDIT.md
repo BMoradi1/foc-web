@@ -257,3 +257,24 @@ organic, non-Locust targets; A01B's target is neutral as its map filter requires
 The original numerical assertions remain. All 12 targeted suites pass: area rules,
 spellshape, carried, slot, targets, casttime, proc, spell_target_rules, turn_rate,
 gameplay_parity, match and wincond.
+
+
+## Passive fire follow-up
+
+Carried AIcf effects and item-provided Cloak of Flames now retain their source
+ability and level. Damage uses each source's authored radius, rate and target
+filter, excluding hidden, invulnerable and Locust targets. Item burns are handled
+for non-heroes as well as heroes. Dropping or removing the source item clears its
+burn. An independently activated Immolation is retained separately and restored
+when the passive source goes away.
+
+The existing first-carried-ability priority and summed item damage are preserved;
+this change does not establish retail stacking rules or periodic pulse timing.
+Pause/stun behavior is unchanged. Spell immunity and statistical aura application
+remain open: the existing auraEffects helper is not wired into runtime stats.
+
+`tools/passive_fire_test.mjs` adds 30 checks covering actual AIcf/A05Y data,
+excluded target categories, radius, non-hero carriers, source removal and active
+Immolation preservation. All 11 targeted suites pass: passive_fire, carried,
+ranklock, area_target_rules, spell_target_rules, gameplay_parity, spellshape,
+passive, slot, match and wincond.
