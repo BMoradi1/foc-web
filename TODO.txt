@@ -1796,6 +1796,43 @@ GAMEPLAY / INPUT
 
 INTERFACE -- THE SHOP
 ---------------------
+[x] A spent item still worked, for ever  (FIXED 2026-09-13)
+    `uses` is the map's own count -- a Potion of Greater Healing says 1 -- and
+    an item's charges are seeded from it. But useItem applied the effect BEFORE
+    spending a charge and never refused an item already at zero, so a potion
+    healed its full 1000 on every use however many it had left.
+    It compounded: spending the last charge DROPS the item rather than
+    destroying it, so the empty potion lay on the ground to be picked up and
+    drunk again. Measured before the fix: four uses, four heals.
+    Applying a one-use item twice contradicts the number the map wrote, which
+    is what settles it. The type decides, not the instance: an item whose type
+    declares no uses is not a consumable, and charges 0 there means "no limit"
+    rather than "spent" -- 128 of the item types carry a use count and 204 do
+    not.
+    NOT FIXED, and deliberately: whether an exhausted item should be DESTROYED
+    rather than dropped. The item table carries a `perishable` flag, nothing in
+    server/ reads it, and the archives never say what it means --
+    WorldEditStrings has WESTRING_UEVAL_IPER=Perishable, a label and no
+    statement. So the drop stays, and an empty item now lies on the ground
+    doing nothing instead of being removed. Worth settling with a source.
+    tools/spentitem_test.mjs, 11 checks, including that an unlimited item still
+    works twice and that the archives really are silent on the flag.
+
+[ ] An item's ability never executes
+    Surfaced by the targets fix, not caused by it. useItem fires the five spell
+    events and draws the art, which is what the Monster Ball's capture trigger
+    needs, but it never calls execute(), so an item ability with real numbers
+    delivers none of them. A Throwing Dagger carrying Storm Bolt now plays its
+    cast art and deals nothing.
+    Not a small fix, and the measurement says why: of 400 item-ability pairs
+    over 299 items, only 2 have an engine case at all. 383 would fall to the
+    generic damage fallback, and 15 are the heal/mana/xp family that itemUse
+    already delivers -- so executing them wholesale would double the potions
+    and turn every stat tome into a damage spell (a Tome of Intelligence's
+    AIim would run the immolation case). The item bases are their own family
+    with their own meanings, and which of them the engine should run is a
+    question per base, not one switch.
+
 [x] The shop is the command card now, not a floating list  (FIXED)
     Warcraft III does not open a window for a shop. Selecting the building
     replaces what the bottom bar shows: the portrait becomes the shop's model,

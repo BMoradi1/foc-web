@@ -1301,6 +1301,20 @@ export class World {
    */
   useItem(u, it, target = null) {
     if (!u || !it) return false;
+    // A spent item must not still work.
+    //
+    // `uses` is the map's own count -- a Potion of Greater Healing says 1 --
+    // and charges are seeded from it. The effect was applied before the charge
+    // was spent, and an item already at zero was never refused, so a potion
+    // healed 1000 every time it was used no matter how often. Worse, the first
+    // use DROPS it (below) rather than destroying it, so the spent potion lay
+    // on the ground to be picked up and used again. Applying a one-use item
+    // twice contradicts the number the map wrote, which is what settles this.
+    // An item whose TYPE declares no uses is not a consumable and is not
+    // limited here -- charges 0 means "no limit", not "spent", so the type is
+    // what decides.
+    const def = ITEMS[it.typeKey] || {};
+    if (def.charges > 0 && !(it.charges > 0)) return false;
     const eff = itemUse(it);
     if (eff) {
       if (eff.kind === 'heal') this.heal(u, eff.amount);
