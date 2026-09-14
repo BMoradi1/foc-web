@@ -976,7 +976,31 @@ export class World {
     // any order breaks off a cast in progress, as the game's does
     this.interruptCast(u);
     const numericOrder = typeof o.type === 'number' || /^-?\d+$/.test(String(o.type));
-    if (numericOrder && this.castDummy(u, { target: o.target, x: o.x, y: o.y })) return true;
+    // A numeric order casts only for a unit the MAP made to cast it.
+    //
+    // The script orders by raw id, and OrderId() here is a hash of ours that
+    // can never match a literal the script passes, so the port cannot tell one
+    // numeric order from another -- TODO.txt records that the table which
+    // would settle it is not in the MPQs. castDummy is the standing answer:
+    // run whatever ability the unit holds. That is right for a dummy and wrong
+    // for a hero, and the map makes the distinction for us.
+    //
+    // Measured over all 188 numeric-order sites in war3map.formatted.j: every
+    // one that is meant to cast orders a unit the trigger CREATED a line or
+    // two above -- 151 sites, 150 of them Locust, the odd one out a 10-life
+    // effect dummy. The only numeric orders aimed at anything else are six
+    // aborts (851972, to GetTriggerUnit or GetAttacker, each in a path that
+    // prints a refusal) and one attack order at a dummy. No hero is ever
+    // ordered by id to cast.
+    //
+    // So a hero reaching castDummy was always the abort case, and it fired the
+    // first ability in the hero's map instead. Byakuya has Blink granted at
+    // creation, before any skill point is spent, so all three of his script
+    // gates -- Bankai exclusivity, the recast lock, the blink-into-base block
+    // -- teleported him 50 units east instead of refusing. The cast in
+    // progress was already broken off by interruptCast above, which is why
+    // this read as a stray hop rather than a broken spell.
+    if (numericOrder && !u.isHero && this.castDummy(u, { target: o.target, x: o.x, y: o.y })) return true;
     const name = typeof o.type === 'string' ? o.type : String(o.type);
     if (/stop|halt/i.test(name)) { u.order = { type: 'idle' }; u.path = null; return true; }
     if (name === 'hold') { u.order = { type: 'hold' }; u.path = null; return true; }

@@ -1281,6 +1281,7 @@ GAMEPLAY / INPUT
         feature rather than a fix.
 
     castDummy runs the first ability the dummy holds, not the one ordered
+        (STILL TRUE for a dummy, but no longer reaches a HERO -- see below)
         The map spawns a dummy carrying two abilities and orders it to cast one
         of them by numeric order id (852171 and the like). world.order treats
         any numeric order as "cast your one ability" and castDummy takes the
@@ -1994,6 +1995,31 @@ TESTS AND THE END-TO-END HALF
 
 ABILITY DATA SLOTS
 ------------------
+[x] A numeric order force-cast a hero's first ability  (FIXED 2026-09-13)
+    The script orders by raw id and OrderId() here is a hash of ours that can
+    never match a literal the script passes, so the port cannot tell one
+    numeric order from another -- the table that would settle it is not in the
+    MPQs, as the row above records. castDummy is the standing answer: run
+    whatever ability the unit holds. That is right for a dummy and wrong for a
+    hero, and it fired BEFORE order() ever looked for a stop.
+    What settles it is the map's own usage, measured over all 188 numeric-order
+    sites: 175 order a unit the trigger CREATED a line or two above, and every
+    one of those is a cast. The other 13 use three ids -- 851972, 851983 and
+    851986 -- and none of them is a cast: six 851972 sites are aborts that
+    print a refusal, the rest move or attack. No hero is ever ordered by id to
+    cast anything. So the gate is "not a hero", derived from the map rather
+    than from a guess about which id means stop.
+    What it cost: every abort aimed at a hero ran his first ability instead.
+    Byakuya is granted Blink at creation, before any skill point is spent, so
+    all three of his script gates -- Bankai exclusivity, the recast lock and
+    the map-wide blink-into-base block -- teleported him 50 units due east
+    instead of refusing. It read as a stray hop rather than a broken spell
+    because interruptCast had already broken off the cast in progress, which
+    it still does.
+    tools/numorder_test.mjs measures the map's usage rather than asserting it,
+    then checks that the abort stops the hero and moves him nowhere, that a
+    cast in progress is still interrupted, and that a dummy still casts.
+
 [x] A unit-target spell clicked at bare ground cost its cooldown  (FIXED
     2026-09-13)
     Warcraft III refuses the ORDER: the cursor will not take a ground click for
