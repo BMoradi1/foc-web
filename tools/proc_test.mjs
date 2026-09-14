@@ -115,6 +115,7 @@ if (atk && vic) {
     victim.hp = victim.maxHp;
     attacker.atkTimer = 0;
     attacker.x = victim.x + 10; attacker.y = victim.y;
+    attacker.facing = Math.PI; // Isolate proc rolls from turn timing.
     attacker.order = { type: 'attack', targetId: victim.id };
     const before = victim.hp;
     world.stepAttack(attacker);

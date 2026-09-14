@@ -61,8 +61,28 @@ flag is also documented in the [w3z editor constants](https://github.com/LeoYawo
 production flight data, and real World movement/destruction. All 14 targeted
 suites pass, including the previous movement, combat, targeting and match tests.
 
-Finding 1 (turning), exact retail footprint/avoidance behavior, and the remaining
-spell/weapon special cases above remain open. Collision still uses the port's circular
+Turning follow-up: authored turn rate is now retained on runtime units and
+morphs. SetUnitTurnSpeed/GetUnitTurnSpeed write/read it. Ordered movement,
+attack start and ranged cast approach share an angular budget per simulation
+tick, turn by the shortest angle, and wait for facing before proceeding. Paused
+and stunned units cannot turn. Existing explicit SetUnitFacing behavior remains
+independent of ordered turning.
+
+The rate conversion is radians per 0.03 game seconds, based on
+[first-hand WCIII turning measurements](https://www.hiveworkshop.com/threads/unit-turning-mechanics.300224/).
+This port scales it to its 30 Hz simulation. It currently requires full facing
+alignment; exact retail facing tolerance, sub-frame timing, visual orientation
+interpolation, and timed facing natives remain unverified. These are explicit
+limits of this implementation, not a certification of exact retail turning.
+
+`tools/turn_rate_test.mjs` adds 29 checks covering native rate changes, reversal
+delays, shared budgets, angle wrapping, attack/cast startup and morph restoration.
+The cast-time and proc fixtures face their targets to isolate those rules from
+turning; their original timing and damage assertions remain intact. All 15
+targeted suites pass.
+
+Exact retail turning/footprint/avoidance behavior and the remaining spell/weapon
+special cases above remain open. Collision still uses the port's circular
 footprints; these fixes do not claim exact retail collision geometry, friendly
 yielding, or unit-size clearance against terrain.
 

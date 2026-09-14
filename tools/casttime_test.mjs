@@ -61,6 +61,8 @@ const reset = () => {
   if (!A.alive) world.reviveUnit(A, 200, 0);
   if (!B.alive) world.reviveUnit(B, 0, 0);
   B.hp = B.maxHp;
+  // Isolate cast timing from the separately tested approach/turn delay.
+  A.facing = Math.atan2(B.y - A.y, B.x - A.x);
   world.rebuildBins();
 };
 const dummies = (type) => [...world.units.values()].filter((u) => u.typeKey === type && u.alive && !u.removed).length;

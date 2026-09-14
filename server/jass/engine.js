@@ -685,7 +685,10 @@ function installNatives(vm, eng) {
     SetUnitMoveSpeed: (u, s) => { if (u) u.moveSpeed = s; },
     GetUnitMoveSpeed: (u) => (u ? u.moveSpeed : 0),
     GetUnitDefaultMoveSpeed: (u) => (u ? u.baseMoveSpeed : 0),
-    SetUnitTurnSpeed: () => {},
+    SetUnitTurnSpeed: (u, rate) => {
+      if (u && Number.isFinite(rate)) u.turnRate = Math.max(0, rate);
+    },
+    GetUnitTurnSpeed: u => u?.turnRate ?? 0,
     UnitAddType: () => true, UnitRemoveType: () => true,
     SetUnitUseFood: () => {},
     GetUnitPointValue: (u) => (u ? u.level * 10 : 0),

@@ -190,7 +190,7 @@ const WEAPON_FIELDS = ['atkTargetsAllowed', 'weaponKind', 'dmgBase', 'dmgDice', 
   'missile', 'missileSpeed', 'missileArc', 'missileHoming'];
 const secondWeapon = t => t ? Object.fromEntries(WEAPON_FIELDS.map(k => [k, t[k + '2']])) : null;
 
-const MORPH_FIELDS = ['atkTargetsAllowed', 'weaponKind', 'weapon2', 'typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
+const MORPH_FIELDS = ['turnRate', 'atkTargetsAllowed', 'weaponKind', 'weapon2', 'typeId', 'typeKey', 'model', 'icon', 'armor', 'armorType',
   'movementType', 'targetAs', 'classifications', 'flyHeight',
   'attackPoint', 'attackBackswing', 'atkType', 'dmgBase', 'dmgDice', 'dmgSides', 'atkCd', 'atkRange', 'attacksEnabled', 'missile',
   'missileSpeed', 'missileArc', 'missileHoming', 'baseMoveSpeed', 'radius',
@@ -460,6 +460,7 @@ export class World {
       // how far into the spell animation a cast takes effect, and how long the
       // animation runs on after it (UnitWeapons.slk castpt / castbsw)
       castPoint: t ? t.castPoint || 0 : 0, castBackswing: t ? t.castBackswing || 0 : 0,
+      turnRate: t?.turnRate ?? 0.6,
       movementType: t?.movementType || '', targetAs: t?.targetAs || '',
       classifications: t?.classifications || '',
       flyHeight: t?.flyHeight || 0, expireAt: 0, bounty: t ? t.bountyPlus : 0,
@@ -1496,6 +1497,7 @@ export class World {
     u.missileSpeed = t.missileSpeed || 0;
     u.missileArc = t.missileArc || 0;
     u.missileHoming = t.missileHoming || 0;
+    u.turnRate = t.turnRate ?? 0.6;
     u.movementType = t.movementType || '';
     u.targetAs = t.targetAs || '';
     u.classifications = t.classifications || '';
@@ -2006,6 +2008,9 @@ export class World {
         }
         return;
       }
+      u.path = null;
+      const gx = c.target ? c.target.x : c.x, gy = c.target ? c.target.y : c.y;
+      if (range > 0 && !this.turnToward(u, gx, gy)) return;
       this.beginCast(u);
       return;
     }
@@ -2022,8 +2027,6 @@ export class World {
 
   beginCast(u) {
     const c = u.cast;
-    const gx = c.target ? c.target.x : c.x, gy = c.target ? c.target.y : c.y;
-    if (gx !== u.x || gy !== u.y) u.facing = Math.atan2(gy - u.y, gx - u.x);
     u.path = null;
     c.phase = 'casting';
     c.begunAt = this.now;
@@ -2385,6 +2388,26 @@ export class World {
     }
   }
 
+  /** Turn rate is radians per 0.03 game seconds. Share one angular budget
+   * across movement, casting and attacks in a simulation tick. Visual model
+   * interpolation and retail facing tolerances are separate from this rule. */
+  turnToward(u, x, y) {
+    if (x === u.x && y === u.y) return true;
+    const angle = Math.atan2(y - u.y, x - u.x);
+    const delta = Math.atan2(Math.sin(angle - u.facing), Math.cos(angle - u.facing));
+    if (Math.abs(delta) < 1e-9) return true;
+    if (u.paused || this.stunned(u) || !u.alive) return false;
+    if (u.turnBudgetAt !== this.now) {
+      u.turnBudgetAt = this.now;
+      u.turnBudget = Math.max(0, u.turnRate ?? 0.6) * this.dt / 0.03;
+    }
+    const amount = Math.min(Math.abs(delta), u.turnBudget);
+    u.turnBudget -= amount;
+    u.facing += Math.sign(delta) * amount;
+    u.facing = Math.atan2(Math.sin(u.facing), Math.cos(u.facing));
+    return Math.abs(delta) - amount < 1e-9;
+  }
+
   stepMove(u) {
     if (u.attackWindup) return; // movement resumes after release or cancellation
     if (u.order.type === 'hold') { u.path = null; return; }
@@ -2445,6 +2468,7 @@ export class World {
     let tx = null, ty = null;
     if (u.path && u.path.length) [tx, ty] = u.path[0];
     if (tx == null) return;
+    if (!this.turnToward(u, tx, ty)) return;
     const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
     const stepLen = u.moveSpeed * this.dt;
     const fraction = d > 0 ? Math.min(1, stepLen / d) : 0;
@@ -2460,7 +2484,6 @@ export class World {
       return;
     }
     u.x = nx; u.y = ny;
-    if (d > 0) u.facing = Math.atan2(dy, dx);
     if (d <= stepLen) {
       u.path.shift();
       if (!u.path.length) { u.path = null; if (u.order.type === 'move') u.order = { type: 'idle' }; }
@@ -2638,7 +2661,7 @@ export class World {
                        : Math.hypot(t.x - u.x, t.y - u.y) - t.radius;
     const weapon = this.weaponFor(u, t);
     if (!weapon || d > weapon.atkRange) return;
-    u.facing = Math.atan2(t.y - u.y, t.x - u.x);
+    if (!this.turnToward(u, t.x, t.y)) return;
     if (u.atkTimer > 0) return;
     const speed = Math.max(0.2, u.attackSpeedMul || 1);
     u.atkTimer = Math.max(weapon.atkCd, (weapon.attackPoint || 0) + (weapon.attackBackswing || 0)) / speed;
